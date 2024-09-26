@@ -1,6 +1,8 @@
+
 // SPDX-License-Identifier: BSD-2-Clause
 // Copyright CM4all GmbH
-// author: Max Kellermann <mk@cm4all.com>
+// author: Max Kellermann <mk@cm4all.com> 
+// kopiert von ballfire
 
 #pragma once
 
@@ -61,11 +63,11 @@ public:
 
 private:
   void UpdateSockets() noexcept;
-
   void ScheduleUpdateSockets() noexcept { defer_update_sockets.Schedule(); }
-
   void OnSocket(SocketDescriptor fd, unsigned events) noexcept;
   void OnTimeout() noexcept;
+  static void sock_state_cb(void *data, ares_socket_t socket_fd, int readable, int writable);
+
 };
 
 } // namespace Cares
