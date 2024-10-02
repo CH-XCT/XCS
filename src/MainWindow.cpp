@@ -401,8 +401,8 @@ MainWindow::ReinitialiseLayout_flarm(PixelRect rc,
     }
   }
 
-  unsigned sz = std::min(layout.control_size.height,
-                         layout.control_size.width) * 2;
+  unsigned sz = std::min(ib_layout.control_size.height,
+                         ib_layout.control_size.width) * 2; /* ohne ib_ nicht definiert im Kontext */
   unsigned mw = std::min((GetMainRect().bottom - GetMainRect().top),
                          (GetMainRect().right - GetMainRect().left));
   unsigned dia = std::min(sz, mw / 2);
