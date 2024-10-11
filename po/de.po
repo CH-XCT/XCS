@@ -1,7 +1,7 @@
 # German translation for xcsoar
 # Copyright (c) 2010 Rosetta Contributors and Canonical Ltd 2010
 # This file is distributed under the same license as the xcsoar package.
-# FIRST AUTHOR <EMAIL@ADDRESS>, 2010. ###### Modifiziert 11.10.2024 JS v7.44.32 #######
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2010. ###### Modifiziert 11.10.2024 JS v7.44.32 Neuer Versuch: Groß/Kleinschreibung, um Duplikate zu vermeiden #######
 #
 msgid ""
 msgstr ""
@@ -4949,12 +4949,12 @@ msgstr "Oben Rechts"
 
 #: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:120
 #, no-c-format
-msgid "Bottom left"
+msgid "Bottom Left"
 msgstr "Unten Links"
 
 #: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:122
 #, no-c-format
-msgid "Bottom right"
+msgid "Bottom Right"
 msgstr "Unten Rechts"
 
 #: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:124
@@ -4969,12 +4969,12 @@ msgstr "Mitte unten"
 
 #: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu1
 #, no-c-format
-msgid "Top left (avoid infoboxes)"
+msgid "Top Left (avoid infoboxes)"
 msgstr "Oben Links (vermeide InfoBoxen)"
 
 #: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu2
 #, no-c-format
-msgid "Top right (avoid infoboxes)"
+msgid "Top Right (avoid infoboxes)"
 msgstr "Oben Rechts (vermeide InfoBoxen)"
 
 #: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu3
