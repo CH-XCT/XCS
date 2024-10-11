@@ -1,7 +1,7 @@
 # German translation for xcsoar
 # Copyright (c) 2010 Rosetta Contributors and Canonical Ltd 2010
 # This file is distributed under the same license as the xcsoar package.
-# FIRST AUTHOR <EMAIL@ADDRESS>, 2010. ###### Modifiziert 11.10.2024 JS #######
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2010. ###### Modifiziert 11.10.2024 JS v7.44.32 #######
 #
 msgid ""
 msgstr ""
@@ -4939,12 +4939,12 @@ msgstr "Auto (folge InfoBoxen)"
 
 #: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:116
 #, no-c-format
-msgid "Top Left"
+msgid "Top left"
 msgstr "Oben Links"
 
 #: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:118
 #, no-c-format
-msgid "Top Right"
+msgid "Top right"
 msgstr "Oben Rechts"
 
 #: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:120
@@ -4967,32 +4967,32 @@ msgstr "Mitte oben"
 msgid "Center bottom"
 msgstr "Mitte unten"
 
-#: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu
+#: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu1
 #, no-c-format
 msgid "Top left (avoid infoboxes)"
 msgstr "Oben Links (vermeide InfoBoxen)"
 
-#: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu
+#: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu2
 #, no-c-format
 msgid "Top right (avoid infoboxes)"
 msgstr "Oben Rechts (vermeide InfoBoxen)"
 
-#: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu
+#: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu3
 #, no-c-format
 msgid "Bottom left (avoid infoboxes)"
 msgstr "Unten Links (vermeide InfoBoxen)"
 
-#: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu
+#: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu4
 #, no-c-format
 msgid "Bottom right (avoid infoboxes)"
 msgstr "Unten Rechts (vermeide InfoBoxen)"
 
-#: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu
+#: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu5
 #, no-c-format
 msgid "Center top (avoid infoboxes)"
 msgstr "Mitte Oben (vermeide InfoBoxen)"
 
-#: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu
+#: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu6
 #, no-c-format
 msgid "Center bottom (avoid infoboxes)"
 msgstr "Mitte Unten (vermeide InfoBoxen)"
