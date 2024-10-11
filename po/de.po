@@ -1,7 +1,7 @@
 # German translation for xcsoar
 # Copyright (c) 2010 Rosetta Contributors and Canonical Ltd 2010
 # This file is distributed under the same license as the xcsoar package.
-# FIRST AUTHOR <EMAIL@ADDRESS>, 2010.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2010. ###### Modifiziert 11.10.2024 JS #######
 #
 msgid ""
 msgstr ""
@@ -4949,23 +4949,53 @@ msgstr "Oben Rechts"
 
 #: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:120
 #, no-c-format
-msgid "Bottom Left"
+msgid "Bottom left"
 msgstr "Unten Links"
 
 #: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:122
 #, no-c-format
-msgid "Bottom Right"
+msgid "Bottom right"
 msgstr "Unten Rechts"
 
 #: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:124
 #, no-c-format
-msgid "Centre Top"
+msgid "Center top"
 msgstr "Mitte oben"
 
 #: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:126
 #, no-c-format
-msgid "Centre Bottom"
+msgid "Center bottom"
 msgstr "Mitte unten"
+
+#: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu
+#, no-c-format
+msgid "Top left (avoid infoboxes)"
+msgstr "Oben Links (vermeide InfoBoxen)"
+
+#: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu
+#, no-c-format
+msgid "Top right (avoid infoboxes)"
+msgstr "Oben Rechts (vermeide InfoBoxen)"
+
+#: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu
+#, no-c-format
+msgid "Bottom left (avoid infoboxes)"
+msgstr "Unten Links (vermeide InfoBoxen)"
+
+#: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu
+#, no-c-format
+msgid "Bottom right (avoid infoboxes)"
+msgstr "Unten Rechts (vermeide InfoBoxen)"
+
+#: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu
+#, no-c-format
+msgid "Center top (avoid infoboxes)"
+msgstr "Mitte Oben (vermeide InfoBoxen)"
+
+#: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu
+#, no-c-format
+msgid "Center bottom (avoid infoboxes)"
+msgstr "Mitte Unten (vermeide InfoBoxen)"
 
 #: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:131
 #, no-c-format
