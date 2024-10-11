@@ -4969,12 +4969,12 @@ msgstr "Mitte unten"
 
 #: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu1
 #, no-c-format
-msgid "Top Left (avoid infoboxes)"
+msgid "Top left (avoid infoboxes)"
 msgstr "Oben Links (vermeide InfoBoxen)"
 
 #: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu2
 #, no-c-format
-msgid "Top Right (avoid infoboxes)"
+msgid "Top right (avoid infoboxes)"
 msgstr "Oben Rechts (vermeide InfoBoxen)"
 
 #: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:neu3
