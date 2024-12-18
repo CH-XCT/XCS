@@ -546,62 +546,62 @@ msgstr "Unbekannt"
 #: src/FLARM/Error.cpp:28
 #, fuzzy, no-c-format
 msgid "Firmware expired"
-msgstr "Firmware Zeitüberschreitung"
+msgstr "Firmware abgelaufen"
 
 #: src/FLARM/Error.cpp:29
 #, fuzzy, no-c-format
 msgid "Firmware update error"
-msgstr "Firmware Zeitüberschreitung"
+msgstr "Firmware Fehler beim Update"
 
 #: src/FLARM/Error.cpp:30
 #, fuzzy, no-c-format
 msgid "Voltage Low"
-msgstr "Seite anzeigen"
+msgstr "Spannung niedrig"
 
 #: src/FLARM/Error.cpp:31
 #, fuzzy, no-c-format
 msgid "UI error"
-msgstr "Kein Fehler"
+msgstr "User Interface Fehler"
 
 #: src/FLARM/Error.cpp:32
 #, fuzzy, no-c-format
 msgid "Audio error"
-msgstr "Kein Fehler"
+msgstr "Audio Fehler"
 
 #: src/FLARM/Error.cpp:33
 #, fuzzy, no-c-format
 msgid "ADC error"
-msgstr "Kein Fehler"
+msgstr "ADC Fehler"
 
 #: src/FLARM/Error.cpp:34
 #, fuzzy, no-c-format
 msgid "SDCARD error"
-msgstr "Kein Fehler"
+msgstr "SD-Karten Fehler"
 
 #: src/FLARM/Error.cpp:35
 #, fuzzy, no-c-format
 msgid "LED error"
-msgstr "Fehler"
+msgstr "LED Fehler"
 
 #: src/FLARM/Error.cpp:36
 #, fuzzy, no-c-format
 msgid "EEPROM error"
-msgstr "Kein Fehler"
+msgstr "EEPROM Fehler"
 
 #: src/FLARM/Error.cpp:37
 #, fuzzy, no-c-format
 msgid "GPIO error"
-msgstr "Kein Fehler"
+msgstr "GPIO Fehler"
 
 #: src/FLARM/Error.cpp:38
 #, no-c-format
 msgid "General hardware error"
-msgstr ""
+msgstr "Allgemeiner Hardware Fehler"
 
 #: src/FLARM/Error.cpp:39
 #, no-c-format
 msgid "Transponder receiver Mode-C/S/ADS-B unserviceable"
-msgstr ""
+msgstr "XPDR Mode C/S/ADS-B ausgefallen"
 
 #: src/FLARM/Error.cpp:40
 #, no-c-format
@@ -611,12 +611,12 @@ msgstr "GPS Kommunikation"
 #: src/FLARM/Error.cpp:41
 #, fuzzy, no-c-format
 msgid "Configuration of GPS module"
-msgstr "Einstellungsmenü"
+msgstr "Einstellungsmenü GPS"
 
 #: src/FLARM/Error.cpp:42
 #, no-c-format
 msgid "GPS antenna"
-msgstr ""
+msgstr "GPS Antenne"
 
 #: src/FLARM/Error.cpp:43
 #, no-c-format
@@ -626,12 +626,12 @@ msgstr "Funkverbindung"
 #: src/FLARM/Error.cpp:44
 #, no-c-format
 msgid "Another FLARM device with the same radio ID is being received"
-msgstr ""
+msgstr "Ein anderes FLARM mit derselben Radio ID wird empfangen"
 
 #: src/FLARM/Error.cpp:45
 #, no-c-format
 msgid "Wrong ICAO 24-bit address or radio ID"
-msgstr ""
+msgstr "Falsche ICAO 24 bit Adresse oder Radio ID"
 
 #: src/FLARM/Error.cpp:46
 #, no-c-format
@@ -651,7 +651,7 @@ msgstr "Drucksensor"
 #: src/FLARM/Error.cpp:49
 #, fuzzy, no-c-format
 msgid "Obstacle database expired"
-msgstr "Hindernis-Datenbank"
+msgstr "Hindernis-Datenbank abgelaufen"
 
 #: src/FLARM/Error.cpp:50
 #, no-c-format
@@ -661,63 +661,64 @@ msgstr "Logger"
 #: src/FLARM/Error.cpp:51
 #, no-c-format
 msgid "Engine-noise recording not possible"
-msgstr ""
+msgstr "ENL Aufzeichnung nicht möglich"
 
 #: src/FLARM/Error.cpp:52
 #, fuzzy, no-c-format
 msgid "Invalid obstacle database license"
-msgstr "Hindernis-Datenbank"
+msgstr "Lizenz der Hindernis-Datenbank ungültig"
 
 #: src/FLARM/Error.cpp:53
 #, no-c-format
 msgid "Invalid IGC feature license"
-msgstr ""
+msgstr "IGC Lizenz ungültig"
 
 #: src/FLARM/Error.cpp:54
 #, no-c-format
 msgid "Invalid AUD feature license"
-msgstr ""
+msgstr "AUD Lizenz ungültig"
 
 #: src/FLARM/Error.cpp:55
 #, no-c-format
 msgid "Invalid ENL feature license"
-msgstr ""
+msgstr "ENL Lizenz ungültig"
 
 #: src/FLARM/Error.cpp:56
 #, no-c-format
 msgid "Invalid RFB feature license"
-msgstr ""
+msgstr "RFB Lizenz ungültig"
 
 #: src/FLARM/Error.cpp:57
 #, no-c-format
 msgid "Invalid TIS feature license"
-msgstr ""
+msgstr "TIS Lizenz ungültig"
 
 #: src/FLARM/Error.cpp:58
 #, fuzzy, no-c-format
 msgid "Generic error"
-msgstr "Generisch"
+msgstr "Allgemeiner Fehler"
 
 #: src/FLARM/Error.cpp:59
 #, no-c-format
 msgid "Flash File System error"
-msgstr ""
+msgstr "Dateifehler Flash"
 
 #: src/FLARM/Error.cpp:60
 #, no-c-format
 msgid "Failure updating firmware of external display"
-msgstr ""
+msgstr "Fehler beim Firmware Update des externen Displays"
 
 #: src/FLARM/Error.cpp:61
 #, no-c-format
 msgid ""
 "Device is operated outside the designated region. The device does not work."
-msgstr ""
+msgstr "Das Gerät wird ausserhalb der vorgesehenen Region betrieben. "
+"Das Gerät funktioniert nicht."
 
 #: src/FLARM/Error.cpp:62
 #, no-c-format
 msgid "Range analyzer"
-msgstr ""
+msgstr "Reichweiten-Analyse"
 
 #: src/FLARM/Error.cpp:63
 #, no-c-format
@@ -1431,7 +1432,7 @@ msgstr "Info ausblenden"
 
 #: src/PageSettings.cpp:61
 msgid "Map (Full screen)"
-msgstr "Karte (Ganzer Bildsch.)"
+msgstr "Karte (Ganzer Bildschirm)"
 
 #: src/Renderer/ChartRenderer.cpp:228
 #: src/Dialogs/Device/DeviceListDialog.cpp:461
@@ -2880,7 +2881,7 @@ msgstr "Name"
 #: src/Dialogs/Airspace/AirspaceList.cpp:444
 #, fuzzy
 msgid "Class/Type"
-msgstr "Klasse"
+msgstr "Klasse/Typ"
 
 #: src/Dialogs/Airspace/AirspaceList.cpp:458
 msgid "Select Airspace"
@@ -3269,21 +3270,21 @@ msgstr "Inhalt"
 #: src/Dialogs/Settings/dlgConfigInfoboxes.cpp:250
 #, fuzzy
 msgid "Copy Set"
-msgstr "Kopieren"
+msgstr "Set kopieren"
 
 #: src/Dialogs/Settings/dlgConfigInfoboxes.cpp:252
 #, fuzzy
 msgid "Paste Set"
-msgstr "Einfügen"
+msgstr "Set einfügen"
 
 #: src/Dialogs/Settings/dlgConfigInfoboxes.cpp:317
 msgid "Overwrite all infoboxes in this set?"
-msgstr ""
+msgstr "Alle InfoBoxen in diesem Set überschreiben?"
 
 #: src/Dialogs/Settings/dlgConfigInfoboxes.cpp:317
 #, fuzzy
 msgid "InfoBox paste set"
-msgstr "InfoBox einfügen"
+msgstr "InfoBoxen Set einfügen"
 
 #: src/Dialogs/Settings/dlgConfigInfoboxes.cpp:386
 #: src/Dialogs/Plane/PlanePolarDialog.cpp:88
@@ -4097,7 +4098,7 @@ msgstr "Fliege zu"
 #: src/Dialogs/Waypoint/dlgWaypointDetails.cpp:409
 #, fuzzy
 msgid "Pan To"
-msgstr "Pan Modus"
+msgstr "Karte dorthin verschieben"
 
 #: src/Dialogs/Waypoint/dlgWaypointDetails.cpp:624
 #: src/Dialogs/Task/TaskPointDialog.cpp:511
@@ -4483,24 +4484,24 @@ msgstr "Auto (folge InfoBoxen)"
 #: src/Dialogs/Settings/Panels/GaugesConfigPanel.cpp:39
 #, fuzzy, no-c-format
 msgid "Top left"
-msgstr "Oben Links"
+msgstr "Oben links"
 
 #: src/Dialogs/Settings/Panels/GaugesConfigPanel.cpp:41
 #, fuzzy, no-c-format
 msgid "Top right"
-msgstr "Oben Rechts"
+msgstr "Oben rechts"
 
 #: src/Dialogs/Settings/Panels/GaugesConfigPanel.cpp:43
 #: src/Dialogs/Settings/Panels/GaugesConfigPanel.cpp:70
 #, no-c-format
 msgid "Bottom left"
-msgstr "Unten Links"
+msgstr "Unten links"
 
 #: src/Dialogs/Settings/Panels/GaugesConfigPanel.cpp:45
 #: src/Dialogs/Settings/Panels/GaugesConfigPanel.cpp:76
 #, no-c-format
 msgid "Bottom right"
-msgstr "Unten Rechts"
+msgstr "Unten rechts"
 
 #: src/Dialogs/Settings/Panels/GaugesConfigPanel.cpp:47
 #, fuzzy, no-c-format
@@ -4515,34 +4516,34 @@ msgstr "Mitte unten"
 #: src/Dialogs/Settings/Panels/GaugesConfigPanel.cpp:51
 #, fuzzy, no-c-format
 msgid "Top left (avoid infoboxes)"
-msgstr "Unten Links (vermeide InfoBoxen)"
+msgstr "Oben links (vermeide InfoBoxen)"
 
 #: src/Dialogs/Settings/Panels/GaugesConfigPanel.cpp:53
 #, fuzzy, no-c-format
 msgid "Top right (avoid infoboxes)"
-msgstr "Unten Rechts (vermeide InfoBoxen)"
+msgstr "Oben rechts (vermeide InfoBoxen)"
 
 #: src/Dialogs/Settings/Panels/GaugesConfigPanel.cpp:55
 #: src/Dialogs/Settings/Panels/GaugesConfigPanel.cpp:73
 #, no-c-format
 msgid "Bottom left (avoid infoboxes)"
-msgstr "Unten Links (vermeide InfoBoxen)"
+msgstr "Unten links (vermeide InfoBoxen)"
 
 #: src/Dialogs/Settings/Panels/GaugesConfigPanel.cpp:57
 #: src/Dialogs/Settings/Panels/GaugesConfigPanel.cpp:79
 #, no-c-format
 msgid "Bottom right (avoid infoboxes)"
-msgstr "Unten Rechts (vermeide InfoBoxen)"
+msgstr "Unten rechts (vermeide InfoBoxen)"
 
 #: src/Dialogs/Settings/Panels/GaugesConfigPanel.cpp:59
 #, fuzzy, no-c-format
 msgid "Center top (avoid infoboxes)"
-msgstr "Unten Links (vermeide InfoBoxen)"
+msgstr "Mitte oben (vermeide InfoBoxen)"
 
 #: src/Dialogs/Settings/Panels/GaugesConfigPanel.cpp:61
 #, fuzzy, no-c-format
 msgid "Center bottom (avoid infoboxes)"
-msgstr "Unten Links (vermeide InfoBoxen)"
+msgstr "Mitte unten (vermeide InfoBoxen)"
 
 #: src/Dialogs/Settings/Panels/GaugesConfigPanel.cpp:68
 #, no-c-format
@@ -4583,8 +4584,8 @@ msgid ""
 "indicates the threat level."
 msgstr ""
 "Aktiviert die Anzeige des FLARM Radars. Die Flugrichtung des Ziels relativ "
-"zum eigenen Steuerkurs wird als Pfeilkopf dargestellt. Ein Dreieck, dass "
-"nach oben oder nach unten zeigt die Höhe des Ziels relativ zur Eigenen. In "
+"zum eigenen Steuerkurs wird als Pfeilspitze dargestellt. Ein Dreieck "
+"nach oben oder nach unten zeigt die Höhe des Ziels relativ zur eigenen. In "
 "allen Modi deutet die Farbe des Ziels die Größe der Bedrohung an."
 
 #: src/Dialogs/Settings/Panels/GaugesConfigPanel.cpp:121
@@ -5256,11 +5257,11 @@ msgstr ""
 #: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:187
 #, fuzzy
 msgid "InfoBox title size"
-msgstr "InfoBox Titel"
+msgstr "InfoBox Titelgröße"
 
 #: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:187
 msgid "Zoom factor for InfoBox title and comment text"
-msgstr ""
+msgstr "Zoomfaktor für Titel der InfoBox und Kommentartext"
 
 #: src/Dialogs/Settings/Panels/LayoutConfigPanel.cpp:192
 msgid "Tab dialog style"
@@ -6606,7 +6607,7 @@ msgstr ""
 
 #: src/Dialogs/Settings/Panels/ScoringConfigPanel.cpp:109
 msgid "Contest"
-msgstr "Contest"
+msgstr "Wettbewerb"
 
 #: src/Dialogs/Settings/Panels/ScoringConfigPanel.cpp:110
 msgid "Select the rules used for calculating optimal points for a contest."
@@ -6736,7 +6737,7 @@ msgstr "Französische SIA VFR Karten"
 #: src/Dialogs/Settings/Panels/TerrainDisplayConfigPanel.cpp:205
 #, fuzzy, no-c-format
 msgid "High Contrast"
-msgstr "Geländekontrast"
+msgstr "Hoher Kontrast"
 
 #: src/Dialogs/Settings/Panels/TerrainDisplayConfigPanel.cpp:209
 msgid "Terrain colors"
@@ -8027,7 +8028,8 @@ msgid ""
 "for the current thermal since circling started."
 msgstr ""
 "Laufend aktualisiertes gemitteltes Steigen über 30 Sek., basierend auf GPS, "
-"oder Vario wenn verfügbar."
+"oder Vario wenn verfügbar. Die Zahl in kleinerer Schrift zeigt das Steigen "
+"des aktuellen Aufwinds seit Beginn des Kreisens."
 
 #: src/InfoBoxes/Content/Factory.cpp:142
 #, no-c-format
@@ -8143,8 +8145,7 @@ msgid ""
 "Total altitude gain/loss in the last thermal. The number in smaller font "
 "reflects the overall climb rate for the last thermal."
 msgstr ""
-"Gesamter Höhengewinn in der letzten Thermik geteilt durch die Zeit im "
-"Steigmodus."
+"Gesamter Höhengewinn in der letzten Thermik. Die Zahl in kleinerer Schrift zeigt das mittlere Steigen der letzten Thermik."
 
 #: src/InfoBoxes/Content/Factory.cpp:191
 #, no-c-format
@@ -8278,7 +8279,7 @@ msgid ""
 "Arrival altitude at the final task turn point relative to the safety arrival "
 "height."
 msgstr ""
-"Ankunftshöhe am letzten Wendepunkt der Aufgabe, relativ zur eingestellten "
+"Ankunftshöhe am Heimatpunkt, relativ zur eingestellten "
 "Sicherheitshöhe."
 
 #: src/InfoBoxes/Content/Factory.cpp:250
@@ -8311,7 +8312,7 @@ msgstr "V Aufgabe mittl"
 msgid ""
 "Average cross-country speed while on current task, not compensated for "
 "altitude."
-msgstr "Mittlere Geschwindigkeit über die Aufgabe, nicht höhenkompensiert."
+msgstr "Schnittgeschwindigkeit über die Aufgabe, nicht höhenkompensiert."
 
 #: src/InfoBoxes/Content/Factory.cpp:266
 #, no-c-format
@@ -8873,7 +8874,7 @@ msgstr ""
 "Vorhersage der Bodentemperatur am Heimatflugplatz, verwendet zur Abschätzung "
 "der Konvektionshöhe und der Wolkenuntergrenze in Verbindung mit der "
 "Aussenlufttemperatur und der Sonde für relative Feuchte. \n"
-"(Nur Touchscreen/PC) Durch Drücken der oben/unten Cursor-Tasten wird diese "
+"(Nur Touchscreen/PC) Durch Drücken der Auf/Ab Cursor-Tasten wird diese "
 "Vorhersagetemperatur angepasst."
 
 #: src/InfoBoxes/Content/Factory.cpp:536
@@ -9026,7 +9027,7 @@ msgid ""
 "Instantaneous cross-country speed while on current task, compensated for "
 "altitude. Equivalent to instantaneous Pirker cross-country speed."
 msgstr ""
-"Momentane Überland-Geschwindigkeit während der Aufgabe (höhenkompensiert). "
+"Momentane Schnittgeschwindigkeit während der Aufgabe (höhenkompensiert). "
 "Äquivalent dem Pirker Vorschlag zur momentanen Überland-Geschwindigkeit."
 
 #: src/InfoBoxes/Content/Factory.cpp:608
@@ -9060,7 +9061,7 @@ msgid ""
 "Achieved cross-country speed while on current task, compensated for "
 "altitude.  Equivalent to Pirker cross-country speed remaining."
 msgstr ""
-"Erreichte Überland-Geschwindigkeit während der Aufgabe (höhenkompensiert). "
+"Erreichte Schnittgeschwindigkeit während der Aufgabe (höhenkompensiert). "
 "Äquivalent dem Pirker Vorschlag zur verbleibenden Überland-Geschwindigkeit."
 
 #: src/InfoBoxes/Content/Factory.cpp:624
@@ -9803,8 +9804,8 @@ msgid ""
 "Average cross-country speed while on current task over the last hour, not "
 "compensated for altitude."
 msgstr ""
-"Über die letzte Stunde gemittelte Überlandgeschwindigkeit während der "
-"Aufgabe, ohne Höhenkompensation."
+"Über die letzte Stunde gemittelte Schnittgeschwindigkeit während der "
+"Aufgabe, nicht höhenkompensiert."
 
 #: src/InfoBoxes/Content/Factory.cpp:971
 #, no-c-format
@@ -10154,12 +10155,12 @@ msgstr ""
 #: src/InfoBoxes/Content/Factory.cpp:1133
 #, fuzzy, no-c-format
 msgid "Speed task estimated"
-msgstr "Geschätze Geschwindigkeit"
+msgstr "Geschätzte Schnittgeschwindigkeit"
 
 #: src/InfoBoxes/Content/Factory.cpp:1134
 #, fuzzy, no-c-format
 msgid "V Task Est"
-msgstr "V Aufg aktuell"
+msgstr "V Aufg geschätzt"
 
 #: src/InfoBoxes/Content/Factory.cpp:1135
 #, fuzzy, no-c-format
@@ -10167,25 +10168,25 @@ msgid ""
 "Estimated average cross-country speed for current task as of task "
 "completion, assuming performance of ideal MacCready cruise/climb cycle."
 msgstr ""
-"Geschätzte Lokalzeit nach Vollendung der Aufgabe, basierend auf dem idealen "
+"Geschätzte Durchschnittsgeschwindigkeit nach Vollendung der Aufgabe, basierend auf dem idealen "
 "MacCready Vorflug-Steig-Zyklus."
 
 #: src/InfoBoxes/Content/Factory.cpp:1141
 #, fuzzy, no-c-format
 msgid "Home altitude difference"
-msgstr "Nächster Wegpunkt - relative Ankunftshöhe"
+msgstr "Höhendifferenz zum Heimatplatz"
 
 #: src/InfoBoxes/Content/Factory.cpp:1142
 #, fuzzy, no-c-format
 msgid "Home AltD"
-msgstr "Heimdist"
+msgstr "Δh Heimat"
 
 #: src/InfoBoxes/Content/Factory.cpp:1143
 #, fuzzy, no-c-format
 msgid ""
 "Arrival altitude at the home waypoint relative to the safety arrival height."
 msgstr ""
-"Ankunftshöhe am letzten Wendepunkt der Aufgabe, relativ zur eingestellten "
+"Ankunftshöhe am Heimatpunkt, relativ zur eingestellten "
 "Sicherheitshöhe."
 
 #: src/InfoBoxes/Content/Alternate.cpp:58
@@ -11098,7 +11099,7 @@ msgstr "Nav"
 
 #: Data/Input/default.xci:925
 msgid "Config"
-msgstr "Konfig."
+msgstr "Config"
 
 #: Data/Input/default.xci:940
 msgid "Lock Screen"
@@ -11141,7 +11142,7 @@ msgstr ""
 #: Data/Input/default.xci:1279
 #, fuzzy
 msgid "Quit XCSoar"
-msgstr "XCSoar"
+msgstr "XCSoar beenden"
 
 #, no-c-format
 #~ msgid "Power"
@@ -11767,7 +11768,7 @@ msgstr "XCSoar"
 #~ msgstr "Auto. Wind"
 
 #~ msgid "Pan To Waypoint"
-#~ msgstr "Zum Wegpunkt Verschieben"
+#~ msgstr "Zum Wegpunkt verschieben"
 
 #~ msgid "My Sample"
 #~ msgstr "Mein Muster"
