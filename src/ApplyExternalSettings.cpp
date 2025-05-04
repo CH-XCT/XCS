@@ -54,7 +54,6 @@ BallastLitresProcessTimer()
   last_ballast_litres_validity = basic.settings.ballast_litres_available;
   return modified;
 }
-
 static bool
 BugsProcessTimer() noexcept
 {
@@ -172,14 +171,10 @@ TransponderProcess() noexcept
   const NMEAInfo &basic = CommonInterface::Basic();
 
   static Validity last_transponder_code;
-  static Validity last_transponder_mode;
 
   if (basic.settings.has_transponder_code.Modified(last_transponder_code)) {
-    ActionInterface::SetTransponderCode(basic.settings.transponder_code, basic.settings.transponder_mode, false);
+    ActionInterface::SetTransponderCode(basic.settings.transponder_code, false);
     last_transponder_code = basic.settings.has_transponder_code;
-    if (basic.settings.has_transponder_mode.Modified(last_transponder_mode))
-      last_transponder_mode = basic.settings.has_transponder_mode;
-
     modified = true;
   }
 
