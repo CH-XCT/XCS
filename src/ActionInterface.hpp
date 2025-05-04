@@ -143,7 +143,6 @@ ExchangeRadioFrequencies(bool to_devices=true) noexcept;
  */
 void
 SetTransponderCode(TransponderCode code,
-                   TransponderMode mode,
                    bool to_devices=true) noexcept;
 
 } // namespace ActionInterface
