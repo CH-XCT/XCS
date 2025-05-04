@@ -186,7 +186,7 @@ Channel::Request::HostCallback(int status, struct ares_addrinfo *addressinfo) no
   try
   {
     if (status != ARES_SUCCESS)
-      throw Error(status, "ares_gethostbyname() failed");
+      throw Error(status, "ares_gethostbyname() failed (189)");
     else if (addressinfo != nullptr)
     {
       success = true;
@@ -198,7 +198,7 @@ Channel::Request::HostCallback(int status, struct ares_addrinfo *addressinfo) no
       if (pending == 0) handler->OnCaresSuccess();
       }
     }
-    else throw std::runtime_error("ares_gethostbyname() failed");
+    else throw std::runtime_error("ares_gethostbyname() failed (201)");
   }
   catch (...)
   {
