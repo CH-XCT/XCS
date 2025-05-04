@@ -186,7 +186,7 @@ Channel::Request::HostCallback(int status, struct ares_addrinfo *addressinfo) no
   try
   {
     if (status != ARES_SUCCESS)
-      throw Error(status, "ares_gethostbyname() failed (189)");
+      success = false;
     else if (addressinfo != nullptr)
     {
       success = true;
