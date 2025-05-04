@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // Copyright CM4all GmbH
 // author: Max Kellermann <mk@cm4all.com>
-// kopiert von ballfire
+// kopiert von ballfire PR1530
 
 #include "Channel.hxx"
 #include "Handler.hxx"
@@ -186,7 +186,7 @@ Channel::Request::HostCallback(int status, struct ares_addrinfo *addressinfo) no
   try
   {
     if (status != ARES_SUCCESS)
-      throw Error(status, "ares_gethostbyname() failed");
+      success = false;
     else if (addressinfo != nullptr)
     {
       success = true;
