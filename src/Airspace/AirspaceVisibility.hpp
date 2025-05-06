@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright The XCSoar Project
+// Copied from kobedegeest
 
 #pragma once
 
@@ -14,7 +15,7 @@ struct AltitudeState;
  */
 [[gnu::pure]]
 bool
-IsAirspaceTypeVisible(const AbstractAirspace &airspace,
+IsAirspaceTypeOrClassVisible(const AbstractAirspace &airspace,
                       const AirspaceRendererSettings &renderer_settings);
 
 /**
