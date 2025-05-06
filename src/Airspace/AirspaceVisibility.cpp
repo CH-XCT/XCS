@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright The XCSoar Project
+// copied from kobedegeest 
 
 #include "Airspace/AirspaceVisibility.hpp"
 #include "Airspace/AbstractAirspace.hpp"
@@ -7,10 +8,10 @@
 #include "Renderer/AirspaceRendererSettings.hpp"
 
 bool
-IsAirspaceTypeVisible(const AbstractAirspace &airspace,
+IsAirspaceTypeOrClassVisible(const AbstractAirspace &airspace,
                       const AirspaceRendererSettings &renderer_settings)
 {
-  return renderer_settings.classes[airspace.GetClassOrType()].display;
+  return renderer_settings.classes[airspace.GetClassOrType()].display || renderer_settings.classes[airspace.GetTypeOrClass()].display;
 }
 
 bool
@@ -47,7 +48,7 @@ IsAirspaceAltitudeVisible(const AbstractAirspace &airspace,
 bool
 AirspaceVisibility::operator()(const AbstractAirspace &airspace) const
 {
-  return IsAirspaceTypeVisible(airspace, renderer_settings) &&
+  return IsAirspaceTypeOrClassVisible(airspace, renderer_settings) &&
     IsAirspaceAltitudeVisible(airspace, state,
                               computer_settings, renderer_settings);
 }
