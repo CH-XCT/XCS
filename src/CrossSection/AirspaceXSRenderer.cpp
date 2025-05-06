@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright The XCSoar Project
+// Copied from kobedegeest
 
 #include "AirspaceXSRenderer.hpp"
 #include "Renderer/ChartRenderer.hpp"
@@ -128,7 +129,7 @@ AirspaceIntersectionVisitorSlice::Render(const AbstractAirspace &as) const
   if (intersections.empty())
     return;
 
-  if (!IsAirspaceTypeVisible(as, settings))
+  if (!IsAirspaceTypeOrClassVisible(as, settings))
     return;
 
   PixelRect rcd;
