@@ -32,7 +32,7 @@ on:
       - main
 
 env:
-  DEBUG: y
+  DEBUG: n
   BOOST: boost_1_85_0
 
 jobs:
