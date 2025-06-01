@@ -338,6 +338,20 @@ MainWindow::ReinitialiseLayoutTA(PixelRect rc,
     rc.right = GetMainRect().right;
     rc.left = rc.right - dia;
     break;
+  // 3 new cases for TA positions TOP_LEFT, TOP_RIGHT, CENTER_TOP:
+   case (UISettings::ThermalAssistantPosition::TOP_LEFT):
+    rc.right = rc.left + dia;
+    rc.bottom = rc.top + dia;
+    break;
+  case (UISettings::ThermalAssistantPosition::TOP_RIGHT):
+    rc.left = rc.right - dia;
+    rc.bottom = rc.top + dia;
+    break;
+  case (UISettings::ThermalAssistantPosition::CENTER_TOP):
+    rc.left = (rc.left + rc.right - dia) / 2 - 1;
+    rc.right = rc.left + dia;
+    rc.bottom = rc.top + dia;
+    break; 
   default: // BOTTOM_LEFT
     rc.left = GetMainRect().left;
     rc.right = rc.left + dia;
