@@ -41,6 +41,9 @@ struct UISettings {
     TOP_LEFT,
     TOP_RIGHT,
     CENTER_TOP,
+    TOP_LEFT_AVOID_IB,
+    TOP_RIGHT_AVOID_IB,
+    CENTER_TOP_AVOID_IB,
   } thermal_assistant_position;
 
   /** Enable warning dialog */
