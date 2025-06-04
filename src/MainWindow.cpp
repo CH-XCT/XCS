@@ -351,11 +351,13 @@ MainWindow::ReinitialiseLayoutTA(PixelRect rc,
     rc.right = rc.left + dia;
     rc.bottom = rc.top + dia;
   case (UISettings::ThermalAssistantPosition::TOP_LEFT_AVOID_IB):
+    rc.top = GetMainRect().top;
     rc.left = GetMainRect().left;
     rc.right = rc.left + dia;
     rc.bottom = rc.top + dia;
     break;
   case (UISettings::ThermalAssistantPosition::TOP_RIGHT_AVOID_IB):
+    rc.top = GetMainRect().top;
     rc.right = GetMainRect().right;
     rc.left = rc.right - dia;
     rc.bottom = rc.top + dia;
