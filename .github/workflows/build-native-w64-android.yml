@@ -1,3 +1,4 @@
+
 ---
 on:
   workflow_dispatch:
@@ -14,7 +15,7 @@ on:
       - '.github/workflows/build-translation.yml'
       - '.readthedocs.yaml'
     branches:
-      - main
+      - master
     tags:
       - 'v*'
 
@@ -98,7 +99,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
+        include:          
           - os: ubuntu-22.04
             target: ANDROID
             target_bin: XCSoar
@@ -125,7 +126,7 @@ jobs:
             target_ext: .exe
             target_upload: true
             target_container: debian:bookworm-slim
- 
+         
     steps:
       - name: Install checkout dependencies
         run: |
