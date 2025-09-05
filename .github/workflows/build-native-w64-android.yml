@@ -15,7 +15,7 @@ on:
       - '.github/workflows/build-translation.yml'
       - '.readthedocs.yaml'
     branches:
-      - master
+      - 7.44.54-XPDR-Test
     tags:
       - 'v*'
 
