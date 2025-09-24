@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright The XCSoar Project
 
-#include "Profile/Keys.hpp"
+#include "SiteConfigPanel.hpp"
+#include "ConfigPanel.hpp"
 #include "Language/Language.hpp"
 #include "LocalPath.hpp"
-#include "UtilsSettings.hpp"
-#include "ConfigPanel.hpp"
-#include "SiteConfigPanel.hpp"
-#include "Widget/RowFormWidget.hpp"
+#include "Profile/Keys.hpp"
 #include "UIGlobals.hpp"
+#include "UtilsSettings.hpp"
 #include "Waypoint/Patterns.hpp"
+#include "Widget/RowFormWidget.hpp"
 #include "system/Path.hpp"
 
 enum ControlIndex {
@@ -18,9 +18,8 @@ enum ControlIndex {
   WaypointFile,
   AdditionalWaypointFile,
   WatchedWaypointFile,
-  AirspaceFile,
-  AdditionalAirspaceFile,
   AirfieldFile,
+  AirspaceFileList,
   FlarmFile,
   RaspFile,
 };
@@ -52,13 +51,13 @@ SiteConfigPanel::Prepare([[maybe_unused]] ContainerWindow &parent, [[maybe_unuse
           ProfileKeys::MapFile, _T("*.xcm\0*.lkm\0"), FileType::MAP);
 
   AddFile(_("Waypoints"),
-          _("Primary waypoints file.  Supported file types are Cambridge/WinPilot files (.dat), "
+          _("Primary waypoints file. Supported file types are Cambridge/WinPilot files (.dat), "
             "Zander files (.wpz) or SeeYou files (.cup)."),
           ProfileKeys::WaypointFile, WAYPOINT_FILE_PATTERNS,
           FileType::WAYPOINT);
 
   AddFile(_("More waypoints"),
-          _("Secondary waypoints file.  This may be used to add waypoints for a competition."),
+          _("Secondary waypoints file. This may be used to add waypoints for a competition."),
           ProfileKeys::AdditionalWaypointFile, WAYPOINT_FILE_PATTERNS,
           FileType::WAYPOINT);
   SetExpertRow(AdditionalWaypointFile);
@@ -71,21 +70,20 @@ SiteConfigPanel::Prepare([[maybe_unused]] ContainerWindow &parent, [[maybe_unuse
           FileType::WAYPOINT);
   SetExpertRow(WatchedWaypointFile);
 
-  AddFile(_("Airspaces"), _("The file name of the primary airspace file."),
-          ProfileKeys::AirspaceFile, _T("*.txt\0*.air\0*.sua\0"),
-          FileType::AIRSPACE);
-
-  AddFile(_("More airspaces"), _("The file name of the secondary airspace file."),
-          ProfileKeys::AdditionalAirspaceFile, _T("*.txt\0*.air\0*.sua\0"),
-          FileType::AIRSPACE);
-  SetExpertRow(AdditionalAirspaceFile);
-
   AddFile(_("Waypoint details"),
           _("The file may contain extracts from enroute supplements or other contributed "
             "information about individual waypoints and airfields."),
           ProfileKeys::AirfieldFile, _T("*.txt\0"),
           FileType::WAYPOINTDETAILS);
   SetExpertRow(AirfieldFile);
+
+  AddMultipleFiles(_("Selected Airspace Files"),
+                   _("List of active airspace files. Use the Add and Remove "
+                     "buttons to activate or deactivate"
+                     " airspace files respectively. Supported file types are: "
+                     "Openair (.txt /.air), and Tim Newport-Pearce (.sua)."),
+                   ProfileKeys::AirspaceFileList, _T("*.txt\0*.air\0*.sua\0"),
+                   FileType::AIRSPACE);
 
   AddFile(_("FLARM Device Database"),
           _("The name of the file containing information about registered FLARM devices."),
@@ -109,8 +107,8 @@ SiteConfigPanel::Save(bool &_changed) noexcept
   WaypointFileChanged |= SaveValueFileReader(AdditionalWaypointFile, ProfileKeys::AdditionalWaypointFile);
   WaypointFileChanged |= SaveValueFileReader(WatchedWaypointFile, ProfileKeys::WatchedWaypointFile);
 
-  AirspaceFileChanged = SaveValueFileReader(AirspaceFile, ProfileKeys::AirspaceFile);
-  AirspaceFileChanged |= SaveValueFileReader(AdditionalAirspaceFile, ProfileKeys::AdditionalAirspaceFile);
+  AirspaceFileChanged |= SaveValueMultiFileReader(
+      AirspaceFileList, ProfileKeys::AirspaceFileList);
 
   FlarmFileChanged = SaveValueFileReader(FlarmFile, ProfileKeys::FlarmFile);
 
