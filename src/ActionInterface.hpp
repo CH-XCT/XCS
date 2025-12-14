@@ -142,7 +142,14 @@ ExchangeRadioFrequencies(bool to_devices=true) noexcept;
  * @param to_devices send the new setting to all devices?
  */
 void
-SetTransponderCode(TransponderCode code, bool to_devices=true) noexcept;
+SetTransponderCode(TransponderCode code,
+                   bool to_devices=true) noexcept;
+
+/**
+ * Update the Transponder Mode in #ComputerSettings.
+ */
+void
+SetTransponderMode(TransponderMode mode) noexcept;
 
 } // namespace ActionInterface
 

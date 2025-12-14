@@ -15,7 +15,7 @@
 #include "UIGlobals.hpp"
 #include "UtilsSettings.hpp"
 #include "Asset.hpp"
-#include "Menu/ShowMenuButton.hpp"
+#include "Menu/ShowButton.hpp"
 #include "ActionInterface.hpp"
 
 #ifdef ANDROID
@@ -40,9 +40,8 @@ enum ControlIndex {
   AppStatusMessageAlignment,
   AppInfoBoxColors,
   AppInfoBoxBorder,
-#ifdef KOBO
   ShowMenuButton,
-#endif
+  ShowZoomButton,
 #ifdef DRAW_MOUSE_CURSOR
   CursorSize,
   CursorInverted,
@@ -120,8 +119,8 @@ static constexpr StaticEnumChoice tabdialog_style_list[] = {
 static constexpr StaticEnumChoice popup_msg_position_list[] = {
   { UISettings::PopupMessagePosition::CENTER, N_("Center"),
     N_("Center the status message boxes.") },
-  { UISettings::PopupMessagePosition::TOP_LEFT, N_("Topleft"),
-    N_("Show status message boxes ina the top left corner.") },
+  { UISettings::PopupMessagePosition::TOP_LEFT, N_("Top left"),
+    N_("Show status message boxes in the top left corner.") },
   nullptr
 };
 
@@ -199,7 +198,7 @@ LayoutConfigPanel::Prepare(ContainerWindow &parent,
 
   if (HasColors()) {
     AddBoolean(_("Colored InfoBoxes"),
-               _("If true, certain InfoBoxes will have coloured text.  For example, the active waypoint "
+               _("If true, certain InfoBoxes will have coloured text. For example, the active waypoint "
                  "InfoBox will be blue when the glider is above final glide."),
                ui_settings.info_boxes.use_colors);
     SetExpertRow(AppInfoBoxColors);
@@ -210,11 +209,12 @@ LayoutConfigPanel::Prepare(ContainerWindow &parent,
           unsigned(ui_settings.info_boxes.border_style));
   SetExpertRow(AppInfoBoxBorder);
 
-#ifdef KOBO
-  AddBoolean(_("Show Menubutton"), _("Show the Menubutton"),
+  AddBoolean(_("Show Menu button"), _("Show the Menu button"),
              ui_settings.show_menu_button);
   SetExpertRow(ShowMenuButton);
-#endif
+  AddBoolean(_("Show Zoom button"), _("Show the Zoom button"),
+             ui_settings.show_zoom_button);
+  SetExpertRow(ShowZoomButton);
 
 #ifdef DRAW_MOUSE_CURSOR
   AddInteger(_("Cursor zoom"), _("Cursor zoom factor"), _T("%d x"), _T("%d x"), 1, 10, 1,
@@ -270,10 +270,11 @@ LayoutConfigPanel::Save(bool &_changed) noexcept
     changed |= SaveValue(AppInfoBoxColors, ProfileKeys::AppInfoBoxColors,
                          ui_settings.info_boxes.use_colors);
 
-#ifdef KOBO
   if (SaveValue(ShowMenuButton, ProfileKeys::ShowMenuButton,ui_settings.show_menu_button))
     require_restart = changed = true;
-#endif
+  if (SaveValue(ShowZoomButton, ProfileKeys::ShowZoomButton,
+		ui_settings.show_zoom_button))
+    require_restart = changed = true;
 
   DialogSettings &dialog_settings = CommonInterface::SetUISettings().dialog;
   changed |= SaveValueEnum(TabDialogStyle, ProfileKeys::AppDialogTabStyle, dialog_settings.tab_style);

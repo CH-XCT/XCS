@@ -624,6 +624,14 @@ location=5
 
 mode=Config2
 type=key
+data=7
+event=UploadIGCFile
+event=Mode default
+label=Weglide Upload
+location=6
+
+mode=Config2
+type=key
 data=8
 event=WaypointEditor
 event=Mode default
@@ -668,7 +676,7 @@ mode=Config3
 type=key
 data=8
 event=Logger nmea
-label=Raw Logger$(CheckLogger)
+label=NMEA Logger$(CheckLogger)
 location=6
 
 mode=Config3
@@ -1173,7 +1181,7 @@ mode=RemoteStick
 type=key
 data=0
 event=Logger nmea
-label=Raw Logger$(CheckLogger)
+label=NMEA Logger$(CheckLogger)
 location=22
 
 mode=RemoteStick

@@ -102,6 +102,10 @@ ifeq ($(TARGET),ANDROIDFAT)
   override TARGET_FLAVOR = ANDROID
 endif
 
+ifeq ($(ANDROID_BUNDLE_BUILD),y)
+  override TARGET_FLAVOR = ANDROID_BUNDLE
+endif
+
 # real targets
 
 ifeq ($(TARGET),PC)
@@ -245,6 +249,9 @@ ifeq ($(TARGET),MACOS)
   OSX_MIN_SUPPORTED_VERSION = 12.0
   HOST_TRIPLET = aarch64-apple-darwin
   LLVM_TARGET = $(HOST_TRIPLET)
+  ifeq ($(HOST_IS_DARWIN),y)
+    DARWIN_SDK ?= /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk
+  endif
   CLANG = y
   TARGET_ARCH += -mmacosx-version-min=$(OSX_MIN_SUPPORTED_VERSION)
   TARGET_IS_ARM = y
@@ -268,7 +275,7 @@ ifeq ($(TARGET),IOS64)
   override TARGET = UNIX
   TARGET_IS_DARWIN = y
   TARGET_IS_IOS = y
-  IOS_MIN_SUPPORTED_VERSION = 10.0
+  IOS_MIN_SUPPORTED_VERSION = 11.0
   HOST_TRIPLET = aarch64-apple-darwin
   LLVM_TARGET = $(HOST_TRIPLET)
   ifeq ($(HOST_IS_DARWIN),y)
@@ -283,7 +290,7 @@ ifeq ($(TARGET),IOS64SIM)
   override TARGET = UNIX
   TARGET_IS_DARWIN = y
   TARGET_IS_IOS = y
-  IOS_MIN_SUPPORTED_VERSION = 10.0
+  IOS_MIN_SUPPORTED_VERSION = 11.0
   HOST_TRIPLET = aarch64-apple-darwin
   LLVM_TARGET = $(HOST_TRIPLET)
   ifeq ($(HOST_IS_DARWIN),y)
@@ -341,7 +348,12 @@ ifeq ($(TARGET),UNIX)
 endif
 
 ifeq ($(TARGET),ANDROID)
-  ANDROID_NDK ?= $(HOME)/opt/android-ndk-r26d
+  ifeq ($(HOST_IS_DARWIN),y)
+    ANDROID_SDK ?= $(HOME)/Library/Android/sdk
+    ANDROID_NDK ?= $(shell ls -d $(ANDROID_SDK)/ndk/26.* 2>/dev/null | head -n 1)
+  else
+    ANDROID_NDK ?= $(HOME)/opt/android-ndk-r26d
+  endif
 
   ANDROID_SDK_PLATFORM = android-33
   ANDROID_NDK_API = 21
@@ -386,7 +398,7 @@ ifeq ($(TARGET),ANDROID)
   override LIBCXX = y
 
   ifeq ($(HOST_IS_DARWIN),y)
-    ifeq ($(UNAME_M),x86_64)
+    ifneq (,$(filter $(UNAME_M),x86_64 arm64))
       ANDROID_HOST_TAG = darwin-x86_64
     else
       ANDROID_HOST_TAG = darwin-x86

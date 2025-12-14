@@ -120,7 +120,7 @@ MacCreadyProcessTimer() noexcept
   }
 
   if (basic.settings.mac_cready_available.Modified(last_external_settings.mac_cready_available)) {
-    ActionInterface::SetManualMacCready(basic.settings.mac_cready, false);
+    ActionInterface::SetMacCready(basic.settings.mac_cready, false);
     modified = true;
   } else if (calculated.auto_mac_cready_available.Modified(last_auto_mac_cready)) {
     last_auto_mac_cready = calculated.auto_mac_cready_available;
@@ -172,10 +172,18 @@ TransponderProcess() noexcept
   const NMEAInfo &basic = CommonInterface::Basic();
 
   static Validity last_transponder_code;
+  static Validity last_transponder_mode;
 
   if (basic.settings.has_transponder_code.Modified(last_transponder_code)) {
-    ActionInterface::SetTransponderCode(basic.settings.transponder_code, false);
+    ActionInterface::SetTransponderCode(basic.settings.transponder_code,
+                                        false);
     last_transponder_code = basic.settings.has_transponder_code;
+    modified = true;
+  }
+
+  if (basic.settings.has_transponder_mode.Modified(last_transponder_mode)) {
+    ActionInterface::SetTransponderMode(basic.settings.transponder_mode);
+    last_transponder_mode = basic.settings.has_transponder_mode;
     modified = true;
   }
 

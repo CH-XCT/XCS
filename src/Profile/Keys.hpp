@@ -69,14 +69,12 @@ constexpr std::string_view TaskSpeedUnitsValue = "TaskSpeedUnit";
 constexpr std::string_view WarningTime = "WarnTime";
 constexpr std::string_view RepetitiveSound = "RepetitiveSound";
 constexpr std::string_view AcknowledgementTime = "AcknowledgementTime";
-constexpr std::string_view AirfieldFile = "AirfieldFile"; // pL
-constexpr std::string_view AirspaceFile = "AirspaceFile"; // pL
-constexpr std::string_view AdditionalAirspaceFile = "AdditionalAirspaceFile"; // pL
+constexpr std::string_view AirfieldFileList = "AirfieldFileList"; // pL
+constexpr std::string_view AirspaceFileList = "AirspaceFileList";
 constexpr std::string_view FlarmFile = "FlarmFile";
 constexpr std::string_view PolarFile = "PolarFile"; // pL
-constexpr std::string_view WaypointFile = "WPFile"; // pL
-constexpr std::string_view AdditionalWaypointFile = "AdditionalWPFile"; // pL
-constexpr std::string_view WatchedWaypointFile = "WatchedWPFile"; // pL
+constexpr std::string_view WaypointFileList = "WPFileList";           // pL
+constexpr std::string_view WatchedWaypointFileList = "WatchedWPFileList"; // pL
 constexpr std::string_view LanguageFile = "LanguageFile"; // pL
 constexpr std::string_view InputFile = "InputFile"; // pL
 constexpr std::string_view PilotName = "PilotName";
@@ -126,8 +124,10 @@ constexpr std::string_view AppInfoBoxColors = "AppInfoBoxColors";
 constexpr std::string_view TeamcodeRefWaypoint = "TeamcodeRefWaypoint";
 constexpr std::string_view AppInfoBoxBorder = "AppInfoBoxBorder";
 constexpr std::string_view ShowMenuButton = "ShowMenuButton";
+constexpr std::string_view ShowZoomButton = "ShowZoomButton";
 constexpr std::string_view CursorSize = "CursorSize";
 constexpr std::string_view CursorColorsInverted = "CursorColorsInverted";
+constexpr std::string_view NoPositionTargetDistanceRing = "NoPositionTargetDistanceRing";
 
 constexpr std::string_view AppAveNeedle = "AppAveNeedle";
 constexpr std::string_view AppAveThermalNeedle = "AppAveThermalNeedle";
@@ -288,4 +288,7 @@ constexpr std::string_view WaveAssistant = "WaveAssistant";
 constexpr std::string_view MasterAudioVolume = "MasterAudioVolume";
 
 constexpr std::string_view RaspFile = "RaspFile";
+
+constexpr std::string_view StratuxHorizontalRange = "StratuxHorizontalRange";
+constexpr std::string_view StratuxVerticalRange = "StratuxVerticalRange";
 }

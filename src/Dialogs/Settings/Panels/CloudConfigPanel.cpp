@@ -61,11 +61,11 @@ CloudConfigPanel::Prepare(ContainerWindow &parent,
     CommonInterface::GetComputerSettings().tracking.skylines.cloud;
 
   AddBoolean(_T("XCSoar Cloud"),
-             _("Participate in the XCSoar Cloud field test?  This transmits your location, thermal/wave locations and other weather data to our test server."),
+             _("Participate in the XCSoar Cloud field test? This transmits your location, thermal and wave locations and other weather data to our test server."),
              settings.enabled == TriState::TRUE,
              this);
 
-  AddBoolean(_T("Show thermals"),
+  AddBoolean(_("Show thermals"),
              _("Obtain and show thermal locations reported by others."),
              settings.show_thermals);
 

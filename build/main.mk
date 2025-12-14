@@ -25,6 +25,7 @@ DIALOG_SOURCES = \
 	$(SRC)/Dialogs/Device/CAI302/WaypointUploader.cpp \
 	$(SRC)/Dialogs/Device/ManageFlarmDialog.cpp \
 	$(SRC)/Dialogs/Device/BlueFly/BlueFlyConfigurationDialog.cpp \
+	$(SRC)/Dialogs/Device/Stratux/ConfigurationDialog.cpp \
 	$(SRC)/Dialogs/Device/ManageI2CPitotDialog.cpp \
 	$(SRC)/Dialogs/Device/LX/ManageLXNAVVarioDialog.cpp \
 	$(SRC)/Dialogs/Device/LX/LXNAVVarioConfigWidget.cpp \
@@ -36,6 +37,7 @@ DIALOG_SOURCES = \
 	$(SRC)/Dialogs/Device/Vega/VegaDemoDialog.cpp \
 	$(SRC)/Dialogs/Device/Vega/SwitchesDialog.cpp \
 	$(SRC)/Dialogs/Device/FLARM/ConfigWidget.cpp \
+	$(SRC)/Dialogs/Device/FLARM/RangeConfigWidget.cpp \
 	$(SRC)/Dialogs/MapItemListDialog.cpp \
 	$(SRC)/Dialogs/MapItemListSettingsDialog.cpp \
 	$(SRC)/Dialogs/MapItemListSettingsPanel.cpp \
@@ -65,6 +67,7 @@ DIALOG_SOURCES = \
 	$(SRC)/Dialogs/DataField.cpp \
 	$(SRC)/Dialogs/ComboPicker.cpp \
 	$(SRC)/Dialogs/FilePicker.cpp \
+	$(SRC)/Dialogs/MultiFilePicker.cpp \
 	$(SRC)/Dialogs/HelpDialog.cpp \
 	$(SRC)/Dialogs/dlgInfoBoxAccess.cpp \
 	$(SRC)/Dialogs/ReplayDialog.cpp \
@@ -182,6 +185,7 @@ XCSOAR_SOURCES := \
 	\
 	$(SRC)/RadioFrequency.cpp \
 	$(SRC)/TransponderCode.cpp \
+	$(SRC)/TransponderMode.cpp \
 	\
 	$(SRC)/Engine/Navigation/TraceHistory.cpp \
 	$(SRC)/Engine/Navigation/Aircraft.cpp \
@@ -225,18 +229,6 @@ XCSOAR_SOURCES := \
 	$(SRC)/net/client/WeGlide/UploadIGCFile.cpp \
 	$(SRC)/Plane/PlaneGlue.cpp \
 	$(SRC)/Plane/PlaneFileGlue.cpp \
-	$(SRC)/FLARM/Id.cpp \
-	$(SRC)/FLARM/Error.cpp \
-	$(SRC)/FLARM/List.cpp \
-	$(SRC)/FLARM/FlarmNetRecord.cpp \
-	$(SRC)/FLARM/FlarmNetDatabase.cpp \
-	$(SRC)/FLARM/FlarmNetReader.cpp \
-	$(SRC)/FLARM/Traffic.cpp \
-	$(SRC)/FLARM/Calculations.cpp \
-	$(SRC)/FLARM/Friends.cpp \
-	$(SRC)/FLARM/Computer.cpp \
-	$(SRC)/FLARM/Global.cpp \
-	$(SRC)/FLARM/Glue.cpp \
 	$(SRC)/BallastDumpManager.cpp \
 	$(SRC)/Logger/Settings.cpp \
 	$(SRC)/Logger/Logger.cpp \
@@ -301,7 +293,7 @@ XCSOAR_SOURCES := \
 	$(SRC)/Menu/Glue.cpp \
 	$(SRC)/Menu/ButtonLabel.cpp \
 	$(SRC)/Menu/ExpandMacros.cpp \
-	$(SRC)/Menu/ShowMenuButton.cpp \
+	$(SRC)/Menu/ShowButton.cpp \
 	$(SRC)/Pan.cpp \
 	$(SRC)/Input/InputConfig.cpp \
 	$(SRC)/Input/InputDefaults.cpp \
@@ -556,8 +548,10 @@ endif
 
 ifeq ($(TARGET_IS_DARWIN),y)
 XCSOAR_SOURCES += \
-	$(SRC)/Device/AndroidSensors.cpp \
-	$(SRC)/Apple/InternalSensors.cpp
+	$(SRC)/Apple/Services.cpp \
+	$(SRC)/Apple/SoundUtil.cpp \
+	$(SRC)/Apple/InternalSensors.cpp \
+	$(SRC)/Device/SmartDeviceSensors.cpp
 endif
 
 ifeq ($(TARGET),ANDROID)
@@ -571,6 +565,7 @@ XCSOAR_SOURCES += \
 	$(SRC)/java/InputStream.cxx \
 	$(SRC)/java/URL.cxx \
 	$(SRC)/java/Closeable.cxx \
+	$(SRC)/Device/SmartDeviceSensors.cpp \
 	$(SRC)/Device/AndroidSensors.cpp \
 	$(SRC)/Device/Port/AndroidPort.cpp \
 	$(SRC)/Device/Port/AndroidBluetoothPort.cpp \
@@ -650,6 +645,7 @@ XCSOAR_DEPENDS = \
 	DBUS \
 	LIBMAPWINDOW \
 	LIBINFOBOX \
+	FLARM \
 	GETTEXT PROFILE \
 	TERRAIN \
 	TOPO \
