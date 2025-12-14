@@ -6541,7 +6541,7 @@ msgid "Specifies which threshold is used for \"large\" FAI triangles."
 msgstr "Grenzwert für große FAI Dreiecke."
 
 #: src/Dialogs/Settings/Panels/ScoringConfigPanel.cpp:135
-#, c-format
+#, no-c-format
 msgid "95% dist. rule helpers"
 msgstr "95%-Entfernung Regelhilfen"
 
