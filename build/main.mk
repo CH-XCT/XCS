@@ -1,7 +1,10 @@
+# Product name (default: XCSoar, can be overridden via PRODUCT_NAME variable)
+PRODUCT_NAME ?= XCSoar
+
 ifeq ($(HAVE_POSIX),y)
-PROGRAM_NAME = xcsoar
+PROGRAM_NAME = $(shell echo $(PRODUCT_NAME) | tr '[:upper:]' '[:lower:]')
 else
-PROGRAM_NAME = XCSoar
+PROGRAM_NAME = $(PRODUCT_NAME)
 endif
 
 DIALOG_SOURCES = \
@@ -588,9 +591,9 @@ XCSOAR_SOURCES += \
 	$(SRC)/Android/NativeSensorListener.cpp \
 	$(SRC)/Android/Battery.cpp \
 	$(SRC)/Android/GliderLink.cpp \
-	$(SRC)/Android/DownloadManager.cpp \
 	$(SRC)/Android/Vibrator.cpp \
 	$(SRC)/Android/Context.cpp \
+	$(SRC)/Android/CertificateUtil.cpp \
 	$(SRC)/Android/BMP085Device.cpp \
 	$(SRC)/Android/I2CbaroDevice.cpp \
 	$(SRC)/Android/NunchuckDevice.cpp \
