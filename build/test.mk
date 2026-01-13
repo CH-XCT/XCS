@@ -94,7 +94,8 @@ TEST_NAMES = \
 	TestColorRamp TestGeoPoint TestDiffFilter \
 	TestFileUtil TestPolars TestCSVLine TestGlidePolar \
 	test_replay_task TestProjection TestFlatPoint TestFlatLine TestFlatGeoPoint \
-	TestMacCready TestOrderedTask TestAATPoint TestTaskSave\
+	TestMacCready TestOrderedTask TestAATPoint TestTaskSave \
+	TestTaskFileSeeYouParsing \
 	TestPlanes \
 	TestTaskPoint \
 	TestTaskWaypoint \
@@ -273,6 +274,20 @@ TEST_TASK_SAVE_SOURCES = \
 TEST_TASK_SAVE_OBJS = $(call SRC_TO_OBJ,$(TEST_TASK_SAVE_SOURCES))
 TEST_TASK_SAVE_DEPENDS = TASK TASKFILE ROUTE GLIDE WAYPOINT GEO TIME MATH UTIL XML
 $(eval $(call link-program,TestTaskSave,TEST_TASK_SAVE))
+
+TEST_TASKFILE_SEEYOU_PARSING_SOURCES = \
+	$(SRC)/LocalPath.cpp \
+	$(SRC)/Engine/Util/Gradient.cpp \
+	$(SRC)/XML/Node.cpp \
+	$(SRC)/IGC/IGCParser.cpp \
+	$(SRC)/Waypoint/Factory.cpp \
+	$(SRC)/RadioFrequency.cpp \
+	$(TEST_SRC_DIR)/FakeTerrain.cpp \
+	$(TEST_SRC_DIR)/tap.c \
+	$(TEST_SRC_DIR)/TestTaskFileSeeYouParsing.cpp
+TEST_TASKFILE_SEEYOU_PARSING_OBJS = $(call SRC_TO_OBJ,$(TEST_TASKFILE_SEEYOU_PARSING_SOURCES))
+TEST_TASKFILE_SEEYOU_PARSING_DEPENDS = TASK TASKFILE ROUTE GLIDE WAYPOINT WAYPOINTFILE GEO TIME MATH UTIL XML IO UNITS
+$(eval $(call link-program,TestTaskFileSeeYouParsing,TEST_TASKFILE_SEEYOU_PARSING))
 
 TEST_PLANES_SOURCES = \
 	$(SRC)/Polar/Parser.cpp \
@@ -842,7 +857,10 @@ RUN_LUA_SOURCES = \
 	$(SRC)/Formatter/GeoPointFormatter.cpp \
 	$(TEST_SRC_DIR)/FakeLogFile.cpp \
 	$(TEST_SRC_DIR)/RunLua.cpp
-RUN_LUA_DEPENDS = LUA LIBLUA LIBHTTP IO OS GEO MATH UTIL
+RUN_LUA_DEPENDS = LUA LIBLUA IO OS GEO MATH UTIL
+ifeq ($(HAVE_HTTP),y)
+RUN_LUA_DEPENDS += LIBHTTP
+endif
 $(eval $(call link-program,RunLua,RUN_LUA))
 endif
 
