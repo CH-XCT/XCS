@@ -75,7 +75,7 @@ public:
   void Create(ContainerWindow &parent, PixelRect rc, WindowStyle style) noexcept;
 
   void SetTerrain(RasterTerrain *terrain) noexcept;
-  void SetTopograpgy(TopographyStore *topography) noexcept;
+  void SetTopography(TopographyStore *topography) noexcept;
 
   void SetAirspaces(Airspaces *airspace_database) noexcept {
     airspace_renderer.SetAirspaces(airspace_database);
