@@ -7,10 +7,6 @@
 #include "lib/fmt/RuntimeError.hxx"
 #include "util/UTF8.hpp"
 
-#ifdef UNICODE
-#include "util/ConvertString.hpp"
-#endif
-
 #include <SDL_video.h>
 #include <SDL_events.h>
 
@@ -60,11 +56,7 @@ void
 TopWindow::CreateNative(const TCHAR *_text, PixelSize new_size,
                         TopWindowStyle style)
 {
-#ifdef UNICODE
-  const WideToUTF8Converter text(_text);
-#else
   const char *text = _text;
-#endif
 
   const bool full_screen = style.GetFullScreen();
   const bool resizable = style.GetResizable();
@@ -266,7 +258,9 @@ TopWindow::OnResize(PixelSize new_size) noexcept
   ContainerWindow::OnResize(new_size);
 
 #ifdef USE_MEMORY_CANVAS
-  screen->OnResize(new_size);
+  // Request resize instead of doing it immediately
+  // The actual resize will happen in the draw thread (Expose)
+  screen->RequestResize(new_size);
 #endif
 }
 
