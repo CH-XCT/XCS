@@ -21,7 +21,7 @@ void
 InfoBoxLook::Initialise(bool _inverse, bool use_colors,
                         unsigned width, unsigned scale_title_font)
 {
-  inverse = _inverse;
+  inverse = true;
 
   value.fg_color = title.fg_color = comment.fg_color =
     inverse ? COLOR_WHITE : COLOR_BLACK;
