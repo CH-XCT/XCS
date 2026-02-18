@@ -47,7 +47,7 @@ PLOF(NMEAInputLine &line, NMEAInfo &info)
   // Parse temperature (°C x 10 -> °C)
   if (line.ReadChecked(value)) {
     info.temperature = Temperature::FromCelsius(value / 10);
-    info.temperature_available = true;
+    info.temperature_available.Update(info.clock);
   }
 
   return true;
@@ -79,8 +79,8 @@ LoEFGRENCreateOnPort([[maybe_unused]] const DeviceConfig &config,
 }
 
 const struct DeviceRegister loe_fgren_driver = {
-  _T("LoEFGREN"),
-  _T("LöFGREN Variometer"),
+  "LoEFGREN",
+  "LöFGREN Variometer",
   0,
   LoEFGRENCreateOnPort,
 };
