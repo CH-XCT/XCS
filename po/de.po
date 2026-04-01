@@ -1178,11 +1178,11 @@ msgstr "Ballastabwurf gestoppt"
 
 #: src/Input/InputEventsSettings.cpp:224
 msgid "Ballast dump time is 0 in plane profile"
-msgstr "Die Ballastablasszeit beträgt im Ebenenprofil 0"
+msgstr "Die Ballastablasszeit beträgt im Flugzeug-Profil 0"
 
 #: src/Input/InputEventsSettings.cpp:229
 msgid "Ballast dump started"
-msgstr "Die Schotterentladung hat begonnen"
+msgstr "Ballast-Ablass hat begonnen"
 
 #: src/Input/InputEventsSettings.cpp:252
 #, no-c-format
@@ -1509,7 +1509,7 @@ msgstr ""
 #: src/Weather/Rasp/RaspStore.cpp:57
 #, no-c-format
 msgid "Sfc temp"
-msgstr "SFC-Temp"
+msgstr "Boden-Temp."
 
 #: src/Weather/Rasp/RaspStore.cpp:58
 #, no-c-format
@@ -1663,7 +1663,7 @@ msgstr "V opt"
 
 #: src/Renderer/TaskSpeedRenderer.cpp:32
 msgid "Vest"
-msgstr "Vvorraussichtlich"
+msgstr "Vvoraussichtlich"
 
 #: src/UIActions.cpp:32
 msgid "Quit program?"
@@ -3167,7 +3167,7 @@ msgid ""
 "Ballast dump time is 0 in plane profile.\n"
 "Open Plane configuration now?"
 msgstr ""
-"Die Ballastablasszeit beträgt im Ebenenprofil 0.\n"
+"Die Ballastablasszeit beträgt im Flugzeugprofil 0.\n"
 "Jetzt Open-Plane-Konfiguration?"
 
 #: src/Dialogs/Settings/dlgBasicSettings.cpp:175
@@ -4902,15 +4902,15 @@ msgstr "Hier kannst Du den Variostengel einschalten"
 
 #: src/Dialogs/Settings/Panels/GaugesConfigPanel.cpp:180
 msgid "No position target"
-msgstr "Kein Positionsziel"
+msgstr "Entfernungsring für Ziele ohne Position"
 
 #: src/Dialogs/Settings/Panels/GaugesConfigPanel.cpp:181
 msgid ""
 "This parameter enables or disables the No Position Target Distance Ring in "
 "Flarm Radar"
 msgstr ""
-"Dieser Parameter aktiviert oder deaktiviert den Entfernungsring fürZiele "
-"ohne Position im FLARM Radar"
+"Dieser Parameter aktiviert oder deaktiviert den Entfernungsring für "
+"Ziele ohne Position im FLARM Radar"
 
 #: src/Dialogs/Settings/Panels/VarioConfigPanel.cpp:41
 msgid "Speed arrows"
@@ -6279,7 +6279,7 @@ msgstr ""
 
 #: src/Dialogs/Settings/Panels/SiteConfigPanel.cpp:72
 msgid "WPT A/F details"
-msgstr "WPT A/F-Details"
+msgstr "WPT-, APT-Details"
 
 #: src/Dialogs/Settings/Panels/SiteConfigPanel.cpp:73
 msgid ""
@@ -7073,7 +7073,7 @@ msgstr "Geländekontrast"
 #: src/Dialogs/Settings/Panels/TerrainDisplayConfigPanel.cpp:258
 #, no-c-format
 msgid "High Contrast low lands"
-msgstr "Geländekontrast"
+msgstr "Geländekontrast Flachland"
 
 #: src/Dialogs/Settings/Panels/TerrainDisplayConfigPanel.cpp:259
 #, no-c-format
@@ -11843,7 +11843,7 @@ msgstr "Vorheriger Wegpunkt"
 #: Data/Input/default.xci:442 Data/Input/default.xci:545
 #: Data/Input/default.xci:1237
 msgid "Pilot event announced"
-msgstr "Pilotenevent angekündigt"
+msgstr "Pilot event angekündigt"
 
 #: Data/Input/default.xci:471
 msgid ""
