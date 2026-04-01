@@ -360,8 +360,7 @@ jobs:
             if [ ${{ matrix.target }} = 'MACOS' ]; then
               ./ide/provisioning/install-darwin-packages.sh MACOS
             elif [ ${{ matrix.target }} = 'IOS64' ]; then
-              # Workaround: also install macOS deps so macOS tests can run on iOS CI
-              ./ide/provisioning/install-darwin-packages.sh IOS MACOS
+              ./ide/provisioning/install-darwin-packages.sh IOS
             fi
           fi
           echo "git_hash=$(git rev-parse --short $GITHUB_SHA)" >> $GITHUB_ENV
@@ -430,9 +429,9 @@ jobs:
         shell: bash
         if: ${{ matrix.target == 'IOS64' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/apple-testing' || startsWith(github.ref, 'refs/tags/v')) }}
         run: |
-          if [ -n "${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}" ] && [ -n "${{ secrets.IOS_CERTIFICATE_PASSWORD }}" ]; then
+          if [ -n "${{ secrets.APPLE_CERTIFICATES_BASE64 }}" ] && [ -n "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" ]; then
             # Decode and import the certificate
-            echo "${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}" | base64 -d > ios-cert.p12
+            echo "${{ secrets.APPLE_CERTIFICATES_BASE64 }}" | base64 -d > ios-cert.p12
             
             # Create temporary keychain
             security create-keychain -p actions ios-build.keychain
@@ -441,7 +440,7 @@ jobs:
             security set-keychain-settings -t 3600 -u ios-build.keychain
             
             # Import certificate to keychain
-            security import ios-cert.p12 -k ios-build.keychain -P "${{ secrets.IOS_CERTIFICATE_PASSWORD }}" -T /usr/bin/codesign -T /usr/bin/security
+            security import ios-cert.p12 -k ios-build.keychain -P "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" -T /usr/bin/codesign -T /usr/bin/security
             security set-key-partition-list -S apple-tool:,apple: -s -k actions ios-build.keychain
             
             # Clean up certificate file
@@ -459,11 +458,11 @@ jobs:
 
       - name: Prepare macOS signing certificate and provisioning profile
         shell: bash
-        if: ${{ (matrix.target == 'IOS64' || matrix.target == 'MACOS') && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/apple-testing' || startsWith(github.ref, 'refs/tags/v')) }}
+        if: ${{ matrix.target == 'MACOS' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/apple-testing' || startsWith(github.ref, 'refs/tags/v')) }}
         run: |
-          if [ -n "${{ secrets.MACOS_CERTIFICATES_P12_BASE64 }}" ] && [ -n "${{ secrets.MACOS_CERTIFICATE_PASSWORD }}" ]; then
-            # Decode and import the certificate
-            echo "${{ secrets.MACOS_CERTIFICATES_P12_BASE64 }}" | base64 -d > macos-cert.p12
+          if [ -n "${{ secrets.APPLE_CERTIFICATES_BASE64 }}" ] && [ -n "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" ]; then
+            # Decode and import the macOS signing bundle
+            echo "${{ secrets.APPLE_CERTIFICATES_BASE64 }}" | base64 -d > macos-cert.p12
 
             # Create temporary keychain
             security create-keychain -p actions macos-build.keychain
@@ -471,10 +470,11 @@ jobs:
             security unlock-keychain -p actions macos-build.keychain
             security set-keychain-settings -t 3600 -u macos-build.keychain
 
-            # Import certificate to keychain
+            # Import all identities contained in the bundle to the keychain
             security import macos-cert.p12 -k macos-build.keychain \
-              -P "${{ secrets.MACOS_CERTIFICATE_PASSWORD }}" \
+              -P "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" \
               -T /usr/bin/codesign -T /usr/bin/security -T /usr/bin/productbuild
+
             security set-key-partition-list -S apple-tool:,apple: -s -k actions macos-build.keychain
 
             # Clean up certificate file
@@ -612,47 +612,83 @@ jobs:
       - name: Run tests before signing
         id: tests
         if: ${{ (matrix.target == 'IOS64' || matrix.target == 'MACOS') && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/apple-testing' || startsWith(github.ref, 'refs/tags/v')) }}
-        continue-on-error: true
         run: |
           echo "🧪 Running unit tests..."
-          # Run macOS unit tests for Apple builds.
-          gmake TARGET=MACOS check
+          if [ ${{ matrix.target }} = 'IOS64' ]; then
+            gmake check-ios-sim
+          else
+            gmake TARGET=MACOS check
+          fi
 
       - name: Sign iOS IPA
         id: sign_ios
         if: ${{ matrix.target == 'IOS64' && steps.tests.outcome == 'success' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/apple-testing' || startsWith(github.ref, 'refs/tags/v')) }}
         run: |
-          if [ -f "darwin/xcsoar.mobileprovision" ]; then
-            export IOS_CERTIFICATE_NAME="${{ secrets.IOS_CERTIFICATE_NAME || 'Apple Distribution' }}"
-            export IOS_PROFILE_PATH="darwin/xcsoar.mobileprovision"
-            
-            echo "📝 Signing iOS IPA..."
-            bash darwin/sign.sh
-            echo "✅ iOS IPA signed successfully"
-          else
-            echo "⚠️ No provisioning profile found, skipping signing"
+          export APPLE_DISTRIBUTION_CERTIFICATE_NAME="${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_NAME }}"
+          export IOS_PROFILE_PATH="darwin/xcsoar.mobileprovision"
+
+          if [ -z "${{ secrets.APPLE_CERTIFICATES_BASE64 }}" ] || [ -z "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" ]; then
+            echo "❌ iOS signing certificate not configured"
+            exit 1
           fi
+
+          if [ -z "$APPLE_DISTRIBUTION_CERTIFICATE_NAME" ]; then
+            echo "❌ APPLE_DISTRIBUTION_CERTIFICATE_NAME not configured"
+            exit 1
+          fi
+
+          if [ ! -f "$IOS_PROFILE_PATH" ]; then
+            echo "❌ iOS provisioning profile not found: $IOS_PROFILE_PATH"
+            exit 1
+          fi
+
+          echo "📝 Signing iOS IPA..."
+          bash darwin/sign.sh
+
+          if [ ! -f "output/IOS64/xcsoar-signed.ipa" ]; then
+            echo "❌ Signed iOS IPA not found after signing"
+            exit 1
+          fi
+
+          echo "✅ iOS IPA signed successfully"
 
       - name: Sign macOS package
         id: sign_macos
         if: ${{ matrix.target == 'MACOS' && steps.tests.outcome == 'success' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/apple-testing' || startsWith(github.ref, 'refs/tags/v')) }}
         env:
-          MACOS_CERTIFICATE_NAME: ${{ secrets.MACOS_CERTIFICATE_NAME }}
+          APPLE_DISTRIBUTION_CERTIFICATE_NAME: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_NAME }}
           MACOS_INSTALLER_CERTIFICATE_NAME: ${{ secrets.MACOS_INSTALLER_CERTIFICATE_NAME }}
           MACOS_PROFILE_PATH: darwin/xcsoar.macos.provisionprofile
         run: |
-          if [ -z "${{ secrets.MACOS_CERTIFICATES_P12_BASE64 }}" ] || [ -z "${{ secrets.MACOS_CERTIFICATE_PASSWORD }}" ]; then
-            echo "⚠️ macOS signing certificate not configured, skipping signing"
-            exit 0
+          if [ -z "${{ secrets.APPLE_CERTIFICATES_BASE64 }}" ] || [ -z "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" ]; then
+            echo "❌ macOS signing certificate not configured"
+            exit 1
           fi
 
-          if [ -f "$MACOS_PROFILE_PATH" ]; then
-            echo "📝 Signing macOS package..."
-            bash darwin/sign-macos.sh
-            echo "✅ macOS package signed successfully"
-          else
-            echo "⚠️ No provisioning profile found, skipping signing"
+          if [ -z "$APPLE_DISTRIBUTION_CERTIFICATE_NAME" ]; then
+            echo "❌ APPLE_DISTRIBUTION_CERTIFICATE_NAME not configured"
+            exit 1
           fi
+
+          if [ -z "$MACOS_INSTALLER_CERTIFICATE_NAME" ]; then
+            echo "❌ MACOS_INSTALLER_CERTIFICATE_NAME not configured"
+            exit 1
+          fi
+
+          if [ ! -f "$MACOS_PROFILE_PATH" ]; then
+            echo "❌ macOS provisioning profile not found: $MACOS_PROFILE_PATH"
+            exit 1
+          fi
+
+          echo "📝 Signing macOS package..."
+          bash darwin/sign-macos.sh
+
+          if [ ! -f "output/MACOS/XCSoar-signed.pkg" ]; then
+            echo "❌ Signed macOS package not found after signing"
+            exit 1
+          fi
+
+          echo "✅ macOS package signed successfully"
 
       - name: Upload to iOS TestFlight
         if: ${{ matrix.target == 'IOS64' && steps.tests.outcome == 'success' && steps.sign_ios.outcome == 'success' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/apple-testing' || startsWith(github.ref, 'refs/tags/v')) }}
@@ -664,13 +700,13 @@ jobs:
           IPA_PATH="output/IOS64/xcsoar-signed.ipa"
           
           if [ ! -f "$IPA_PATH" ]; then
-            echo "⚠️ Signed IPA not found: $IPA_PATH, skipping upload"
-            exit 0
+            echo "❌ Signed IPA not found: $IPA_PATH"
+            exit 1
           fi
           
           if [ -z "$APPLE_ID" ] || [ -z "$APP_SPECIFIC_PASSWORD" ]; then
-            echo "⚠️ TestFlight credentials not configured, skipping upload"
-            exit 0
+            echo "❌ TestFlight credentials not configured"
+            exit 1
           fi
           
           echo "📱 Uploading to App Store Connect / TestFlight..."
@@ -703,13 +739,13 @@ jobs:
           PKG_PATH="output/MACOS/XCSoar-signed.pkg"
 
           if [ ! -f "$PKG_PATH" ]; then
-            echo "⚠️ Signed pkg not found: $PKG_PATH, skipping upload"
-            exit 0
+            echo "❌ Signed pkg not found: $PKG_PATH"
+            exit 1
           fi
 
           if [ -z "$APPLE_ID" ] || [ -z "$APP_SPECIFIC_PASSWORD" ]; then
-            echo "⚠️ App Store Connect credentials not configured, skipping upload"
-            exit 0
+            echo "❌ App Store Connect credentials not configured"
+            exit 1
           fi
 
           echo "🖥️  Uploading to App Store Connect / TestFlight..."
@@ -773,6 +809,11 @@ jobs:
           UNSIGNED_IPA="output/IOS64/xcsoar.ipa"
           if [ -f "$SIGNED_IPA" ]; then
             echo "DEPLOY_SOURCE=$SIGNED_IPA" >> $GITHUB_ENV
+          elif [ "${{ github.ref }}" = "refs/heads/master" ] || \
+               [ "${{ github.ref }}" = "refs/heads/apple-testing" ] || \
+               [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "❌ Signed IPA required for ${{ github.ref }}, but not found: $SIGNED_IPA"
+            exit 1
           else
             echo "DEPLOY_SOURCE=$UNSIGNED_IPA" >> $GITHUB_ENV
           fi

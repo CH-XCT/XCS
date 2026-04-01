@@ -122,6 +122,7 @@ TEST_NAMES = \
 	TestPackedFloat \
 	TestVersionNumber \
 	TestWeglideScoring \
+	TestNetCoupeScoring \
 	TestDMStScoring \
 	TestHttpsVerify
 
@@ -740,6 +741,11 @@ TEST_DRIVER_SOURCES = \
 	$(SRC)/FLARM/Calculations.cpp \
 	$(SRC)/FLARM/List.cpp \
 	$(SRC)/FLARM/Details.cpp \
+	$(IO_SRC_DIR)/DataFile.cpp \
+	$(SRC)/FLARM/MessagingFile.cpp \
+	$(SRC)/LocalPath.cpp \
+	$(SRC)/Profile/FlarmProfile.cpp \
+	$(SRC)/Profile/Profile.cpp \
 	$(SRC)/IGC/IGCParser.cpp \
 	$(SRC)/IGC/Generator.cpp \
 	$(SRC)/Computer/ClimbAverageCalculator.cpp \
@@ -796,6 +802,9 @@ check: $(TESTS) | $(OUT)/test/dirstamp
 
 check-no-build: $(OUT)/test/dirstamp
 	$(PERL) $(TEST_SRC_DIR)/testall.pl $(TESTS)
+
+check-ios-sim:
+	$(Q)/usr/bin/env python3 $(topdir)/darwin/check-ios-sim.py
 
 DEBUG_PROGRAM_NAMES = \
 	test_reach \
@@ -2527,6 +2536,12 @@ TEST_WEGLIDE_SCORING_SOURCES = \
 	$(TEST_SRC_DIR)/TestWeglideScoring.cpp
 TEST_WEGLIDE_SCORING_DEPENDS = MATH
 $(eval $(call link-program,TestWeglideScoring,TEST_WEGLIDE_SCORING))
+
+TEST_NETCOUPE_SCORING_SOURCES = \
+	$(TEST_SRC_DIR)/tap.c \
+	$(TEST_SRC_DIR)/TestNetCoupeScoring.cpp
+TEST_NETCOUPE_SCORING_DEPENDS = MATH
+$(eval $(call link-program,TestNetCoupeScoring,TEST_NETCOUPE_SCORING))
 
 TEST_DMST_SCORING_SOURCES = \
 	$(TEST_SRC_DIR)/tap.c \
