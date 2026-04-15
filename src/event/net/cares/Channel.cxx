@@ -169,7 +169,7 @@ private:
 
     if (status != ARES_SUCCESS) {
       if (!success && --pending == 0) {
-        handler->OnCaresError(std::make_exception_ptr(Error(status, "ares_getaddrinfo() failed")));
+        // handler->OnCaresError(std::make_exception_ptr(Error(status, "ares_getaddrinfo() failed")));
         self.reset();
       } else if (success && --pending == 0) {
         handler->OnCaresSuccess();
