@@ -78,6 +78,7 @@ constexpr std::string_view WatchedWaypointFileList = "WatchedWPFileList"; // pL
 constexpr std::string_view LanguageFile = "LanguageFile"; // pL
 constexpr std::string_view InputFile = "InputFile"; // pL
 constexpr std::string_view ChecklistFile = "ChecklistFile"; // pL
+constexpr std::string_view UserRepositoriesList = "UserRepositoriesList";
 constexpr std::string_view PilotName = "PilotName";
 constexpr std::string_view WeGlideEnabled = "WeGlideEnabled";
 constexpr std::string_view WeGlidePilotID = "WeGlidePilotID";
@@ -105,6 +106,7 @@ constexpr std::string_view VarioGauge = "VarioGauge";
 constexpr std::string_view AppIndLandable = "AppIndLandable";
 constexpr std::string_view AppUseSWLandablesRendering = "AppUseSWLandablesRendering";
 constexpr std::string_view AppLandableRenderingScale = "AppLandableRenderingScale";
+constexpr std::string_view MapWaypointIconScale = "MapWaypointIconScale";
 constexpr std::string_view AppScaleRunwayLength = "AppScaleRunwayLength";
 
 /** deprecated, use #DarkMode */

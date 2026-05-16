@@ -299,6 +299,19 @@ WndProperty::DecValue() noexcept
 void
 WndProperty::OnPaint(Canvas &canvas) noexcept
 {
+  PixelRect visible_edit_rc = edit_rc;
+  const int canvas_width = (int)canvas.GetWidth();
+  const int canvas_height = (int)canvas.GetHeight();
+
+  if (visible_edit_rc.left < 0)
+    visible_edit_rc.left = 0;
+  if (visible_edit_rc.top < 0)
+    visible_edit_rc.top = 0;
+  if (visible_edit_rc.right > canvas_width)
+    visible_edit_rc.right = canvas_width;
+  if (visible_edit_rc.bottom > canvas_height)
+    visible_edit_rc.bottom = canvas_height;
+
   const bool focused = HasCursorKeys() && HasFocus();
 
   /* background and selector */
@@ -351,13 +364,12 @@ WndProperty::OnPaint(Canvas &canvas) noexcept
     text_color = look.list.focused.text_color;
   } else if (IsEnabled()) {
     if (IsReadOnly()) {
-      background_color = look.dark_mode
-        ? DarkColor(look.list.background_color)
-        : Color(0xf0, 0xf0, 0xf0);
+      background_color = look.ReadOnlyValueBackground();
+      text_color = look.list.text_color;
     } else {
       background_color = look.list.background_color;
+      text_color = look.list.text_color;
     }
-    text_color = look.list.text_color;
   } else {
     background_color = look.dark_mode
       ? DarkColor(look.list.background_color)
@@ -365,26 +377,28 @@ WndProperty::OnPaint(Canvas &canvas) noexcept
     text_color = look.dark_mode ? COLOR_GRAY : COLOR_DARK_GRAY;
   }
 
-  canvas.DrawFilledRectangle(edit_rc, background_color);
+  if (!visible_edit_rc.IsEmpty()) {
+    canvas.DrawFilledRectangle(visible_edit_rc, background_color);
 
-  canvas.SelectHollowBrush();
-  canvas.Select(Pen(Layout::ScaleFinePenWidth(1),
-                    look.dark_mode ? COLOR_GRAY : COLOR_BLACK));
-  canvas.DrawRectangle(edit_rc);
+    canvas.SelectHollowBrush();
+    canvas.Select(Pen(Layout::ScaleFinePenWidth(1),
+                      look.ReadOnlyValueBorderColor()));
+    canvas.DrawRectangle(visible_edit_rc);
+  }
 
-  if (!value.empty()) {
+  if (!value.empty() && !visible_edit_rc.IsEmpty()) {
     canvas.SetTextColor(text_color);
     canvas.SetBackgroundTransparent();
     canvas.Select(look.text_font);
 
-    const int x = edit_rc.left + Layout::GetTextPadding() * 2;
-    const int canvas_height = edit_rc.GetHeight();
+    const int x = visible_edit_rc.left + Layout::GetTextPadding() * 2;
+    const int control_height = visible_edit_rc.GetHeight();
     const int text_height = canvas.GetFontHeight();
-    const int y = edit_rc.top + (canvas_height - text_height) / 2;
+    const int y = visible_edit_rc.top + (control_height - text_height) / 2;
 
     // determine available pixel width for text inside edit rect
     const int avail = std::max(0,
-                  static_cast<int>(edit_rc.GetWidth()) -
+                  static_cast<int>(visible_edit_rc.GetWidth()) -
                   static_cast<int>(Layout::GetTextPadding()) * 4);
 
     // measure full text width

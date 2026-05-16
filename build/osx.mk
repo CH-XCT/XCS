@@ -26,6 +26,7 @@ APP_NAME = XCSoar.app
 DMG_NAME = XCSoar.dmg
 PKG_NAME = XCSoar.pkg
 MACOS_APP_BUNDLE_IDENTIFIER ?= org.xcsoar.XCSoar
+HDIUTIL_CREATE_DMG = hdiutil create -volname "$(OSX_APP_LABEL)" -srcfolder $(DMG_TMPDIR) -ov -format UDZO $@
 
 # Testing version uses red icon and "Testing" label
 ifeq ($(TESTING),y)
@@ -61,7 +62,7 @@ $(APP_BUNDLE): $(TARGET_BIN_DIR)/xcsoar Data/OSX/Info.plist.in.xml $(OSX_LOGO) $
 	@$(NQ)echo "  COPY    icon"
 	$(Q)cp $(OSX_LOGO) $(APP_RESOURCES)/logo_1024.icns
 	@$(NQ)echo "  COPY    third-party notices"
-	$(Q)cp doc/THIRD_PARTY_NOTICES.txt $(APP_RESOURCES)/ThirdPartyNotices.txt
+	$(Q)cp THIRD_PARTY_NOTICES.txt $(APP_RESOURCES)/ThirdPartyNotices.txt
 ifeq ($(USE_ANGLE),y)
 	@$(NQ)echo "  BUNDLE  ANGLE libraries"
 	$(Q)cp -a $(ANGLE_PREFIX)/lib/libEGL.dylib $(APP_FRAMEWORKS)/
@@ -160,7 +161,18 @@ $(TARGET_OUTPUT_DIR)/$(DMG_NAME): $(APP_BUNDLE)
 	$(Q)cp -a $(APP_BUNDLE) $(DMG_TMPDIR)/
 	$(Q)ln -s /Applications $(DMG_TMPDIR)/Applications
 	$(Q)rm -f $@
-	$(Q)hdiutil create -volname "$(OSX_APP_LABEL)" -srcfolder $(DMG_TMPDIR) -ov -format UDZO $@
+	# Work around intermittent "hdiutil create" failures seen on GitHub Actions macOS runners.
+	$(Q)for attempt in 1 2 3 4 5; do \
+		$(HDIUTIL_CREATE_DMG) && break; \
+		if [ $$attempt -eq 5 ]; then \
+			echo "  ERROR   hdiutil create failed after 5 attempts"; \
+			rm -f $@; \
+			exit 1; \
+		fi; \
+		echo "  WARN    hdiutil create failed (attempt $$attempt/5), retrying..."; \
+		rm -f $@; \
+		sleep 2; \
+	done
 
 # Build the .pkg installer
 $(TARGET_OUTPUT_DIR)/$(PKG_NAME): $(APP_BUNDLE)

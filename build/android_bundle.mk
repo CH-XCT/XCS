@@ -38,6 +38,8 @@ NATIVE_INCLUDE_DIR = $(TARGET_OUTPUT_DIR)/include
 
 BUNDLE_BUILD_DIR = $(TARGET_OUTPUT_DIR)/$(XCSOAR_ABI)/build
 ANDROID_BUNDLE_BASE = $(BUNDLE_BUILD_DIR)/base_module
+# Embedded by bundletool build-bundle; final APKs honor it via the AAB.
+BUNDLE_CONFIG = $(NO_ARCH_OUTPUT_DIR)/BundleConfig.json
 ANDROID_ABI_DIR = $(ANDROID_BUNDLE_BASE)/lib/$(ANDROID_APK_LIB_ABI)
 
 ANDROID_BIN = $(TARGET_BIN_DIR)
@@ -274,7 +276,7 @@ $(PNG5): $(DRAWABLE_DIR)/%.png: $(DATA)/graphics/%.bmp | $(DRAWABLE_DIR)/dirstam
 	$(Q)$(IM_PREFIX)convert $< $@
 
 ####### gesture icons from SVG sources
-GESTURES_ANDROID = down dl dr du left ldr ldrdl right rd rl up ud uldr urd urdl
+GESTURES_ANDROID = down dl dr du left ldr ldrdl lu right rd rl up ud uldr urd urdl
 PNG6 := $(addprefix $(DRAWABLE_DIR)/gesture_,$(addsuffix .png,$(GESTURES_ANDROID)))
 $(PNG6): $(DRAWABLE_DIR)/gesture_%.png: doc/manual/figures/gesture_%.svg | $(DRAWABLE_DIR)/dirstamp
 	$(Q)rsvg-convert --width=82 --height=82 $< -o $@
@@ -312,11 +314,14 @@ PNG_FILES = $(PNG1) $(PNG1b) $(PNG2) $(PNG3) $(PNG4) $(PNG5) $(PNG6) $(PNG7) $(P
 	$(RES_DIR)/drawable-xxhdpi/notification_icon.png \
 	$(RES_DIR)/drawable-xxxhdpi/notification_icon.png
 
-# Sounds
+# Sounds.  Raw .ogg must be stored uncompressed in the APK (-0 ogg on aapt2
+# link) and in the App Bundle (BUNDLE_CONFIG / build-bundle --config):
+# SoundPool uses openRawResourceFd, which does not work on deflated res/raw ogg.
 SOUNDS = fail insert remove beep_bweep beep_clear beep_drip
 SOUND_FILES = $(patsubst %,$(RAW_DIR)/%.ogg,$(SOUNDS))
 
-OGGENC = oggenc --quiet --quality 1
+# Vorbis -q 5: nominal quality (~160 kb/s class); was 1 for smallest APK
+OGGENC = oggenc --quiet --quality 5
 
 $(SOUND_FILES): $(RAW_DIR)/%.ogg: Data/sound/%.wav | $(RAW_DIR)/dirstamp
 	@$(NQ)echo "  OGGENC  $@"
@@ -338,6 +343,7 @@ $(PROTOBUF_OUT_DIR)/dirstamp: $(PNG_FILES) $(SOUND_FILES) $(ANDROID_XML_RES_COPI
 		--dir $(RES_DIR)
 	$(Q)rm -f $(COMPILED_RES_DIR)/*dirstamp.flat
 	$(Q)$(AAPT2) link --proto-format --auto-add-overlay \
+		-0 ogg \
 		--custom-package $(JAVA_PACKAGE) \
 		--manifest $(MANIFEST) \
 		-R $(COMPILED_RES_DIR)/*.flat \
@@ -408,10 +414,13 @@ $$(TARGET_OUTPUT_DIR)/$(2)/thirdparty.stamp: FORCE
 $$(TARGET_OUTPUT_DIR)/$(2)/$$(XCSOAR_ABI)/bin/lib$(1).so: $(NATIVE_HEADERS) generate boost FORCE
 	$$(Q)$$(MAKE) TARGET_OUTPUT_DIR=$$(TARGET_OUTPUT_DIR) TARGET=$(3) DEBUG=$$(DEBUG) USE_CCACHE=$$(USE_CCACHE) $$@
 
-# extract symbolication files for Google Play
-ANDROID_SYMBOLICATION_BUILD += $$(BUNDLE_BUILD_DIR)/symbols/$(2)/lib$(1).so
-$$(BUNDLE_BUILD_DIR)/symbols/$(2)/lib$(1).so: $$(TARGET_OUTPUT_DIR)/$(2)/$$(XCSOAR_ABI)/bin/lib$(1)-ns.so | $$(BUNDLE_BUILD_DIR)/symbols/$(2)/dirstamp
-	$$(Q)$$(TCPREFIX)objcopy$$(EXE) --strip-debug $$< $$@
+# Unstripped .so (paths lib/<ABI>/) for Google Play; must retain debug info.
+# Rely on lib$(1).so (submake) not lib$(1)-ns.so: fat-binary build omits -ns in
+# the parent graph; the submake still leaves the unstripped sibling when the
+# stripped .so is built.
+ANDROID_SYMBOLICATION_BUILD += $$(BUNDLE_BUILD_DIR)/symbols/lib/$(2)/lib$(1).so
+$$(BUNDLE_BUILD_DIR)/symbols/lib/$(2)/lib$(1).so: $$(TARGET_OUTPUT_DIR)/$(2)/$$(XCSOAR_ABI)/bin/lib$(1).so | $$(BUNDLE_BUILD_DIR)/symbols/lib/$(2)/dirstamp
+	$$(Q)cp $$(dir $$<)lib$(1)-ns.so $$@
 
 endef
 
@@ -429,10 +438,12 @@ $(foreach NAME,$(ANDROID_LIB_NAMES),$(eval $(call generate-all-abis,$(NAME))))
 libs: $(ANDROID_THIRDPARTY_STAMPS)
 compile: $(ANDROID_LIB_BUILD)
 
-# Generate symbols.zip (symbolication file) for Google Play, which
-# allows Google Play to show symbol names in stack traces.
+# Generate symbols.zip (native debug symbols) for Google Play, which
+# allows Google Play to symbolicate native crash stack traces.
+# Zip from inside lib/ so entries are <ABI>/lib*.so (Play rejects lib/<ABI>/...).
+# Only *.so: zipping "." also picked up Make dirstamps and failed Play validation.
 $(TARGET_OUTPUT_DIR)/symbols.zip: $(ANDROID_SYMBOLICATION_BUILD)
-	cd $(BUNDLE_BUILD_DIR)/symbols && $(ZIP) $(abspath $@) */*.so
+	cd $(BUNDLE_BUILD_DIR)/symbols/lib && find . -name '*.so' -print | $(ZIP) -r $(abspath $@) -@
 
 else # !FAT_BINARY
 
@@ -452,6 +463,14 @@ $(call SRC_TO_OBJ,$(SRC)/Android/FileProvider.cpp): $(NATIVE_HEADERS)
 ANDROID_LIB_BUILD = $(patsubst %,$(ANDROID_ABI_DIR)/lib%.so,$(ANDROID_LIB_NAMES))
 $(ANDROID_LIB_BUILD): $(ANDROID_ABI_DIR)/lib%.so: $(ABI_BIN_DIR)/lib%.so | $(ANDROID_ABI_DIR)/dirstamp
 	$(Q)cp $< $@
+
+# Native debug symbols for Google Play (single-ABI).  Staged under lib/<ABI>/.
+ANDROID_NATIVE_SYMBOL_LIBS = $(foreach N,$(ANDROID_LIB_NAMES),$(BUNDLE_BUILD_DIR)/native-debug-symbols/lib/$(ANDROID_APK_LIB_ABI)/lib$(N).so)
+$(BUNDLE_BUILD_DIR)/native-debug-symbols/lib/$(ANDROID_APK_LIB_ABI)/lib%.so: $(ABI_BIN_DIR)/lib%.so | $(BUNDLE_BUILD_DIR)/native-debug-symbols/lib/$(ANDROID_APK_LIB_ABI)/dirstamp
+	$(Q)cp $(ABI_BIN_DIR)/lib$*-ns.so $@
+
+$(TARGET_OUTPUT_DIR)/symbols.zip: $(ANDROID_NATIVE_SYMBOL_LIBS)
+	cd $(BUNDLE_BUILD_DIR)/native-debug-symbols/lib && find . -name '*.so' -print | $(ZIP) -r $(abspath $@) -@
 
 endif # !FAT_BINARY
 
@@ -488,6 +507,11 @@ endif
 
 ### Bundle and final APK build
 
+$(BUNDLE_CONFIG): | $(NO_ARCH_OUTPUT_DIR)/dirstamp
+	@$(NQ)echo "  GEN     $@"
+	$(Q)printf '%s\n' \
+		'{ "compression": { "uncompressedGlob": ["**/*.ogg"] } }' > $@
+
 $(BUNDLE_BUILD_DIR)/base.zip: $(PROTOBUF_OUT_DIR)/dirstamp $(NO_ARCH_OUTPUT_DIR)/classes.dex $(ANDROID_LIB_BUILD) | $(BUNDLE_BUILD_DIR)/dirstamp
 	@$(NQ)echo "  ZIP     $(notdir $@)"
 	$(Q)mkdir -p $(ANDROID_BUNDLE_BASE) && \
@@ -498,9 +522,10 @@ $(BUNDLE_BUILD_DIR)/base.zip: $(PROTOBUF_OUT_DIR)/dirstamp $(NO_ARCH_OUTPUT_DIR)
 		cp $(NO_ARCH_OUTPUT_DIR)/classes.dex $(ANDROID_BUNDLE_BASE)/dex/
 	$(Q)cd $(ANDROID_BUNDLE_BASE) && $(ZIP) -r $(abspath $@) . --exclude "*/dirstamp"
 
-$(BUNDLE_BUILD_DIR)/unsigned.aab: $(BUNDLE_BUILD_DIR)/base.zip
+$(BUNDLE_BUILD_DIR)/unsigned.aab: $(BUNDLE_BUILD_DIR)/base.zip $(BUNDLE_CONFIG)
 	@$(NQ)echo "  BUNDLE  $(notdir $@)"
-	$(Q)$(BUNDLETOOL) build-bundle --overwrite --modules $< --output $@
+	$(Q)$(BUNDLETOOL) build-bundle --overwrite --config=$(BUNDLE_CONFIG) \
+		--modules $< --output $@
 
 # Debug targets
 .DELETE_ON_ERROR: $(ANDROID_BIN)/XCSoar-debug.aab
