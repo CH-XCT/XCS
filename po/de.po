@@ -2139,7 +2139,17 @@ msgstr "Dies Option veranlasst XCSoar Einstellungen wie z.B. den MacCready Wert,
 msgid "Polar sync"
 msgstr "Polarabgleich"
 
-#: src/Dialogs/Device/DeviceEditWidget.cpp:445
+#: src/Dialogs/Device/DeviceEditWidget.cpp:375
+msgid ""
+"Synchronize the glide polar between XCSoar and the device. 'Receive' adopts "
+"the polar from the device (e.g. for club gliders). 'Send' pushes XCSoar's "
+"polar to the device."
+msgstr ""
+"Gleitpolare zwischen XCSoar und dem Gerät synchronisieren. 'Übernehmen' "
+"übernimmt die Polare vom Gerät (z. B. bei Vereinsflugzeugen). 'Senden' "
+"überträgt die XCSoar-Polare auf das Gerät."
+
+#: src/Dialogs/Device/DeviceEditWidget.cpp:382
 msgid "Whether you use a K6Bt to connect the device."
 msgstr "Aktiviere dies, wenn Du ein K6Bt angeschlossen hast."
 
@@ -3851,7 +3861,7 @@ msgstr "Wiedergabe"
 #: src/Dialogs/dlgQuickGuide.cpp:513 src/Dialogs/dlgQuickGuide.cpp:708
 #: Data/Input/default.xci:1143
 msgid "Quit"
-msgstr "Beenden"
+msgstr "XCSoar\nbeenden"
 
 #: src/Dialogs/SimulatorPromptWindow.cpp:122
 msgid "What do you want to do?"
@@ -3995,7 +4005,7 @@ msgstr "Verbleibende Distanz"
 
 #: src/Dialogs/StatusPanels/TaskStatusPanel.cpp:133
 msgid "Speed estimated"
-msgstr "Geschätze Geschwindigkeit"
+msgstr "Geschätzte Geschwindigkeit"
 
 #: src/Dialogs/StatusPanels/TaskStatusPanel.cpp:134
 msgid "Speed average"
@@ -9232,7 +9242,7 @@ msgstr ""
 #: src/InfoBoxes/Content/Factory.cpp:487
 #, no-c-format
 msgid "Next arrival time"
-msgstr "Nächster Wegpunkt - Ankunftszeit"
+msgstr "Nächster WP - Ankunftszeit"
 
 #: src/InfoBoxes/Content/Factory.cpp:488
 #, no-c-format
@@ -10031,7 +10041,7 @@ msgstr "Gegenwind *"
 #: src/InfoBoxes/Content/Factory.cpp:897
 #, no-c-format
 msgid "Current head wind component. The simplified head wind is calculated by subtracting GPS ground speed from TAS if airspeed is available from an external device."
-msgstr "Die aktuelle Gegenwindkomponente. Der vereinfachte Gegenwind wir als Differenz aus TAS (falls verfügbar) und der GPS Geschwindigkeit über Grund berechnet."
+msgstr "Die aktuelle Gegenwindkomponente. Der vereinfachte Gegenwind wird als Differenz aus TAS (falls verfügbar) und der GPS Geschwindigkeit über Grund berechnet."
 
 #: src/InfoBoxes/Content/Factory.cpp:902
 #, no-c-format
@@ -10408,17 +10418,17 @@ msgstr "Zeigt AAT-Delta-Zeit und geschätzte Ankunftszeit bei einer AAT-Aufgabe 
 #: src/InfoBoxes/Content/Factory.cpp:1130
 #, no-c-format
 msgid "Speed task estimated"
-msgstr "Geschätze Geschwindigkeit"
+msgstr "Geschätzte Geschwindigkeit"
 
 #: src/InfoBoxes/Content/Factory.cpp:1131
 #, no-c-format
 msgid "V Task Est"
-msgstr "V Aufg aktuell"
+msgstr "V Aufg geschätzt"
 
 #: src/InfoBoxes/Content/Factory.cpp:1132
 #, no-c-format
 msgid "Estimated average cross-country speed for current task as of task completion, assuming performance of ideal MacCready cruise/climb cycle."
-msgstr "Geschätzte Lokalzeit nach Vollendung der Aufgabe, basierend auf dem idealen MacCready Vorflug-Steig-Zyklus."
+msgstr "Geschätzte Schnittgeschwindigkeit nach Vollendung der Aufgabe, basierend auf dem idealen MacCready Vorflug-Steig-Zyklus."
 
 #: src/InfoBoxes/Content/Factory.cpp:1138
 #, no-c-format
@@ -10433,17 +10443,17 @@ msgstr "Heimdist"
 #: src/InfoBoxes/Content/Factory.cpp:1140
 #, no-c-format
 msgid "Arrival altitude at the home waypoint relative to the safety arrival height."
-msgstr "Ankunftshöhe am letzten Wendepunkt der Aufgabe, relativ zur eingestellten Sicherheitshöhe."
+msgstr "Ankunftshöhe am Heimatplatz, relativ zur eingestellten Sicherheitshöhe."
 
 #: src/InfoBoxes/Content/Factory.cpp:1146
 #, no-c-format
 msgid "Speed task leg"
-msgstr "Aufgabe - Durchschnittsgeschwindigkeit"
+msgstr "Schenkel - Durchschnittsgeschwindigkeit"
 
 #: src/InfoBoxes/Content/Factory.cpp:1147
 #, no-c-format
 msgid "V Task Leg"
-msgstr "V Aufgabe mittl"
+msgstr "V Schenkel mittl"
 
 #: src/InfoBoxes/Content/Factory.cpp:1148
 #, no-c-format
@@ -10453,7 +10463,7 @@ msgstr "Mittlere Geschwindigkeit über die Aufgabe, nicht höhenkompensiert."
 #: src/InfoBoxes/Content/Factory.cpp:1154
 #, no-c-format
 msgid "Alternate 1 altitude difference"
-msgstr "Nächster Wegpunkt - relative Ankunftshöhe"
+msgstr "Alternative 1 - Höhendifferenz"
 
 #: src/InfoBoxes/Content/Factory.cpp:1155
 #, no-c-format
@@ -10468,7 +10478,7 @@ msgstr "Ankunftshöhe am letzten Wendepunkt der Aufgabe, relativ zur eingestellt
 #: src/InfoBoxes/Content/Factory.cpp:1164
 #, no-c-format
 msgid "Alternate 2 altitude difference"
-msgstr "Nächster Wegpunkt - relative Ankunftshöhe"
+msgstr "Alternative 2 - Höhendifferenz"
 
 #: src/InfoBoxes/Content/Factory.cpp:1165
 #, no-c-format
@@ -10478,7 +10488,7 @@ msgstr "Altn 2"
 #: src/InfoBoxes/Content/Factory.cpp:1166
 #, no-c-format
 msgid "Arrival altitude at the second-best alternate landing location relative to the safety arrival height."
-msgstr "Ankunftshöhe am letzten Wendepunkt der Aufgabe, relativ zur eingestellten Sicherheitshöhe."
+msgstr "Ankunftshöhe an Alternative 2, relativ zur eingestellten Sicherheitshöhe."
 
 #: src/InfoBoxes/Content/Altitude.cpp:27
 #: src/MapWindow/GlueMapWindowOverlays.cpp:337
