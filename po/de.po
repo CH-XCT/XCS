@@ -10433,7 +10433,7 @@ msgstr "Geschätzte Schnittgeschwindigkeit nach Vollendung der Aufgabe, basieren
 #: src/InfoBoxes/Content/Factory.cpp:1138
 #, no-c-format
 msgid "Home altitude difference"
-msgstr "Nächster Wegpunkt - relative Ankunftshöhe"
+msgstr "Höhendifferenz zum Heimatplatz"
 
 #: src/InfoBoxes/Content/Factory.cpp:1139
 #, no-c-format
