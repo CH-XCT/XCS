@@ -2,14 +2,15 @@
 // Copyright The XCSoar Project
 
 #include "SiteConfigPanel.hpp"
-#include "Airspace/Patterns.hpp"
 #include "ConfigPanel.hpp"
 #include "Language/Language.hpp"
 #include "LocalPath.hpp"
 #include "Profile/Keys.hpp"
+#include "Repository/FileType.hpp"
+#include "Profile/Profile.hpp"
 #include "UIGlobals.hpp"
+#include "Repository/Glue.hpp"
 #include "UtilsSettings.hpp"
-#include "Waypoint/Patterns.hpp"
 #include "Widget/RowFormWidget.hpp"
 #include "system/Path.hpp"
 
@@ -23,6 +24,7 @@ enum ControlIndex {
   FlarmFile,
   RaspFile,
   ChecklistFile,
+  UserRepositoriesList
 };
 
 class SiteConfigPanel final : public RowFormWidget {
@@ -49,13 +51,15 @@ SiteConfigPanel::Prepare([[maybe_unused]] ContainerWindow &parent, [[maybe_unuse
   AddFile(_("Map database"),
           _("The name of the file (.xcm) containing terrain, topography, and optionally "
             "waypoints, their details and airspaces."),
-          ProfileKeys::MapFile, "*.xcm\0*.lkm\0", FileType::MAP);
+          ProfileKeys::MapFile, GetFileTypePatterns(FileType::MAP),
+          FileType::MAP);
 
   AddMultipleFiles(_("Waypoints"),
                    _("Primary waypoints files.  Supported file types are "
                      "Cambridge/WinPilot files (.dat), "
                      "Zander files (.wpz) or SeeYou files (.cup)."),
-                   ProfileKeys::WaypointFileList, WAYPOINT_FILE_PATTERNS,
+                   ProfileKeys::WaypointFileList,
+                   GetFileTypePatterns(FileType::WAYPOINT),
                    FileType::WAYPOINT);
 
   AddMultipleFiles(_("Watched WPTs"),
@@ -66,14 +70,16 @@ SiteConfigPanel::Prepare([[maybe_unused]] ContainerWindow &parent, [[maybe_unuse
                      "waypoints like known reliable thermal sources (e.g. "
                      "powerplants) or mountain passes."),
                    ProfileKeys::WatchedWaypointFileList,
-                   WAYPOINT_FILE_PATTERNS, FileType::WAYPOINT);
+                   GetFileTypePatterns(FileType::WAYPOINT),
+                   FileType::WAYPOINT);
   SetExpertRow(WatchedWaypointFileList);
 
   AddMultipleFiles(_("WPT A/F details"),
                    _("The files may contain extracts from enroute supplements "
                      "or other contributed "
                      "information about individual waypoints and airfields."),
-                   ProfileKeys::AirfieldFileList, "*.txt\0",
+                   ProfileKeys::AirfieldFileList,
+                   GetFileTypePatterns(FileType::WAYPOINTDETAILS),
                    FileType::WAYPOINTDETAILS);
   SetExpertRow(AirfieldFileList);
 
@@ -81,14 +87,15 @@ SiteConfigPanel::Prepare([[maybe_unused]] ContainerWindow &parent, [[maybe_unuse
                    _("List of active airspace files. Use the Add and Remove "
                      "buttons to activate or deactivate"
                      " airspace files respectively. Supported file types are: "
-                     "Openair (.txt /.air), and Tim Newport-Pearce (.sua)."),
-                   ProfileKeys::AirspaceFileList, AIRSPACE_FILE_PATTERNS,
+                     "Openair (.openair /.txt /.air), and Tim Newport-Pearce (.sua)."),
+                   ProfileKeys::AirspaceFileList,
+                   GetFileTypePatterns(FileType::AIRSPACE),
                    FileType::AIRSPACE);
 
   AddFile(_("FLARM database"),
-          _("The name of the file containing information about registered "
-            "FLARM devices."),
-          ProfileKeys::FlarmFile, "*.fln\0",
+          _("The name of the file containing information about registered FLARM devices."),
+          ProfileKeys::FlarmFile,
+          GetFileTypePatterns(FileType::FLARMNET),
           FileType::FLARMNET);
 
   AddFile("RASP",
@@ -97,13 +104,22 @@ SiteConfigPanel::Prepare([[maybe_unused]] ContainerWindow &parent, [[maybe_unuse
             "overlays for thermal strength, boundary layer winds, "
             "cloud cover, and other soaring-relevant parameters at "
             "various forecast times throughout the day."),
-          ProfileKeys::RaspFile, "*-rasp*.dat\0",
+          ProfileKeys::RaspFile,
+          GetFileTypePatterns(FileType::RASP),
           FileType::RASP);
 
   AddFile(_("Checklist"),
           _("The checklist file containing pre-flight and other checklists."),
-          ProfileKeys::ChecklistFile, "*.xcc\0xcsoar-checklist.txt\0",
+          ProfileKeys::ChecklistFile,
+          GetFileTypePatterns(FileType::CHECKLIST),
           FileType::CHECKLIST);
+  
+  const char *user_repositories_list_value = Profile::Get(ProfileKeys::UserRepositoriesList, "");
+
+  AddText(_("User repositories"),
+          _("List of additional user repository URIs, separated by '|' character."),
+          user_repositories_list_value);
+  SetExpertRow(UserRepositoriesList);
 }
 
 bool
@@ -129,11 +145,19 @@ SiteConfigPanel::Save(bool &_changed) noexcept
 
   RaspFileChanged = SaveValueFileReader(RaspFile, ProfileKeys::RaspFile);
 
-  bool ChecklistFileChanged = SaveValueFileReader(ChecklistFile, ProfileKeys::ChecklistFile);
+  ChecklistFileChanged = SaveValueFileReader(ChecklistFile, ProfileKeys::ChecklistFile);
+
+  const std::string old_repos{Profile::Get(ProfileKeys::UserRepositoriesList, "")};
+  std::string new_repos = old_repos;
+  UserRepositoriesListChanged = SaveValue(
+      UserRepositoriesList, ProfileKeys::UserRepositoriesList, new_repos);
+  if (UserRepositoriesListChanged)
+    PurgeChangedUserRepositoryFiles(old_repos.c_str(), new_repos.c_str());
 
   changed = WaypointFileChanged || AirfieldFileChanged ||
             AirspaceFileChanged || MapFileChanged || FlarmFileChanged ||
-            RaspFileChanged || ChecklistFileChanged;
+            RaspFileChanged || ChecklistFileChanged ||
+            UserRepositoriesListChanged;
 
   _changed |= changed;
 

@@ -91,6 +91,37 @@ type=key
 data=RETURN
 event=Traffic details
 
+# Traffic radar: F2/F3 zoom in/out, UP/DOWN and F1/F4 = next/prev target
+mode=default.Traffic Display1.Traffic Display2.Traffic
+type=key
+data=UP
+event=Traffic next
+
+mode=default.Traffic Display1.Traffic Display2.Traffic
+type=key
+data=DOWN
+event=Traffic previous
+
+mode=default.Traffic Display1.Traffic Display2.Traffic
+type=key
+data=F1
+event=Traffic previous
+
+mode=default.Traffic Display1.Traffic Display2.Traffic
+type=key
+data=F2
+event=Traffic zoom in
+
+mode=default.Traffic Display1.Traffic Display2.Traffic
+type=key
+data=F3
+event=Traffic zoom out
+
+mode=default.Traffic Display1.Traffic Display2.Traffic
+type=key
+data=F4
+event=Traffic next
+
 ###### pan mode
 
 mode=pan
@@ -115,35 +146,35 @@ event=Pan right
 
 mode=pan
 type=key
-data=APP1
-event=Pan off
-label=Cancel
+data=APP4
+event=NearestMapItems
+label=What's here?
 location=1
 
 mode=pan
 type=key
 data=APP2
 event=Zoom in
-label=Zoom\n+
+label=+
 location=2
 
 mode=pan
 type=key
 data=APP3
 event=Zoom out
-label=Zoom\n-
+label=-
 location=3
 
 mode=pan
 type=key
-data=APP4
-event=NearestMapItems
-label=What's here?
+data=ESCAPE
+event=Pan off
+label=Cancel
 location=4
 
 mode=pan
 type=key
-data=F1
+data=F2
 event=Zoom in
 location=5
 
@@ -158,6 +189,42 @@ type=key
 data=RETURN
 event=NearestMapItems
 location=7
+
+# Waypoint image: F2 / F3 = zoom in/out (same F-keys as pan and traffic; not on main map)
+mode=wptimg
+type=key
+data=F1
+event=WaypointImage reset
+
+mode=wptimg
+type=key
+data=F2
+event=WaypointImage magnify
+
+mode=wptimg
+type=key
+data=F3
+event=WaypointImage shrink
+
+mode=wptimg
+type=key
+data=LEFT
+event=WaypointImage left
+
+mode=wptimg
+type=key
+data=RIGHT
+event=WaypointImage right
+
+mode=wptimg
+type=key
+data=UP
+event=WaypointImage up
+
+mode=wptimg
+type=key
+data=DOWN
+event=WaypointImage down
 
 # ------------
 # mode=mc (MacCready adjustment)
@@ -228,6 +295,7 @@ type=key
 data=F1
 event=QuickMenu
 
+# Main map: F2/F3 = Checklist/FLARM (F2/F3 + … + F12 = classic row). F2/F3 = zoom in pan, wptimg, traffic only.
 mode=default
 type=key
 data=F2
@@ -334,7 +402,7 @@ event=Zoom in
 mode=default
 type=key
 data=RETURN
-event=FLARMRadar toggle
+event=Pan on
 event=ClearAirspaceWarnings
 event=ClearStatusMessages
 
@@ -415,6 +483,11 @@ mode=default
 type=gesture
 data=LDRDL
 event=Status all
+
+mode=default
+type=gesture
+data=LU
+event=GotoLookup recent
 
 ###
 
@@ -515,7 +588,7 @@ location=9
 
 mode=Nav2
 type=key
-data=APP1
+data=ESCAPE
 event=Mode default
 label=Cancel
 location=1
@@ -572,14 +645,14 @@ mode=Display1
 type=key
 data=6
 event=Zoom in
-label=Zoom\n+
+label=+
 location=5
 
 mode=Display1
 type=key
 data=7
 event=Zoom out
-label=Zoom\n-
+label=-
 location=6
 
 mode=Display1
@@ -610,7 +683,7 @@ location=9
 
 mode=Display2
 type=key
-data=APP2
+data=ESCAPE
 event=Mode default
 label=Cancel
 location=2
@@ -739,9 +812,9 @@ location=7
 mode=Config2
 type=key
 data=9
-event=FileManager
+event=DataManagement
 event=Mode default
-label=File Manager
+label=Data Management
 location=8
 
 mode=Config2
@@ -757,7 +830,7 @@ location=9
 # -------------
 mode=Config3
 type=key
-data=APP3
+data=ESCAPE
 event=Mode default
 label=Cancel
 location=3
@@ -977,7 +1050,7 @@ location=9
 # -------------
 mode=Info3
 type=key
-data=APP4
+data=ESCAPE
 event=Mode default
 label=Cancel
 location=4
@@ -1064,6 +1137,13 @@ location=7
 
 mode=Menu
 type=key
+data=ESCAPE
+event=Mode default
+label=Cancel
+location=8
+
+mode=Menu
+type=key
 data=0
 event=Exit system
 event=Mode default
@@ -1082,14 +1162,14 @@ mode=Display1.Traffic
 type=key
 data=6
 event=Traffic zoom in
-label=Zoom\n+
+label=+
 location=5
 
 mode=Display1.Traffic
 type=key
 data=7
 event=Traffic zoom out
-label=Zoom\n-
+label=-
 location=6
 
 mode=Display1.Traffic
@@ -1412,9 +1492,9 @@ location=36
 mode=RemoteStick
 type=key
 data=0
-event=FileManager
+event=DataManagement
 event=Mode default
-label=File Manager
+label=Data Management
 location=37
 
 mode=RemoteStick
@@ -1423,6 +1503,14 @@ data=0
 event=RepeatStatusMessage
 label=Message Repeat
 location=38
+
+mode=RemoteStick
+type=key
+data=0
+event=DistanceRings show
+event=DistanceRings toggle
+label=Dist. Rings\n$(DistanceRingsToggleActionName)
+location=39
 
 mode=RemoteStick
 type=key

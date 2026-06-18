@@ -17,16 +17,20 @@
 #include "Dialogs/Settings/Panels/InfoBoxesConfigPanel.hpp"
 #include "Dialogs/Settings/Panels/PagesConfigPanel.hpp"
 #include "Dialogs/Settings/Panels/WeGlideConfigPanel.hpp"
+#include "Dialogs/Settings/Panels/NetworkConfigPanel.hpp"
 #include "Dialogs/Settings/Panels/WeatherConfigPanel.hpp"
 #include "Dialogs/Settings/Panels/SafetyFactorsConfigPanel.hpp"
 #include "Dialogs/Settings/Panels/TrackingConfigPanel.hpp"
 #include "Dialogs/Settings/Panels/TerrainDisplayConfigPanel.hpp"
+#include "Dialogs/DataManagement/BackupRestorePanel.hpp"
 #include "Widget/Widget.hpp"
 #include "Look/DialogLook.hpp"
 #include "UIGlobals.hpp"
 #include "Interface.hpp"
 #include "MainWindow.hpp"
 #include "Profile/Profile.hpp"
+#include "UtilsSettings.hpp"
+#include "Computer/Settings.hpp"
 #include "Components.hpp"
 #include "BackendComponents.hpp"
 #include "DataComponents.hpp"
@@ -36,15 +40,28 @@ void
 ShowConfigPanel(const char *title,
                 std::unique_ptr<Widget> (*create_panel)())
 {
-  const DialogLook &look = UIGlobals::GetDialogLook();
-  WidgetDialog dialog(WidgetDialog::Full{}, UIGlobals::GetMainWindow(),
-                      look, title);
-  auto panel = create_panel();
-  dialog.FinishPreliminary(std::move(panel));
-  dialog.AddButton(_("Close"), mrOK);
-  dialog.ShowModal();
-  if (dialog.GetChanged())
-    Profile::Save();
+  const UISettings old_ui_settings = CommonInterface::GetUISettings();
+  SettingsEnter();
+
+  try {
+    const DialogLook &look = UIGlobals::GetDialogLook();
+    WidgetDialog dialog(WidgetDialog::Full{}, UIGlobals::GetMainWindow(),
+                        look, title);
+    auto panel = create_panel();
+    dialog.FinishPreliminary(std::move(panel));
+    dialog.AddButton(_("Close"), mrOK);
+    dialog.ShowModal();
+    if (dialog.GetChanged())
+      Profile::Save();
+  } catch (...) {
+    SettingsLeave(old_ui_settings);
+    throw;
+  }
+
+  /* Always run leave: resumes threads suspended in SettingsEnter() and
+     applies any change flags set by the panel Save() (same as
+     SystemConfiguration after dlgConfigurationShowModal). */
+  SettingsLeave(old_ui_settings);
 }
 
 /**
@@ -64,6 +81,7 @@ static constexpr ConfigPanelLink config_panel_links[] = {
   {"config/infoboxes",  N_("InfoBox Sets"), CreateInfoBoxesConfigPanel},
   {"config/pages",      N_("Pages"),      CreatePagesConfigPanel},
   {"config/weglide",    N_("WeGlide"),    CreateWeGlideConfigPanel},
+  {"config/network",    N_("Network"),    CreateNetworkConfigPanel},
   {"config/weather",    N_("Weather"),    CreateWeatherConfigPanel},
   {"config/safety",     N_("Safety Factors"), CreateSafetyFactorsConfigPanel},
   {"config/tracking",   N_("Tracking"),   CreateTrackingConfigPanel},
@@ -83,6 +101,7 @@ static constexpr SimpleDialogLink simple_dialog_links[] = {
   {"dialog/flight",    dlgBasicSettingsShowModal},
   {"dialog/wind",      ShowWindSettingsDialog},
   {"dialog/task",      dlgTaskManagerShowModal},
+  {"dialog/backup",    ShowBackupManagerDialog},
   {"dialog/gestures",  dlgGestureHelpShowModal},
 };
 

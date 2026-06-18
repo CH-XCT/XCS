@@ -385,6 +385,10 @@ public:
   WndProperty *AddEnum(const char *label, const char *help,
                        DataFieldListener *listener=nullptr) noexcept;
 
+  /**
+   * Add a string #DataField (editable).  To show read-only text that you
+   * update with #SetText, use #AddReadOnly instead.
+   */
   WndProperty *AddText(const char *label, const char *help,
                        const char *content,
                        DataFieldListener *listener=nullptr) noexcept;
@@ -510,7 +514,10 @@ public:
   }
 
   /**
-   * Update the text of a multi line control.
+   * Update the text of a read-only label row (no #DataField on the control).
+   * Use with rows from #AddReadOnly (plain string), or #Add (label, help, true)
+   * without a data field.  Do not use for #AddText (string editor), #AddInteger,
+   * #AddEnum, etc.; use #LoadValue / #LoadValueEnum instead.
    */
   void SetText(unsigned i, const char *text) noexcept {
     assert(text != nullptr);
@@ -673,6 +680,7 @@ public:
 
   bool SaveValue(unsigned i, RoughTime &value_r) const noexcept;
   bool SaveValue(unsigned i, char *string, size_t max_size) const noexcept;
+  bool SaveValue(unsigned i, std::string &string) const noexcept;
 
   template<size_t max>
   bool SaveValue(unsigned i, BasicStringBuffer<char, max> &value) const noexcept {
@@ -681,6 +689,9 @@ public:
 
   bool SaveValue(unsigned i, std::string_view profile_key,
                  char *string, size_t max_size) const noexcept;
+
+  bool SaveValue(unsigned i, std::string_view profile_key,
+                 std::string &string) const noexcept;
 
   template<size_t max>
   bool SaveValue(unsigned i, std::string_view profile_key,
@@ -764,6 +775,9 @@ protected:
 
   void NextControlRect(PixelRect &rc, unsigned height) noexcept {
     assert(IsDefined());
+
+    if (height == 0)
+      height = 1;
 
     rc.top = rc.bottom;
     rc.bottom = rc.top + height;

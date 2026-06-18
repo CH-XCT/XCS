@@ -4,12 +4,33 @@ from os.path import abspath
 from build.zlib import ZlibProject
 from build.autotools import AutotoolsProject
 from build.meson import MesonProject
-from build.cmake import CmakeProject
+from build.cmake import CmakeProject, configure as configure_cmake
 from build.openssl import OpenSSLProject
 from build.gcc import BinutilsProject, GccProject, GccBootstrapProject
 from build.linux import SabotageLinuxHeadersProject
 from build.lua import LuaProject
 from build.musl import MuslProject
+
+
+class LibPngProject(CmakeProject):
+    def configure(self, toolchain):
+        src = self.unpack(toolchain)
+        build = self.make_build_path(toolchain)
+
+        configure_args = list(self.configure_args)
+        if toolchain.is_windows:
+            configure_args += self.windows_configure_args
+        if toolchain.is_android:
+            configure_args += self.android_configure_args
+            if toolchain.is_aarch64:
+                # libpng 1.6.43 enables arm/filter_neon.S for aarch64, but that
+                # source is ARM32 assembly and fails with the Android arm64 toolchain.
+                configure_args.append("-DPNG_ARM_NEON=off")
+        if toolchain.is_darwin:
+            configure_args += self.darwin_configure_args
+
+        configure_cmake(toolchain, src, build, configure_args, self.env)
+        return build
 
 binutils = BinutilsProject(
     (
@@ -140,8 +161,8 @@ openssh = AutotoolsProject(
 )
 
 libfmt = CmakeProject(
-    "https://github.com/fmtlib/fmt/archive/11.1.4.tar.gz",
-    "ac366b7b4c2e9f0dde63a59b3feb5ee59b67974b14ee5dc9ea8ad78aa2c1ee1e",
+    "https://github.com/fmtlib/fmt/archive/11.2.0.tar.gz",
+    "bc23066d87ab3168f27cef3e97d545fa63314f5c79df5ea444d41d56f962c6af",
     "lib/libfmt.a",
     [
         "-DBUILD_SHARED_LIBS=OFF",
@@ -149,8 +170,8 @@ libfmt = CmakeProject(
         "-DFMT_TEST=OFF",
     ],
     name="fmt",
-    version="11.1.4",
-    base="fmt-11.1.4",
+    version="11.2.0",
+    base="fmt-11.2.0",
 )
 
 libsodium = AutotoolsProject(
@@ -197,6 +218,7 @@ freetype = MesonProject(
         "-Dpng=disabled",
         "-Dzlib=enabled",
     ],
+    patches=abspath("lib/freetype/patches"),
 )
 
 cares = CmakeProject(
@@ -304,7 +326,7 @@ proj = CmakeProject(
     patches=abspath("lib/proj/patches"),
 )
 
-libpng = CmakeProject(
+libpng = LibPngProject(
     (
         "https://pub.sortix.org/mirror/libpng/libpng-1.6.43.tar.xz",
         "http://downloads.sourceforge.net/project/libpng/libpng16/1.6.43/libpng-1.6.43.tar.xz",
@@ -323,11 +345,8 @@ libpng = CmakeProject(
 )
 
 libjpeg = CmakeProject(
-    (
-        "http://downloads.sourceforge.net/project/libjpeg-turbo/3.0.1/libjpeg-turbo-3.0.1.tar.gz",
-        "https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.0.1/libjpeg-turbo-3.0.1.tar.gz",
-    ),
-    "22429507714ae147b3acacd299e82099fce5d9f456882fc28e252e4579ba2a75",
+    "https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.1.4/libjpeg-turbo-3.1.4.tar.gz",
+    "e23d3ebb2c6ee4d0e2a5823dbb55b614845df5ea3435c956fed5cf04041a87ad",
     "lib/libjpeg.a",
     [
         "-DENABLE_STATIC=ON",
@@ -460,6 +479,16 @@ sdl2 = CmakeProject(
         "-DSDL_SNDIO=OFF",
         "-DSDL_LIBSAMPLERATE=OFF",
         "-DSDL_COCOA=OFF",
+    ],
+    windows_configure_args=[
+        # Windows-specific SDL2 options for OpenGL ES via ANGLE
+        "-DSDL_DIRECTX=OFF",
+        "-DSDL_WASAPI=OFF",
+        "-DSDL_RENDER_D3D=OFF",
+        "-DSDL_LOADSO=ON",  # Required for SDL_VIDEO on Windows
+        # Disable joystick/xinput to avoid mingw-w64 header conflicts
+        "-DSDL_JOYSTICK=OFF",
+        "-DSDL_XINPUT=OFF",
     ],
     patches=abspath("lib/sdl2/patches"),
 )

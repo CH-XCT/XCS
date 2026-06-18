@@ -7,6 +7,7 @@
 #include "Form/DataField/Enum.hpp"
 #include "Dialogs/Dialogs.h"
 #include "util/StringCompare.hxx"
+#include "util/StaticString.hxx"
 #include "Interface.hpp"
 #include "Language/Table.hpp"
 #include "Asset.hpp"
@@ -17,6 +18,7 @@
 #include "Language/Language.hpp"
 #include "UIGlobals.hpp"
 #include "Hardware/Vibrator.hpp"
+#include "Repository/FileType.hpp"
 
 using namespace std::chrono;
 
@@ -86,8 +88,8 @@ InterfaceConfigPanel::Prepare(ContainerWindow &parent,
     DataFieldEnum &df = *(DataFieldEnum *)wp_dpi->GetDataField();
     df.AddChoice(0, _("Automatic"));
     for (const unsigned *dpi = dpi_choices; dpi != dpi_choices_end; ++dpi) {
-      char buffer[20];
-      sprintf(buffer, _("%d dpi"), *dpi);
+      StaticString<20> buffer;
+      buffer.Format(_("%u dpi"), *dpi);
       df.AddChoice(*dpi, buffer);
     }
     df.SetValue(settings.custom_dpi);
@@ -98,7 +100,9 @@ InterfaceConfigPanel::Prepare(ContainerWindow &parent,
   AddFile(_("Events"),
           _("The Input Events file defines the menu system and how XCSoar responds to "
             "button presses and events from external devices."),
-          ProfileKeys::InputFile, "*.xci\0", FileType::XCI);
+          ProfileKeys::InputFile,
+          GetFileTypePatterns(FileType::XCI),
+          FileType::XCI);
   SetExpertRow(InputFile);
 
 #ifdef HAVE_NLS

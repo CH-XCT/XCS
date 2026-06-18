@@ -2,10 +2,13 @@
 // Copyright The XCSoar Project
 
 #include "RaspStore.hpp"
+#include "util/StringFormat.hpp"
 #include "Language/Language.hpp"
 #include "Units/Units.hpp"
 #include "system/ConvertPathName.hpp"
+#include "system/FileUtil.hpp"
 #include "system/Path.hpp"
+#include "time/BrokenDateTime.hpp"
 #include "io/ZipArchive.hpp"
 #include "util/StringCompare.hxx"
 #include "util/Macros.hpp"
@@ -80,6 +83,23 @@ RaspStore::MapItem::MapItem(const char *_name)
   std::fill_n(times, ARRAY_SIZE(times), false);
 }
 
+BrokenDateTime
+RaspStore::GetFileModifiedTime() const noexcept
+{
+  if (path == nullptr || path.empty() || !File::Exists(path))
+    return BrokenDateTime::Invalid();
+
+  const auto modified = File::GetLastModification(path);
+  if (modified == std::chrono::system_clock::time_point{})
+    return BrokenDateTime::Invalid();
+
+  const BrokenDateTime dt{modified};
+  if (!dt.IsPlausible())
+    return BrokenDateTime::Invalid();
+
+  return dt.ToLocal();
+}
+
 BrokenTime
 RaspStore::IndexToTime(unsigned index)
 {
@@ -89,7 +109,9 @@ RaspStore::IndexToTime(unsigned index)
 unsigned
 RaspStore::GetNearestTime(unsigned item_index, unsigned time_index) const
 {
-  assert(item_index < maps.size());
+  if (item_index >= maps.size() || time_index >= MAX_WEATHER_TIMES)
+    return MAX_WEATHER_TIMES;
+
   assert(time_index < MAX_WEATHER_TIMES);
 
   // scan forward to next valid time
@@ -108,19 +130,32 @@ bool
 RaspStore::WeatherFilename(char *filename, Path name,
                                           unsigned time_index)
 {
+  if (filename == nullptr || MAX_PATH <= 0)
+    return false;
+
+  filename[0] = '\0';
+
   const NarrowPathName narrow_name(name);
   if (!narrow_name.IsDefined())
     return false;
 
   const BrokenTime t = IndexToTime(time_index);
-  sprintf(filename, RASP_FORMAT,
-          (const char *)narrow_name, t.hour, t.minute);
+  const int n = StringFormat(filename, MAX_PATH, RASP_FORMAT,
+                         (const char *)narrow_name, t.hour, t.minute);
+  if (n < 0 || n >= MAX_PATH) {
+    filename[0] = '\0';
+    return false;
+  }
+
   return true;
 }
 
 std::unique_ptr<ZipArchive>
 RaspStore::OpenArchive() const
 {
+  if (path == nullptr || path.empty())
+    return nullptr;
+
   return std::make_unique<ZipArchive>(path);
 }
 

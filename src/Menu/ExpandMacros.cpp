@@ -348,6 +348,8 @@ LookupMacro(std::string_view name, bool &invalid) noexcept
     return GetMapSettings().terrain.enable ? _("Hide") : _("Show");
   } else if (name == "AirspaceToggleActionName") {
     return GetMapSettings().airspace.enable ? _("Hide") : _("Show");
+  } else if (name == "DistanceRingsToggleActionName") {
+    return GetMapSettings().distance_rings_enabled ? _("Hide") : _("Show");
   } else if (name == "MapLabelsToggleActionName") {
     static const char *const labels[] = {
       N_("All"),
@@ -417,7 +419,9 @@ LookupMacro(std::string_view name, bool &invalid) noexcept
     const PageLayout &page =
       CommonInterface::GetUISettings().pages.pages[PageActions::NextIndex()];
     return page.MakeTitle(CommonInterface::GetUISettings().info_boxes,
-                          std::span{label}, true);
+                          std::span{label},
+                          DataGlobals::GetRasp().get(),
+                          true);
   } else if (name == "CheckWeGlide") {
     invalid |= !CommonInterface::GetComputerSettings().weglide.enabled;
     return nullptr;

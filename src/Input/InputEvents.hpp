@@ -95,6 +95,19 @@ ProcessKey(Mode mode, unsigned key_code) noexcept;
 bool
 processKey(unsigned key) noexcept;
 
+/**
+ * Look up the input mode id from a name (from the ``.xci`` file) or
+ * -1 if unknown.  For use with #ProcessKeyInMode.
+ */
+[[gnu::pure]]
+int GetModeId(const char *name) noexcept;
+
+/**
+ * Dispatch a key for exactly one mode's map (no overlay, no
+ * default-mode key fallback), then run the event.
+ */
+bool ProcessKeyInMode(Mode mode, unsigned key_code) noexcept;
+
 bool
 processGesture(const char *data) noexcept;
 
@@ -168,6 +181,8 @@ void eventTaskTransition(const char *misc);
 void eventTerrainTopography(const char *misc);
 void eventTerrainTopology(const char *misc);
 void eventWaypointDetails(const char *misc);
+void eventWaypointDetailsPersistent(const char *misc);
+void eventWaypointImage(const char *misc);
 void eventWaypointEditor(const char *misc);
 void eventZoom(const char *misc);
 void eventBrightness(const char *misc);
@@ -188,6 +203,8 @@ void eventCredits(const char *misc);
 void eventWeather(const char *misc);
 void eventQuickMenu(const char *misc);
 void eventFileManager(const char *misc);
+void eventDataManagement(const char *misc);
+void eventExportFlights(const char *misc);
 void eventRunLuaFile(const char *misc);
 void eventResetTask(const char *misc);
 void eventLockScreen(const char *misc);
@@ -195,6 +212,7 @@ void eventExchangeFrequencies(const char *misc);
 void eventUploadIGCFile(const char *misc);
 void eventOrientationCruise(const char *misc);
 void eventOrientationCircling(const char *misc);
+void eventDistanceRings(const char *misc);
 // -------
 
 } // namespace InputEvents

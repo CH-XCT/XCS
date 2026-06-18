@@ -7,152 +7,120 @@
 #include "Weather/Rasp/RaspStore.hpp"
 #include "Profile/Keys.hpp"
 #include "Profile/Profile.hpp"
-#include "ui/control/List.hpp"
+#include "Form/Button.hpp"
 #include "Form/Edit.hpp"
-#include "Form/DataField/Enum.hpp"
-#include "Form/DataField/Listener.hpp"
+#include "Repository/FileType.hpp"
 #include "DataGlobals.hpp"
 #include "UIGlobals.hpp"
-#include "UIState.hpp"
-#include "ActionInterface.hpp"
+#include "UtilsSettings.hpp"
 #include "Language/Language.hpp"
-
-#include <stdio.h>
+#include "util/StaticString.hxx"
+#include "net/http/Features.hpp"
+#ifdef HAVE_DOWNLOAD_MANAGER
+#include "Dialogs/FileManager.hpp"
+#include "net/http/DownloadManager.hpp"
+#endif
 
 class RASPSettingsPanel final
   : public RowFormWidget {
 
   enum Controls {
     FILE,
-    ITEM,
-    TIME,
+    MODIFIED,
   };
 
   std::shared_ptr<RaspStore> rasp;
 
-  BrokenTime time;
+#ifdef HAVE_DOWNLOAD_MANAGER
+  Button *update_button = nullptr;
+#endif
+
+  void ReloadRasp();
+  void UpdateModifiedDisplay();
+  void UpdateClicked();
 
 public:
   explicit RASPSettingsPanel(std::shared_ptr<RaspStore> &&_rasp) noexcept
     :RowFormWidget(UIGlobals::GetDialogLook()),
      rasp(std::move(_rasp)) {}
 
-private:
-  void FillItemControl() noexcept;
-  void UpdateTimeControl() noexcept;
-
-  /* methods from Widget */
   void Prepare(ContainerWindow &parent, const PixelRect &rc) noexcept override;
   bool Save(bool &changed) noexcept override;
 };
 
 void
-RASPSettingsPanel::FillItemControl() noexcept
+RASPSettingsPanel::ReloadRasp()
 {
-  auto &df = (DataFieldEnum &)GetDataField(ITEM);
-
-  df.ClearChoices();
-  df.AddChoice(-1, "none", "none", nullptr);
-  for (unsigned i = 0; i < rasp->GetItemCount(); i++) {
-    const auto &mi = rasp->GetItemInfo(i);
-    const char *label = mi.label;
-    if (label != nullptr)
-      label = gettext(label);
-
-    const char *help = mi.help;
-    if (help != nullptr)
-      help = gettext(help);
-
-    df.AddChoice(i, mi.name, label, help);
-  }
-
-  const WeatherUIState &state = CommonInterface::GetUIState().weather;
-  df.SetValue(state.map);
-
-  GetControl(ITEM).RefreshDisplay();
+  rasp = LoadConfiguredRasp(false);
+  DataGlobals::SetRasp(rasp);
+  RaspFileChanged = true;
+  Profile::Save();
+  UpdateModifiedDisplay();
 }
 
 void
-RASPSettingsPanel::UpdateTimeControl() noexcept
+RASPSettingsPanel::UpdateModifiedDisplay()
 {
-  const DataFieldEnum &item = (const DataFieldEnum &)GetDataField(ITEM);
+  StaticString<32> buffer;
 
-  const int item_index = item.GetValue();
-  SetRowEnabled(TIME, item_index >= 0);
-
-  if (item_index >= 0) {
-    DataFieldEnum &time_df = (DataFieldEnum &)GetDataField(TIME);
-    time_df.ClearChoices();
-    time_df.addEnumText(_("Now"));
-
-    rasp->ForEachTime(item_index, [&time_df](BrokenTime t){
-        char timetext[10];
-        sprintf(timetext, "%02u:%02u", t.hour, t.minute);
-        time_df.addEnumText(timetext, t.GetMinuteOfDay());
-      });
-
-    if (time.IsPlausible())
-      time_df.SetValue(time.GetMinuteOfDay());
-    GetControl(TIME).RefreshDisplay();
+  if (rasp != nullptr) {
+    const BrokenDateTime modified = rasp->GetFileModifiedTime();
+    if (modified.IsPlausible()) {
+      buffer.Format("%04u-%02u-%02u %02u:%02u",
+                      modified.year, modified.month, modified.day,
+                      modified.hour, modified.minute);
+    }
   }
+
+  if (buffer.empty())
+    buffer = _("Unknown");
+
+  SetText(MODIFIED, buffer.c_str());
+}
+
+void
+RASPSettingsPanel::UpdateClicked()
+{
+#ifdef HAVE_DOWNLOAD_MANAGER
+  ShowFileManager();
+
+  const AllocatedPath profile_path = Profile::GetPath(ProfileKeys::RaspFile);
+  if (profile_path != nullptr)
+    LoadValue(FILE, Path(profile_path));
+
+  ReloadRasp();
+#endif
 }
 
 void
 RASPSettingsPanel::Prepare([[maybe_unused]] ContainerWindow &parent,
                            [[maybe_unused]] const PixelRect &rc) noexcept
 {
-  const WeatherUIState &state = CommonInterface::GetUIState().weather;
-  time = state.time;
-
-  WndProperty *wp;
-
-  wp = AddFile(_("File"), nullptr,
-               ProfileKeys::RaspFile, "*-rasp*.dat\0",
-               FileType::RASP);
+  WndProperty *wp = AddFile(_("File"), nullptr,
+                            ProfileKeys::RaspFile,
+                            GetFileTypePatterns(FileType::RASP),
+                            FileType::RASP);
   wp->GetDataField()->SetOnModified([this]{
     if (SaveValueFileReader(FILE, ProfileKeys::RaspFile)) {
-      rasp = LoadConfiguredRasp(false);
-      DataGlobals::SetRasp(rasp);
-      FillItemControl();
-      UpdateTimeControl();
-      Profile::Save();
+      ReloadRasp();
+      GetControl(FILE).RefreshDisplay();
     }
   });
 
-  wp = AddEnum(_("Field"), nullptr);
-  wp->GetDataField()->SetOnModified([this]{
-      UpdateTimeControl();
-  });
-  wp->GetDataField()->EnableItemHelp(true);
-  FillItemControl();
+  AddReadOnly(_("Modified"),
+              _("Local date and time of the selected RASP file."));
+  UpdateModifiedDisplay();
 
-  wp = AddEnum(_("Time"), nullptr);
-  // Initialize TIME field with at least "Now" to prevent assertion failures
-  // when GetValue() is called before UpdateTimeControl() completes
-  {
-    DataFieldEnum &time_df = (DataFieldEnum &)GetDataField(TIME);
-    time_df.ClearChoices();
-    time_df.addEnumText(_("Now"));
-  }
-  wp->GetDataField()->SetOnModified([this]{
-    const unsigned value = GetValueEnum(TIME);
-    time = value > 0
-      ? BrokenTime::FromMinuteOfDay(value)
-      : BrokenTime::Invalid();
-  });
-  UpdateTimeControl();
+#ifdef HAVE_DOWNLOAD_MANAGER
+  update_button = AddButton(_("Update"), [this]{ UpdateClicked(); });
+  if (!Net::DownloadManager::IsAvailable())
+    update_button->SetEnabled(false);
+#endif
 }
 
 bool
 RASPSettingsPanel::Save([[maybe_unused]] bool &_changed) noexcept
 {
-  WeatherUIState &state = CommonInterface::SetUIState().weather;
-
-  state.map = GetValueEnum(ITEM);
-  state.time = time;
-
-  ActionInterface::SendUIState(true);
-
   return true;
 }
 
@@ -162,10 +130,3 @@ CreateRaspWidget() noexcept
   auto rasp = DataGlobals::GetRasp();
   return std::make_unique<RASPSettingsPanel>(std::move(rasp));
 }
-
-/*
-  Todo:
-  - time based search
-  - Draw a legend on screen?
-  - Auto-advance time index of forecast if before current time
-*/

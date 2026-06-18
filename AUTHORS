@@ -32,6 +32,7 @@ The following people and organizations have contributed code to XCSoar:
  Roman Stoklasa <rstoki@gmail.com>
  Mateusz Pusz <mateusz.pusz@gmail.com>
  Google Inc., incl. Tom Stepleton <stepleton@google.com>
+ Igor Nazarenko <igor.n.nazarenko@gmail.com>
  James Ward <jamesward22@gmail.com>
  Santiago Berca <santiberca@yahoo.com.ar>
  Winfried Simon <winfried.simon@googlemail.com>
@@ -83,6 +84,7 @@ The following people and organizations have contributed code to XCSoar:
  Yorick Reum <xcsoar@yorickreum.de>
  kobedegeest <kobedegeest@gmail.com>
  B-4pt <bapt80@proton.me>
+ Dominic Spreitz <dominic@spreitz.de>
 
 Documentation:
 
@@ -255,6 +257,21 @@ zh_Hang (Traditional Chinese)
 *Contributions attributed to the LK8000 project (http://www.lk8000.it/)
 
 Libraries and code segments are included from the following projects:
+ Boost C++ libraries
+ https://www.boost.org/
+
+ CM4all libcommon
+ https://github.com/CM4all/libcommon
+
+ OpenGL Mathematics (GLM)
+ https://github.com/g-truc/glm
+
+ IOIO
+ https://github.com/ytai/ioio
+
+ UsbSerial for Android
+ https://github.com/felHR85/UsbSerial
+
  JasPer
  http://www.ece.uvic.ca/~mdadams/jasper/
 

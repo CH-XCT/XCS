@@ -21,9 +21,13 @@
 #include "UIUtil/GestureManager.hpp"
 #include "Formatter/UserUnits.hpp"
 #include "Renderer/UnitSymbolRenderer.hpp"
+#include "Renderer/BestCruiseArrowRenderer.hpp"
 #include "Input/InputEvents.hpp"
 #include "Interface.hpp"
 #include "Asset.hpp"
+#include "util/Macros.hpp"
+
+#include <algorithm>
 
 /**
  * A Window which renders FLARM traffic, with user interaction.
@@ -289,21 +293,21 @@ FlarmTrafficControl::PaintTaskDirection(Canvas &canvas) const
   canvas.Select(look.radar_pen);
   canvas.SelectHollowBrush();
 
-  BulkPixelPoint triangle[3];
-  triangle[0].x = 0;
-  triangle[0].y = -(int)radar_renderer.GetRadius() / Layout::FastScale(1) + 15;
-  triangle[1].x = 7;
-  triangle[1].y = triangle[0].y + 30;
-  triangle[2].x = -triangle[1].x;
-  triangle[2].y = triangle[1].y;
+  const unsigned radius = radar_renderer.GetRadius();
+  const unsigned mid_r = (radius / 2 + radius) / 2;
+  const int scale = BestCruiseArrowRenderer::GetScale();
+  const int y_offset =
+    BestCruiseArrowRenderer::YOffsetForRadius(mid_r, scale);
 
-  PolygonRotateShift(triangle, radar_renderer.GetCenter(),
+  BulkPixelPoint arrow[BestCruiseArrowRenderer::arrow_size];
+  BestCruiseArrowRenderer::Build(arrow, y_offset);
+
+  PolygonRotateShift(arrow, radar_renderer.GetCenter(),
                      task_direction - (enable_north_up ?
                                        Angle::Zero() : heading),
-                     Layout::FastScale(100u));
+                     scale);
 
-  // Draw the arrow
-  canvas.DrawPolygon(triangle, 3);
+  canvas.DrawPolygon(arrow, BestCruiseArrowRenderer::arrow_size);
 }
 
 void
@@ -572,7 +576,7 @@ FlarmTrafficControl::OpenDetails()
     return;
 
   // Show the details dialog
-  dlgFlarmTrafficDetailsShowModal(traffic->id);
+  (void)dlgFlarmTrafficDetailsShowModal(traffic->id);
 }
 
 static Button
@@ -628,13 +632,13 @@ TrafficWidget::Windows::UpdateLayout(const PixelRect &rc) noexcept
   view.Move(rc);
 
   const unsigned margin = Layout::Scale(1);
-  const unsigned button_height = Layout::GetMinimumControlHeight();
-  const unsigned button_width = std::max(unsigned(rc.right / 6),
-                                         button_height);
+  const unsigned button_height =
+    std::max(1u, Layout::GetMinimumControlHeight());
+  const unsigned button_width = std::max({unsigned(rc.right / 6),
+                                          button_height, margin + 1u});
 
   const int x1 = rc.right / 2;
   const int x0 = x1 - button_width;
-  const int x2 = x1 + button_width;
 
   const int y0 = margin;
   const int y1 = y0 + button_height;
@@ -643,24 +647,26 @@ TrafficWidget::Windows::UpdateLayout(const PixelRect &rc) noexcept
 
   PixelRect button_rc;
 
+  const int btn_w = std::max(1, int(button_width) - int(margin));
+
   button_rc.left = x0;
   button_rc.top = y0;
-  button_rc.right = x1 - margin;
+  button_rc.right = button_rc.left + btn_w;
   button_rc.bottom = y1;
   zoom_in_button.Move(button_rc);
 
   button_rc.left = x1;
-  button_rc.right = x2 - margin;
+  button_rc.right = button_rc.left + btn_w;
   zoom_out_button.Move(button_rc);
 
   button_rc.left = x0;
   button_rc.top = y2;
-  button_rc.right = x1 - margin;
+  button_rc.right = button_rc.left + btn_w;
   button_rc.bottom = y3;
   previous_item_button.Move(button_rc);
 
   button_rc.left = x1;
-  button_rc.right = x2 - margin;
+  button_rc.right = button_rc.left + btn_w;
   next_item_button.Move(button_rc);
 
   button_rc.left = margin;
@@ -876,24 +882,11 @@ FlarmTrafficControl::OnCancelMode() noexcept
 bool
 FlarmTrafficControl::OnKeyDown(unsigned key_code) noexcept
 {
-  switch (key_code) {
-  case KEY_UP:
-    if (!HasPointer())
-      break;
-
-    ZoomIn();
+  /* D-pad zoom was hard-coded here; zoom and target cycling are
+     defined in the ``.xci`` ``Traffic`` mode (e.g. F2/F4, UP/DOWN). */
+  if (InputEvents::processKey(key_code))
     return true;
-
-  case KEY_DOWN:
-    if (!HasPointer())
-      break;
-
-    ZoomOut();
-    return true;
-  }
-
-  return FlarmTrafficWindow::OnKeyDown(key_code) ||
-    InputEvents::processKey(key_code);
+  return FlarmTrafficWindow::OnKeyDown(key_code);
 }
 
 void

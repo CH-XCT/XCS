@@ -27,7 +27,7 @@ DeviceConfig::IsAvailable() const noexcept
     return true;
 
   case PortType::RFCOMM:
-  case PortType::BLE_HM10:
+  case PortType::BLE_SERIAL:
   case PortType::BLE_SENSOR:
   case PortType::RFCOMM_SERVER:
   case PortType::GLIDER_LINK:
@@ -80,7 +80,7 @@ DeviceConfig::ShouldReopenOnTimeout() const noexcept
 
   case PortType::RFCOMM:
   case PortType::BLE_SENSOR:
-  case PortType::BLE_HM10:
+  case PortType::BLE_SERIAL:
   case PortType::RFCOMM_SERVER:
   case PortType::ANDROID_USB_SERIAL:
   case PortType::IOIOUART:
@@ -182,6 +182,7 @@ DeviceConfig::Clear() noexcept
   enabled = true;
   sync_from_device = true;
   sync_to_device = true;
+  send_position = true;
   k6bt = false;
   polar_sync = PolarSync::OFF;
   engine_type = EngineType::NONE;
@@ -216,7 +217,7 @@ DeviceConfig::GetPortName(char *buffer, size_t max_size) const noexcept
     return buffer;
     }
 
-  case PortType::BLE_HM10: {
+  case PortType::BLE_SERIAL: {
     const char *name = bluetooth_mac.c_str();
 #ifdef ANDROID
     if (bluetooth_helper != nullptr) {

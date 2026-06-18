@@ -133,6 +133,9 @@ WndForm::OnResize(PixelSize new_size) noexcept
   ContainerWindow::OnResize(new_size);
   UpdateLayout();
   client_area.Move(client_rect);
+
+  if (client_layout_function)
+    client_layout_function();
 }
 
 void
@@ -241,7 +244,7 @@ WndForm::OnCancelMode() noexcept
   }
 }
 
-#ifdef _WIN32
+#ifdef USE_WINUSER
 
 bool
 WndForm::OnCommand(unsigned id, unsigned code) noexcept

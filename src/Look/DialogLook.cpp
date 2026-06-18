@@ -96,6 +96,35 @@ DialogLook::Initialise(bool _dark_mode)
   }
 
   button.Initialise(bold_font, dark_mode);
+
+  /* #ButtonState::SELECTED (action bar) matches a focused list row; in dark
+     mode use the same bright `focused` (COLOR_XCSOAR) as dialog/tab focus
+     list.focused in dark is darker (XCSOAR_DARK) */
+  {
+    if (dark_mode) {
+      button.selected.background_color = focused.background_color;
+      button.selected.foreground_color = focused.text_color;
+    } else {
+      const auto &h = list.focused;
+      button.selected.background_color = h.background_color;
+      button.selected.foreground_color = h.text_color;
+    }
+    button.selected.foreground_brush.Create(button.selected.foreground_color);
+    if (dark_mode) {
+      button.selected.CreateBorder(
+        LightColor(button.selected.background_color),
+        DarkColor(button.selected.background_color));
+    } else if (IsDithered()) {
+      button.selected.CreateBorder(COLOR_WHITE, COLOR_WHITE);
+    } else if (!HasColors()) {
+      button.selected.CreateBorder(LightColor(COLOR_DARK_GRAY), COLOR_BLACK);
+    } else {
+      button.selected.CreateBorder(
+        LightColor(button.selected.background_color),
+        DarkColor(button.selected.background_color));
+    }
+  }
+
   check_box.Initialise(text_font, dark_mode);
 
   list.font = &text_font;
@@ -108,4 +137,16 @@ DialogLook::SetBackgroundColor(Color color)
   background_color = color;
   background_gradient_top_color = color;
   background_brush.Create(color);
+}
+
+Color
+DialogLook::ReadOnlyValueBackground() const noexcept
+{
+  return dark_mode ? DarkColor(list.background_color) : Color(0xf0, 0xf0, 0xf0);
+}
+
+Color
+DialogLook::ReadOnlyValueBorderColor() const noexcept
+{
+  return dark_mode ? COLOR_GRAY : COLOR_BLACK;
 }

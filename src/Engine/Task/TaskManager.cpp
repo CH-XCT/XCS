@@ -263,6 +263,7 @@ TaskManager::Update(const AircraftState &state,
     Reset();
 
   if (ordered_task->TaskSize() > 1) {
+    ordered_task->SetPilotPevWindowSnapshot(common_stats.pev_start_time_span);
     // always update ordered task
     retval |= ordered_task->Update(state, state_last, glide_polar);
   }
@@ -402,6 +403,16 @@ TaskManager::SetGlidePolar(const GlidePolar &_glide_polar) noexcept
 
   safety_polar = glide_polar;
   safety_polar.SetMC(task_behaviour.safety_mc);
+}
+
+void
+TaskManager::SetDensityRatio(const double dr) noexcept
+{
+  if (!glide_polar.IsValid())
+    return;
+
+  glide_polar.SetDensityRatio(dr);
+  safety_polar.SetDensityRatio(dr);
 }
 
 bool

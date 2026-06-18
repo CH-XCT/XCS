@@ -574,7 +574,6 @@ TrafficListWidget::OnPaintItem(Canvas &canvas, PixelRect rc,
 
   const DialogLook &look = UIGlobals::GetDialogLook();
   const Font &name_font = *look.list.font_bold;
-  const Font &small_font = look.small_font;
 
   const unsigned text_padding = Layout::GetTextPadding();
   const unsigned frame_padding = text_padding / 2;
@@ -587,11 +586,11 @@ TrafficListWidget::OnPaintItem(Canvas &canvas, PixelRect rc,
   StaticString<256> tmp;
 
   if (item.IsFlarm()) {
-    if (info.callsign != nullptr && info.registration != nullptr)
+    if (!info.callsign.empty() && !info.registration.empty())
       tmp.Format("%s - %s - %s",
-                 info.callsign, info.registration, tmp_id);
-    else if (info.callsign != nullptr)
-      tmp.Format("%s - %s", info.callsign, tmp_id);
+                 info.callsign.c_str(), info.registration.c_str(), tmp_id);
+    else if (!info.callsign.empty())
+      tmp.Format("%s - %s", info.callsign.c_str(), tmp_id);
     else
       tmp.Format("%s", tmp_id);
 #ifdef HAVE_SKYLINES_TRACKING
@@ -635,8 +634,6 @@ TrafficListWidget::OnPaintItem(Canvas &canvas, PixelRect rc,
 
   row_renderer.DrawFirstRow(canvas, rc, tmp);
 
-  canvas.Select(small_font);
-
   /* draw bearing and distance on the right */
   if (item.vector.IsValid()) {
     row_renderer.DrawRightFirstRow(canvas, rc,
@@ -650,21 +647,21 @@ TrafficListWidget::OnPaintItem(Canvas &canvas, PixelRect rc,
   if (!info.IsEmpty()) {
     tmp.clear();
 
-    if (info.pilot != nullptr)
-      tmp = info.pilot;
+    if (!info.pilot.empty())
+      tmp = info.pilot.c_str();
 
-    if (info.plane_type != nullptr) {
+    if (!info.plane_type.empty()) {
       if (!tmp.empty())
         tmp.append(" - ");
 
-      tmp.append(info.plane_type);
+      tmp.append(info.plane_type.c_str());
     }
 
-    if (info.airfield != nullptr) {
+    if (!info.airfield.empty()) {
       if (!tmp.empty())
         tmp.append(" - ");
 
-      tmp.append(info.airfield);
+      tmp.append(info.airfield.c_str());
     }
 
     if (!tmp.empty())
@@ -702,7 +699,7 @@ TrafficListWidget::OpenDetails(unsigned index)
   Item &item = items[index];
 
   if (item.IsFlarm()) {
-    dlgFlarmTrafficDetailsShowModal(item.id);
+    (void)dlgFlarmTrafficDetailsShowModal(item.id);
     UpdateList();
   }
 }

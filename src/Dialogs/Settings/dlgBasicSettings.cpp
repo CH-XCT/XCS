@@ -13,6 +13,7 @@
 #include "Form/DataField/Listener.hpp"
 #include "UIGlobals.hpp"
 #include "Interface.hpp"
+#include "ActionInterface.hpp"
 #include "GlideSolvers/GlidePolar.hpp"
 #include "Task/ProtectedTaskManager.hpp"
 #include "Dialogs/Message.hpp"
@@ -237,17 +238,7 @@ FlightSetupPanel::SetBugs(double bugs) {
 void
 FlightSetupPanel::SetQNH(AtmosphericPressure qnh)
 {
-  const NMEAInfo &basic = CommonInterface::Basic();
-  ComputerSettings &settings_computer = CommonInterface::SetComputerSettings();
-
-  settings_computer.pressure = qnh;
-  settings_computer.pressure_available.Update(basic.clock);
-
-  if (backend_components && backend_components->devices) {
-    MessageOperationEnvironment env;
-    backend_components->devices->PutQNH(qnh, env);
-  }
-
+  ActionInterface::SetQNH(qnh, true);
   RefreshAltitudeControl();
 }
 
