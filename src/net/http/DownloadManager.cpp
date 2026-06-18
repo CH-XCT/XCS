@@ -9,6 +9,7 @@
 #include "lib/curl/Global.hxx"
 #include "Operation/ProgressListener.hpp"
 #include "LocalPath.hpp"
+#include "system/FileUtil.hpp"
 #include "thread/Mutex.hxx"
 #include "thread/SafeList.hxx"
 #include "co/InjectTask.hxx"
@@ -16,6 +17,7 @@
 #include <string>
 #include <list>
 #include <algorithm>
+#include <utility>
 
 #include <string.h>
 
@@ -57,7 +59,10 @@ class DownloadManagerThread final
 
   ThreadSafeList<Net::DownloadListener *> listeners;
 
+  bool shutting_down = false;
+
 public:
+  void BeginShutdown() noexcept;
   void AddListener(Net::DownloadListener &listener) noexcept {
     listeners.Add(&listener);
   }
@@ -82,6 +87,9 @@ public:
   }
 
   void Enqueue(const char *uri, Path path_relative) noexcept {
+    if (shutting_down)
+      return;
+
     queue.emplace_back(uri, path_relative);
 
     listeners.ForEach([path_relative](auto *listener){
@@ -145,8 +153,22 @@ DownloadToFile(CurlGlobal &curl,
 }
 
 void
+DownloadManagerThread::BeginShutdown() noexcept
+{
+  if (shutting_down)
+    return;
+
+  shutting_down = true;
+  task.Cancel();
+  queue.clear();
+  current_size = current_position = -1;
+}
+
+void
 DownloadManagerThread::Start() noexcept
 {
+  if (shutting_down)
+    return;
   assert(!queue.empty());
   assert(!task);
   assert(current_size == -1);
@@ -155,8 +177,12 @@ DownloadManagerThread::Start() noexcept
   const Item &item = queue.front();
   current_position = 0;
 
+  auto destination = LocalPath(item.path_relative.c_str());
+  if (const auto parent = destination.GetParent(); parent != nullptr)
+    Directory::CreateRecursive(parent);
+
   task.Start(DownloadToFile(*Net::curl, item.uri.c_str(),
-                            LocalPath(item.path_relative.c_str()),
+                            std::move(destination),
                             nullptr, *this),
              BIND_THIS_METHOD(OnCompletion));
 }
@@ -201,6 +227,8 @@ Net::DownloadManager::Initialise() noexcept
 void
 Net::DownloadManager::BeginDeinitialise() noexcept
 {
+  if (thread != nullptr)
+    thread->BeginShutdown();
 }
 
 void

@@ -288,7 +288,11 @@ GaugeVario::OnPaintBuffer(Canvas &canvas) noexcept
       ival_av_thermal = ValueToNeedlePos(Calculated().current_thermal.lift_rate);
   }
 
-  auto vval = Basic().brutto_vario;
+  auto vval = Basic().VarioOutputFilterActive()
+    ? (Basic().brutto_vario_available
+        ? Basic().FilteredBruttoVario()
+        : 0.)
+    : Basic().brutto_vario;
   ival = ValueToNeedlePos(vval);
   sval = ValueToNeedlePos(Calculated().sink_rate);
   if (Settings().show_average_needle) {
@@ -583,7 +587,8 @@ GaugeVario::RenderSpeedToFly(Canvas &canvas, int x, int y) noexcept
   // only draw speed command if flying and vario is not circling
   if ((Calculated().flight.flying)
       && (!Basic().gps.simulator || !Calculated().circling)) {
-    v_diff = Calculated().V_stf - Basic().indicated_airspeed;
+    /* V_stf is TAS (density-compensated); compare to actual TAS */
+    v_diff = Calculated().V_stf - Basic().true_airspeed;
     v_diff = std::clamp(v_diff, -DELTA_V_LIMIT, DELTA_V_LIMIT); // limit it
     v_diff = iround(v_diff/DELTA_V_STEP) * DELTA_V_STEP;
   } else

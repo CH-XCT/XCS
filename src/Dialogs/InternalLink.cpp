@@ -17,10 +17,12 @@
 #include "Dialogs/Settings/Panels/InfoBoxesConfigPanel.hpp"
 #include "Dialogs/Settings/Panels/PagesConfigPanel.hpp"
 #include "Dialogs/Settings/Panels/WeGlideConfigPanel.hpp"
+#include "Dialogs/Settings/Panels/NetworkConfigPanel.hpp"
 #include "Dialogs/Settings/Panels/WeatherConfigPanel.hpp"
 #include "Dialogs/Settings/Panels/SafetyFactorsConfigPanel.hpp"
 #include "Dialogs/Settings/Panels/TrackingConfigPanel.hpp"
 #include "Dialogs/Settings/Panels/TerrainDisplayConfigPanel.hpp"
+#include "Dialogs/DataManagement/BackupRestorePanel.hpp"
 #include "Widget/Widget.hpp"
 #include "Look/DialogLook.hpp"
 #include "UIGlobals.hpp"
@@ -79,6 +81,7 @@ static constexpr ConfigPanelLink config_panel_links[] = {
   {"config/infoboxes",  N_("InfoBox Sets"), CreateInfoBoxesConfigPanel},
   {"config/pages",      N_("Pages"),      CreatePagesConfigPanel},
   {"config/weglide",    N_("WeGlide"),    CreateWeGlideConfigPanel},
+  {"config/network",    N_("Network"),    CreateNetworkConfigPanel},
   {"config/weather",    N_("Weather"),    CreateWeatherConfigPanel},
   {"config/safety",     N_("Safety Factors"), CreateSafetyFactorsConfigPanel},
   {"config/tracking",   N_("Tracking"),   CreateTrackingConfigPanel},
@@ -98,6 +101,7 @@ static constexpr SimpleDialogLink simple_dialog_links[] = {
   {"dialog/flight",    dlgBasicSettingsShowModal},
   {"dialog/wind",      ShowWindSettingsDialog},
   {"dialog/task",      dlgTaskManagerShowModal},
+  {"dialog/backup",    ShowBackupManagerDialog},
   {"dialog/gestures",  dlgGestureHelpShowModal},
 };
 

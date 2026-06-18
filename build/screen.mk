@@ -13,6 +13,9 @@ endif
 ifeq ($(TARGET_IS_KOBO),y)
 CANVAS_FILES_CPP = $(CANVAS_SRC_DIR)/kobo/Files.cpp
 endif
+ifeq ($(HAVE_WIN32)$(FREETYPE),yy)
+CANVAS_FILES_CPP = $(CANVAS_SRC_DIR)/windows/Files.cpp
+endif
 
 SCREEN_SOURCES = \
 	$(SCREEN_SRC_DIR)/Debug.cpp \
@@ -74,18 +77,17 @@ endif
 
 ifeq ($(TARGET),ANDROID)
 SCREEN_SOURCES += \
+	$(SCREEN_CUSTOM_SOURCES_IMG) \
 	$(SCREEN_CUSTOM_SOURCES) \
 	$(SRC)/ui/display/egl/Display.cpp \
 	$(SRC)/ui/display/egl/ConfigChooser.cpp \
+	$(CANVAS_SRC_DIR)/custom/UncompressedImage.cpp \
 	$(CANVAS_SRC_DIR)/egl/TopCanvas.cpp \
 	$(WINDOW_SRC_DIR)/android/Window.cpp \
 	$(WINDOW_SRC_DIR)/android/TopWindow.cpp \
 	$(WINDOW_SRC_DIR)/android/SingleWindow.cpp \
 	$(CANVAS_SRC_DIR)/android/Bitmap.cpp \
 	$(CANVAS_SRC_DIR)/android/Font.cpp
-ifeq ($(TIFF),y)
-SCREEN_SOURCES += $(CANVAS_SRC_DIR)/custom/LibTiff.cpp
-endif
 endif
 
 ifeq ($(DITHER),y)
@@ -216,7 +218,7 @@ SCREEN_SOURCES += \
 	$(WINDOW_SRC_DIR)/fb/Window.cpp \
 	$(WINDOW_SRC_DIR)/fb/SingleWindow.cpp
 FB_CPPFLAGS = -DUSE_FB
-else ifeq ($(HAVE_WIN32),y)
+else ifeq ($(HAVE_WIN32)$(ENABLE_SDL),yn)
 SCREEN_SOURCES += \
 	$(SRC)/ui/display/gdi/Display.cpp \
 	$(CANVAS_SRC_DIR)/gdi/WindowCanvas.cpp \

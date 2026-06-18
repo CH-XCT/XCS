@@ -15,6 +15,7 @@ LIBMAPWINDOW_SOURCES = \
 	$(SRC)/Projection/MapWindowProjection.cpp \
 	$(SRC)/MapWindow/MapWindowRender.cpp \
 	$(SRC)/MapWindow/MapWindowSymbols.cpp \
+	$(SRC)/MapWindow/MapWindowDistanceRings.cpp \
 	$(SRC)/MapWindow/MapWindowContest.cpp \
 	$(SRC)/MapWindow/MapWindowTask.cpp \
 	$(SRC)/MapWindow/MapWindowThermal.cpp \
@@ -30,11 +31,19 @@ LIBMAPWINDOW_SOURCES = \
 	$(SRC)/MapWindow/TargetMapWindowEvents.cpp \
 	$(SRC)/MapWindow/TargetMapWindowDrag.cpp
 
+LIBMAPWINDOW_DEPENDS = SCREEN
+
 ifeq ($(OPENGL),y)
 LIBMAPWINDOW_SOURCES += \
 	$(SRC)/MapWindow/OverlayBitmap.cpp
-endif
 
-LIBMAPWINDOW_DEPENDS = SCREEN
+ifeq ($(SQLITE),y)
+LIBMAPWINDOW_SOURCES += \
+	$(SRC)/MapWindow/MbTilesDatabase.cpp \
+	$(SRC)/MapWindow/MbTilesOverlay.cpp
+
+LIBMAPWINDOW_DEPENDS += IO SQLITE
+endif
+endif
 
 $(eval $(call link-library,libmapwindow,LIBMAPWINDOW))

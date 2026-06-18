@@ -20,6 +20,15 @@ DIALOG_SOURCES = \
 	$(SRC)/Dialogs/JobDialog.cpp \
 	$(SRC)/Dialogs/WidgetDialog.cpp \
 	$(SRC)/Dialogs/FileManager.cpp \
+	$(SRC)/Dialogs/DataManagement/DataManagement.cpp \
+	$(SRC)/Dialogs/DataManagement/ExportFlightsPanel.cpp \
+	$(SRC)/Dialogs/DataManagement/BackupRestorePanel.cpp \
+	$(SRC)/Dialogs/DataManagement/ImportDataPanel.cpp \
+	$(SRC)/Dialogs/DataManagement/AdvancedFileExplorer.cpp \
+	$(SRC)/Dialogs/DataManagement/StorageLocationPickerDialog.cpp \
+	$(SRC)/io/TarBackup.cpp \
+	$(SRC)/Dialogs/DataManagement/FileTransferUtil.cpp \
+	$(SRC)/IGC/IgcMetaCache.cpp \
 	$(SRC)/Dialogs/Device/PortDataField.cpp \
 	$(SRC)/Dialogs/Device/PortPicker.cpp \
 	$(SRC)/Dialogs/Device/DeviceEditWidget.cpp \
@@ -54,6 +63,7 @@ DIALOG_SOURCES = \
 	$(SRC)/Dialogs/Airspace/AirspaceCRendererSettingsDialog.cpp \
 	$(SRC)/Dialogs/Airspace/AirspaceCRendererSettingsPanel.cpp \
 	$(SRC)/Dialogs/Airspace/dlgAirspaceWarnings.cpp \
+	$(if $(filter y,$(HAVE_HTTP)),$(SRC)/Dialogs/Airspace/NOTAMList.cpp) \
 	$(SRC)/Dialogs/Settings/WindSettingsPanel.cpp \
 	$(SRC)/Dialogs/Settings/WindSettingsDialog.cpp \
 	$(SRC)/Dialogs/Settings/dlgBasicSettings.cpp \
@@ -75,6 +85,7 @@ DIALOG_SOURCES = \
 	$(SRC)/Dialogs/FilePicker.cpp \
 	$(SRC)/Dialogs/MultiFilePicker.cpp \
 	$(SRC)/Dialogs/HelpDialog.cpp \
+	$(SRC)/Dialogs/WifiDialog.cpp \
 	$(SRC)/Dialogs/dlgInfoBoxAccess.cpp \
 	$(SRC)/Dialogs/ReplayDialog.cpp \
 	$(SRC)/Dialogs/dlgSimulatorPrompt.cpp \
@@ -99,6 +110,8 @@ DIALOG_SOURCES = \
 	$(SRC)/Dialogs/Waypoint/NearestWaypoint.cpp \
 	\
 	$(SRC)/Dialogs/Settings/Panels/AirspaceConfigPanel.cpp \
+	$(if $(filter y,$(HAVE_HTTP)),$(SRC)/Dialogs/Settings/Panels/NOTAMConfigPanel.cpp) \
+	$(if $(filter y,$(HAVE_HTTP)),$(SRC)/Dialogs/NOTAM/NOTAMMessageListener.cpp) \
 	$(SRC)/Dialogs/Settings/Panels/GaugesConfigPanel.cpp \
 	$(SRC)/Dialogs/Settings/Panels/VarioConfigPanel.cpp \
 	$(SRC)/Dialogs/Settings/Panels/GlideComputerConfigPanel.cpp \
@@ -108,6 +121,7 @@ DIALOG_SOURCES = \
 	$(SRC)/Dialogs/Settings/Panels/LayoutConfigPanel.cpp \
 	$(SRC)/Dialogs/Settings/Panels/LoggerConfigPanel.cpp \
 	$(SRC)/Dialogs/Settings/Panels/MapDisplayConfigPanel.cpp \
+	$(SRC)/Dialogs/Settings/Panels/NetworkConfigPanel.cpp \
 	$(SRC)/Dialogs/Settings/Panels/PagesConfigPanel.cpp \
 	$(SRC)/Dialogs/Settings/Panels/RouteConfigPanel.cpp \
 	$(SRC)/Dialogs/Settings/Panels/SafetyFactorsConfigPanel.cpp \
@@ -201,6 +215,8 @@ XCSOAR_SOURCES := \
 	$(SRC)/Engine/ThermalBand/ThermalSlice.cpp \
 	$(SRC)/Engine/ThermalBand/ThermalEncounterBand.cpp \
 	$(SRC)/Engine/ThermalBand/ThermalEncounterCollection.cpp \
+	$(SRC)/DataFileLayout.cpp \
+	$(SRC)/DataLayoutMigration.cpp \
 	$(SRC)/HorizonWidget.cpp \
 	$(SRC)/Renderer/TextRowRenderer.cpp \
 	$(SRC)/Renderer/TwoTextRowsRenderer.cpp \
@@ -247,6 +263,7 @@ XCSOAR_SOURCES := \
 	$(SRC)/util/MD5.cpp \
 	$(SRC)/system/OpenLink.cpp \
 	$(SRC)/util/MarkdownParser.cpp \
+	$(SRC)/util/UnescapeCString.cpp \
 	$(SRC)/Logger/NMEALogger.cpp \
 	$(SRC)/Logger/ExternalLogger.cpp \
 	$(SRC)/Logger/FlightLogger.cpp \
@@ -353,6 +370,7 @@ XCSOAR_SOURCES := \
 	$(SRC)/Renderer/MapItemListRenderer.cpp \
 	$(SRC)/Renderer/OZPreviewRenderer.cpp \
 	$(SRC)/Renderer/TrackLineRenderer.cpp \
+	$(SRC)/Renderer/TurnBackMarkerRenderer.cpp \
 	$(SRC)/Renderer/TrafficRenderer.cpp \
 	$(SRC)/Renderer/TrailRenderer.cpp \
 	$(SRC)/Renderer/UnitSymbolRenderer.cpp \
@@ -373,6 +391,7 @@ XCSOAR_SOURCES := \
 	$(SRC)/Weather/Rasp/RaspCache.cpp \
 	$(SRC)/Weather/Rasp/RaspRenderer.cpp \
 	$(SRC)/Weather/Rasp/RaspStyle.cpp \
+	$(SRC)/Weather/Rasp/FieldControls.cpp \
 	$(SRC)/Weather/Rasp/Configured.cpp \
 	\
 	$(SRC)/Blackboard/BlackboardListener.cpp \
@@ -415,6 +434,7 @@ XCSOAR_SOURCES := \
 	$(SRC)/Renderer/TaskLegRenderer.cpp \
 	$(SRC)/Renderer/TaskSpeedRenderer.cpp \
 	$(SRC)/Renderer/MapScaleRenderer.cpp \
+	$(SRC)/Renderer/DistanceRingsRenderer.cpp \
 	\
 	$(SRC)/Simulator.cpp \
 	$(SRC)/Asset.cpp \
@@ -427,6 +447,7 @@ XCSOAR_SOURCES := \
 	$(SRC)/Language/Language.cpp \
 	$(SRC)/Language/LanguageGlue.cpp \
 	$(SRC)/Language/Table.cpp \
+	$(SRC)/DataFilePath.cpp \
 	$(SRC)/LocalPath.cpp \
 	$(SRC)/UIActions.cpp \
 	$(SRC)/Interface.cpp \
@@ -482,11 +503,21 @@ XCSOAR_SOURCES := \
 	$(SRC)/Profile/DeviceConfig.cpp \
 	$(SRC)/Profile/InfoBoxConfig.cpp \
 	$(SRC)/Profile/AirspaceConfig.cpp \
+	$(if $(filter y,$(HAVE_HTTP)),$(SRC)/Profile/NotamConfig.cpp) \
 	$(SRC)/Profile/TerrainConfig.cpp \
 	$(SRC)/Profile/FlarmProfile.cpp \
 	\
 	$(SRC)/Repository/FileRepository.cpp \
+	$(SRC)/Repository/FileType.cpp \
 	$(SRC)/Repository/Parser.cpp \
+	\
+	$(SRC)/Storage/PlatformStorageMonitor.cpp \
+	$(SRC)/Storage/PlatformStorageHotplugMonitor.cpp \
+	$(SRC)/Storage/StorageManager.cpp \
+	$(SRC)/Storage/StorageEvents.cpp \
+	$(SRC)/Storage/DirEntry.cpp \
+	$(SRC)/Storage/StorageDevice.cpp \
+	$(SRC)/Storage/StorageUtil.cpp \
 	\
 	$(SRC)/Job/Thread.cpp \
 	$(SRC)/Job/Async.cpp \
@@ -546,14 +577,32 @@ XCSOAR_SOURCES := \
 	$(SRC)/Monitor/AllMonitors.cpp \
 	\
 	$(SRC)/Hardware/PowerGlobal.cpp \
-	$(SRC)/Hardware/Battery.cpp
+	$(SRC)/Hardware/Battery.cpp \
+
+ifneq ($(TARGET),ANDROID)
+ifeq ($(TARGET_IS_LINUX),y)
+	XCSOAR_SOURCES += \
+		$(SRC)/Storage/linux/LinuxStorageDevice.cpp \
+		$(SRC)/Storage/linux/LinuxStorageMonitor.cpp \
+		$(SRC)/Storage/linux/LinuxStorageHotplugMonitor.cpp
+endif
+endif
+
+ifeq ($(HAVE_WIN32),y)
+	XCSOAR_SOURCES += \
+		$(SRC)/Storage/win/WindowsStorageDevice.cpp \
+		$(SRC)/Storage/win/WindowsStorageMonitor.cpp \
+		$(SRC)/Storage/win/WindowsStorageHotplugMonitor.cpp \
+		$(SRC)/Storage/win/WinHotplugForward.cpp
+endif
 
 $(call SRC_TO_OBJ,$(SRC)/Dialogs/Inflate.cpp): CPPFLAGS += $(ZLIB_CPPFLAGS)
 
 ifeq ($(OPENGL),y)
 ifeq ($(HAVE_HTTP),y)
 XCSOAR_SOURCES += \
-	$(SRC)/Dialogs/Weather/MapOverlayWidget.cpp
+	$(SRC)/Dialogs/Weather/MapOverlayWidget.cpp \
+	$(SRC)/Dialogs/Weather/MapOverlayControlsWidget.cpp
 endif
 endif
 
@@ -614,6 +663,13 @@ XCSOAR_SOURCES += \
 	$(SRC)/Android/TextEntryDialog.cpp \
 	$(SRC)/Android/FileProvider.cpp \
 	$(SRC)/Android/ReceiveTask.cpp \
+	$(SRC)/Android/SAFHelper.cpp \
+	$(SRC)/Storage/android/SAFReader.cpp \
+	$(SRC)/Storage/android/SAFOutputStream.cpp \
+	$(SRC)/Storage/android/AndroidSAFStorageDevice.cpp \
+	$(SRC)/Android/StorageHotplugBridge.cpp \
+	$(SRC)/Storage/android/AndroidStorageMonitor.cpp \
+	$(SRC)/Storage/android/AndroidStorageHotplugMonitor.cpp \
 	$(SRC)/Android/Main.cpp
 
 else
@@ -654,6 +710,17 @@ XCSOAR_SOURCES += \
 	$(SRC)/Tracking/SkyLines/Glue.cpp \
 	$(SRC)/Tracking/TrackingGlue.cpp \
 	$(SRC)/NetComponents.cpp
+
+ifeq ($(OPENGL),y)
+XCSOAR_SOURCES += \
+	$(SRC)/Weather/EDL/Levels.cpp \
+	$(SRC)/Weather/EDL/TileStore.cpp \
+	$(SRC)/Weather/EDL/StateController.cpp \
+	$(SRC)/Weather/MapOverlay/EdlControlsModel.cpp \
+	$(SRC)/Weather/MapOverlay/RaspControlsModel.cpp \
+	$(SRC)/Weather/EDL/Glue.cpp \
+	$(SRC)/Weather/EDL/DownloadGlue.cpp
+endif
 else
 XCSOAR_SOURCES += \
 	$(SRC)/NetComponentsStub.cpp
@@ -662,6 +729,8 @@ endif
 ifeq ($(HAVE_PCM_PLAYER),y)
 XCSOAR_SOURCES += $(SRC)/Audio/VarioGlue.cpp
 endif
+
+include $(topdir)/build/net-wifi.mk
 
 XCSOAR_DEPENDS = \
 	FMT \
@@ -693,7 +762,12 @@ XCSOAR_DEPENDS = \
 ifeq ($(HAVE_HTTP),y)
 XCSOAR_DEPENDS += \
 	LIBHTTP \
-	LIBCLIENT
+	LIBCLIENT \
+	LIBNOTAM
+
+ifeq ($(OPENGL),y)
+XCSOAR_DEPENDS += SQLITE
+endif
 endif
 
 ifeq ($(TARGET_IS_DARWIN),y)

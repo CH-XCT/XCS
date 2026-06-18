@@ -574,7 +574,6 @@ TrafficListWidget::OnPaintItem(Canvas &canvas, PixelRect rc,
 
   const DialogLook &look = UIGlobals::GetDialogLook();
   const Font &name_font = *look.list.font_bold;
-  const Font &small_font = look.small_font;
 
   const unsigned text_padding = Layout::GetTextPadding();
   const unsigned frame_padding = text_padding / 2;
@@ -634,8 +633,6 @@ TrafficListWidget::OnPaintItem(Canvas &canvas, PixelRect rc,
   }
 
   row_renderer.DrawFirstRow(canvas, rc, tmp);
-
-  canvas.Select(small_font);
 
   /* draw bearing and distance on the right */
   if (item.vector.IsValid()) {
@@ -702,7 +699,7 @@ TrafficListWidget::OpenDetails(unsigned index)
   Item &item = items[index];
 
   if (item.IsFlarm()) {
-    dlgFlarmTrafficDetailsShowModal(item.id);
+    (void)dlgFlarmTrafficDetailsShowModal(item.id);
     UpdateList();
   }
 }

@@ -68,6 +68,42 @@ section tries to give a rough overview where you can find what.
 
 -  :file:`Engine/Route/`: the route planner (airspace and terrain)
 
+-  :file:`io/`: stream and file I/O (readers, writers, archives). Keep this
+   layer free of UI and backend singletons; device-specific listing belongs
+   in :file:`Storage/`
+
+-  :file:`Repository/`: filename patterns and typed data directories
+   (:file:`FileType`); see :doc:`data_directory` for the on-disk layout
+
+-  :file:`Storage/`: removable storage enumeration, hotplug monitors, and
+   the :file:`StorageDevice` abstraction (platform code in
+   :file:`Storage/linux/`, :file:`Storage/win/`, :file:`Storage/android/`)
+
+-  :file:`Device/`, :file:`Computer/`, :file:`Blackboard/`: sensor drivers,
+   glide computer, and thread-specific data copies
+
+-  :file:`Dialogs/DataManagement/`: data management UI (import, export,
+   backup, file explorer)
+
+Layer dependencies
+~~~~~~~~~~~~~~~~~~
+
+Rough dependency direction (see also project rules in
+:file:`.cursor/rules/xcsoar-project-rules.mdc`):
+
+- **Foundation** (:file:`util/`, :file:`Math/`, :file:`Geo/`, :file:`io/`,
+  :file:`system/`) must not include Engine, Backend, or UI headers.
+
+- **Engine** uses Foundation only.
+
+- **Backend** (:file:`Device/`, :file:`Computer/`, :file:`Storage/`,
+  :file:`NOTAM/`, …) uses Foundation and Engine. Access UI only through
+  event queues (:file:`InputEvents`, :file:`UI::Notify`), not dialogs.
+
+- **UI** (:file:`Dialogs/`, :file:`Form/`, :file:`Interface.hpp`) may use all
+  layers below it. Helpers such as :file:`Storage/StorageUtil.cpp` that read
+  :file:`BackendComponents` are backend/UI glue, not Foundation.
+
 Threads and Locking
 -------------------
 
@@ -124,6 +160,132 @@ for events which the Java part drops into the event queue
 thread, it is implemented with Java callbacks. For Bluetooth I/O, there
 are two threads implemented in Java (:file:`InputThread.java` and
 :file:`OutputThread.java`, managed by :file:`BluetoothHelper.java`).
+
+Network thread and background HTTP
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+In addition to the sensor and UI threads above, XCSoar runs a dedicated
+**asio event-loop thread** (:file:`io/async/GlobalAsioThread.cpp`,
+started from :file:`XCSoar.cpp`). It hosts :file:`CurlGlobal` and runs
+coroutines injected with :file:`Co::InjectTask` / :file:`Net::AsyncTask`.
+
+Typical uses:
+
+- NOTAM fetches (:file:`NOTAM/NOTAMGlue.cpp`)
+- EDL tile downloads (:file:`Weather/EDL/DownloadGlue.cpp`)
+- TIM thermal index, LiveTrack24, SkyLines, and similar clients in
+  :file:`NetComponents.hpp`
+
+The **UI thread** (main event loop) must not perform blocking network
+I/O during flight. Long-lived background work belongs on the network
+thread; **modal** downloads tied to one dialog may still use
+:file:`ShowCoDialog` on the UI thread.
+
+Thread rules (same as for :file:`Interface.hpp` elsewhere):
+
+- **Do not** call :file:`CommonInterface`, :file:`ActionInterface`, or
+  other UI-only APIs from the network thread. ``InMainThread()`` checks
+  will fail.
+- **Do** read any UI state needed for a download on the **main thread**
+  before starting the coroutine (for example forecast time and isobar
+  for EDL tiles), and pass snapshots into the network work.
+- **Do** report completion to the UI with :file:`UI::Notify`
+  (:file:`ui/event/Notify.cpp`), which queues a callback on the main
+  event loop. Apply overlays, update status labels, and call
+  :file:`ActionInterface::SendUIState` only from that callback.
+
+**NetComponents** (:file:`NetComponents.hpp`) owns long-lived network
+clients. Each client that uses :file:`Net::AsyncTask` should implement
+``BeginShutdown()`` and be stopped from
+``NetComponents::BeginShutdown()`` before the map and other UI are
+torn down. The global pointer is cleared later in :file:`Startup.cpp`
+(``DestroyNetComponents``).
+
+**Shutdown order** (see :file:`Startup.cpp`; simplified):
+
+1. ``NetComponents::BeginShutdown()`` — cancel coroutines and queued
+   downloads; clear map pointers to TIM / SkyLines data
+2. ``MainWindow::BeginShutdown()``; stop merge and calculation threads;
+   join them; deinitialise map and devices
+3. ``MainWindow::DeinitialiseStorage()`` — unregister storage UI listeners
+4. ``StorageManager::StopMonitoring()`` — stop hotplug; destructor joins
+   the enumeration worker when ``delete backend_components`` runs
+5. ``delete backend_components`` and ``delete data_components``
+6. ``DestroyNetComponents()``; destroy :file:`MainWindow`
+7. On process exit, :file:`Net::Deinitialise` destroys :file:`CurlGlobal` on
+   the **asio** thread (:file:`DrainCurl` in :file:`net/http/Init.cpp`)
+
+**Deferred UI refresh:** callbacks such as async terrain load or
+blackboard updates must not call :file:`PageActions::Update` or
+:file:`ActionInterface::SendUIState` synchronously if that can re-enter
+layout while InfoBoxes are being created. Use
+:file:`MainWindow::SchedulePageActionsUpdate` and
+:file:`ScheduleRefreshInfoBoxes` instead (next event-loop iteration).
+:file:`InfoBoxManager` skips work until ``Create()`` has finished
+(``infoboxes_ready``).
+
+**Weather overlays:** map overlays may combine a **blackboard listener**
+(ongoing GPS/time sync, for example :file:`Weather/EDL/Glue.cpp`) with a
+**download glue** in :file:`NetComponents` (HTTP fetch and cache, for
+example :file:`Weather/EDL/DownloadGlue.cpp`). New providers (such as
+XCTherm) should follow the same split: listener on the UI thread,
+network I/O on the asio thread, UI updates via :file:`UI::Notify`.
+
+Background file jobs
+~~~~~~~~~~~~~~~~~~~~
+
+Not all background work uses the network thread. **Local file jobs**
+(tar backup/restore, import/export copies, device enumeration) use other
+mechanisms:
+
+- **Modal progress on the UI thread:** :file:`JobDialog` runs a
+  :file:`Job` subclass on a short-lived worker thread
+  (:file:`Job/Thread.cpp`) while showing :file:`ProgressDialog`. The UI
+  thread stays responsive; progress is reported through
+  :file:`OperationEnvironment`.
+
+- **Modal network work:** :file:`ShowCoDialog` runs a coroutine on the
+  asio thread (see above). Do not use :file:`JobDialog` for HTTP.
+
+- **Fire-and-forget helpers:** some UI actions start a detached
+  :file:`std::thread` for a single task (for example deleting a file on
+  removable media). Keep captured state alive (for example
+  :file:`std::shared_ptr<StorageDevice>`) and avoid UI calls from that
+  thread.
+
+When modifying shared backend data (waypoints, airspaces) during such
+jobs, use :file:`ScopeSuspendAllThreads` from :file:`Protection.hpp` where
+appropriate.
+
+Storage and removable media
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**BackendComponents** (:file:`BackendComponents.hpp`) owns backend
+singletons including :file:`storage_manager` (:file:`StorageManager`).
+:file:`NetComponents` is separate and holds long-lived HTTP clients only.
+
+:file:`StorageManager` (:file:`Storage/StorageManager.cpp`):
+
+- Owns the platform hotplug monitor and storage enumerator.
+- Receives topology events (from a platform worker or the UI event loop,
+  depending on the backend).
+- Runs device re-enumeration on a **dedicated worker thread** so sysfs,
+  Win32, or SAF walks do not block the UI.
+- Invokes a constructor-supplied ``NotifyCallback`` (wired in
+  :file:`Startup.cpp` to :file:`MainWindow::SendStorageNotification`) so
+  the UI thread calls :file:`ProcessPendingChanges()` and dispatches
+  :file:`StorageEvent` notifications to listeners.
+
+UI code registers :file:`StorageEventListener` instances on the main
+thread (for example :file:`StorageLocationPickerDialog`). Use
+:file:`StorageUtil` (:file:`FindDeviceByName`, :file:`FormatStorageCaption`,
+:file:`EnumerateTarFiles`) from UI or backend glue — not from Foundation
+:file:`io/` (stream-only tar create/restore lives in :file:`io/TarBackup`).
+
+**Thread lifetime:** when starting a new storage worker, join any
+**finished** previous :file:`std::thread` before move-assigning a new one;
+otherwise the C++ runtime calls ``std::terminate()``. The destructor
+joins the worker after :file:`StopMonitoring()`.
 
 Locking
 ~~~~~~~

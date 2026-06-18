@@ -25,8 +25,14 @@ endif
 
 OS_DEPENDS = UTIL
 
+ifeq ($(HAVE_POSIX),n)
+# EventPipe.cxx uses SocketDescriptor on Windows
+OS_DEPENDS += LIBNET
+endif
+
 $(eval $(call link-library,libos,OS))
 
 ifeq ($(HAVE_POSIX),n)
 OS_LDLIBS += -lws2_32
+OS_LDLIBS += -lwininet
 endif

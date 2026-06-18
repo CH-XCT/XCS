@@ -11,6 +11,7 @@
 #include "Device/Driver/CAI302.hpp"
 #include "Device/Driver/CProbe.hpp"
 #include "Device/Driver/Condor.hpp"
+#include "Device/Driver/Condor3UDP.hpp"
 #include "Device/Driver/EW.hpp"
 #include "Device/Driver/EWMicroRecorder.hpp"
 #include "Device/Driver/Eye.hpp"
@@ -54,6 +55,7 @@
 #include "Input/InputEvents.hpp"
 #include "Logger/Settings.hpp"
 #include "LocalPath.hpp"
+#include "NMEA/GPSState.hpp"
 #include "NMEA/Info.hpp"
 #include "Operation/Operation.hpp"
 #include "Plane/Plane.hpp"
@@ -1296,8 +1298,12 @@ TestLX(const struct DeviceRegister &driver, bool condor=false, bool reciprocal_w
   nmea_info.clock = TimeStamp{FloatDuration{1}};
 
   /* airspeed and vario available */
-  ok1(device->ParseNMEA("$LXWP0,Y,222.3,1665.5,1.71,,,,,,239,174,10.1*47",
-                        nmea_info));
+  if (condor)
+    ok1(device->ParseNMEA("$LXWP0,Y,222.3,1665.5,1.71,,,,,,239,174,10.1*47",
+                          nmea_info));
+  else
+    ok1(device->ParseNMEA("$LXWP0,Y,222.3,1665.5,1.71,1.71,1.71,1.71,1.71,1.71,239,174,10.1*5E",
+                          nmea_info));
   ok1((bool)nmea_info.pressure_altitude_available == !condor);
   ok1((bool)nmea_info.baro_altitude_available == condor);
   ok1(equals(condor ? nmea_info.baro_altitude : nmea_info.pressure_altitude,
@@ -1435,7 +1441,127 @@ TestLX(const struct DeviceRegister &driver, bool condor=false, bool reciprocal_w
     ok1(device->ParseNMEA("$LXWP3,47.76,0,2.0,5.0,15,30,2.5,1.0,0,100,0.1,,0*08", nmea_info));
     ok1(nmea_info.settings.qnh_available);
     ok1(equals(nmea_info.settings.qnh.GetHectoPascal(), 1015));
+    ok1(nmea_info.settings.vario_filter_period_available);
+    ok1(equals(nmea_info.settings.vario_filter_period, 2.0));
   }
+
+  delete device;
+}
+
+static void
+TestCondor3UDP()
+{
+  NullPort null_port;
+  Device *device = condor3_udp_driver.CreateOnPort(dummy_config, null_port);
+  ok1(device != nullptr);
+
+  NMEAInfo info;
+  unsigned step = 0;
+
+  auto next_step = [&]() {
+    info.Reset();
+    ++step;
+    info.clock = TimeStamp{FloatDuration{step}};
+    info.alive.Update(info.clock);
+  };
+
+  next_step();
+
+  ok1(!device->ParseNMEA("", info));
+  ok1(!device->ParseNMEA("noline", info));
+  ok1(!device->ParseNMEA("=-1", info));
+  ok1(!device->ParseNMEA("key=", info));
+  ok1(!device->ParseNMEA("x=1 junk", info));
+
+  next_step();
+  ok1(device->ParseNMEA("airspeed=25.5", info));
+  ok1(info.airspeed_available);
+  ok1(equals(info.true_airspeed, 25.5));
+
+  next_step();
+  ok1(device->ParseNMEA("altitude=1234", info));
+  ok1(info.baro_altitude_available);
+  ok1(equals(info.baro_altitude, 1234));
+
+  next_step();
+  ok1(device->ParseNMEA("vario=3.25", info));
+  ok1(info.noncomp_vario_available);
+  ok1(equals(info.noncomp_vario, 3.25));
+
+  next_step();
+  ok1(device->ParseNMEA("evario=-1.5", info));
+  ok1(info.total_energy_vario_available);
+  ok1(equals(info.total_energy_vario, -1.5));
+
+  next_step();
+  ok1(device->ParseNMEA("nettovario=0.75", info));
+  ok1(info.netto_vario_available);
+  ok1(equals(info.netto_vario, 0.75));
+
+  next_step();
+  ok1(device->ParseNMEA("compass=270", info));
+  ok1(info.attitude.heading_available);
+  ok1(equals(info.attitude.heading.Degrees(), 270));
+  ok1(info.track_available);
+  ok1(equals(info.track.Degrees(), 270));
+
+  next_step();
+  ok1(device->ParseNMEA("compass=90", info));
+  ok1(info.track_available);
+  ok1(equals(info.track.Degrees(), 90));
+  ++step;
+  info.clock = TimeStamp{FloatDuration{step}};
+  info.alive.Update(info.clock);
+  ok1(device->ParseNMEA("vx=30", info));
+  ok1(device->ParseNMEA("vy=40", info));
+  ok1(equals(info.track.Degrees(), 90));
+  ok1(equals(info.ground_speed, 50));
+
+  next_step();
+  ok1(device->ParseNMEA("vx=30", info));
+  ++step;
+  info.clock = TimeStamp{FloatDuration{step}};
+  info.alive.Update(info.clock);
+  ok1(device->ParseNMEA("vy=40", info));
+  ok1(info.ground_speed_available);
+  ok1(equals(info.ground_speed, 50));
+
+  next_step();
+  ok1(device->ParseNMEA("MC=1.75", info));
+  ok1(info.settings.mac_cready_available);
+  ok1(equals(info.settings.mac_cready, 1.75));
+
+  next_step();
+  ok1(device->ParseNMEA("water=42.5", info));
+  ok1(info.settings.ballast_litres_available);
+  ok1(equals(info.settings.ballast_litres, 42.5));
+
+  next_step();
+  ok1(device->ParseNMEA("latitude=50", info));
+  ok1(!info.location_available);
+  ++step;
+  info.clock = TimeStamp{FloatDuration{step}};
+  info.alive.Update(info.clock);
+  ok1(device->ParseNMEA("longitude=7.5", info));
+  ok1(info.location_available);
+  ok1(equals(info.location.latitude.Degrees(), 50));
+  ok1(equals(info.location.longitude.Degrees(), 7.5));
+  ok1(info.gps.fix_quality == FixQuality::SIMULATION);
+
+  next_step();
+  ok1(device->ParseNMEA("gforce=1.5", info));
+  ok1(info.acceleration.available);
+  ok1(equals(info.acceleration.g_load, 1.5));
+
+  next_step();
+  ok1(device->ParseNMEA("radiofrequency=123.5", info));
+  ok1(info.settings.has_active_frequency);
+  ok1(info.settings.active_frequency.GetKiloHertz() == 123500u);
+
+  next_step();
+  ok1(device->ParseNMEA("bank=0.5", info));
+  ok1(info.attitude.bank_angle_available);
+  ok1(equals(info.attitude.bank_angle.Radians(), -0.5));
 
   delete device;
 }
@@ -1576,8 +1702,8 @@ TestLXV7()
   lx_device.ResetDeviceDetection();
 
   ok1(device->ParseNMEA("$PLXVF,,1.00,0.87,-0.12,-0.25,90.2,244.3,*64", basic));
-  ok1(basic.netto_vario_available);
-  ok1(equals(basic.netto_vario, -0.25));
+  ok1(basic.total_energy_vario_available);
+  ok1(equals(basic.total_energy_vario, -0.25));
   ok1(basic.airspeed_available);
   ok1(equals(basic.indicated_airspeed, 90.2));
   ok1(basic.pressure_altitude_available);
@@ -2904,11 +3030,12 @@ int main()
   plan_tests(1036 /* drivers */ + 29 /* PFLAU extended */
              + 37 /* PFLAA v7+ */ + 12 /* PFLAE */ + 10 /* PFLAJ */
              + 16 /* PFLAQ */
-             + 107 /* LXNav protocol 1.05 */
+             + 109 /* LXNav protocol 1.05 */
              + 8 /* SubSecond */ + 4 /* MWVStatus */
              + 5 /* MWVRelativeTrue */ + 4 /* StallRatio */
              + 12 /* TempHumidityValidity */ + 2 /* ReadGeoAngleNoDot */
-             + 13 /* GLL */ + 20 /* GSA */ + 23 /* MalformedInput */);
+             + 13 /* GLL */ + 20 /* GSA */ + 23 /* MalformedInput */
+             + 59 /* Condor3UDP */);
   TestGeneric();
   TestTasman();
   TestFLARM();
@@ -2926,6 +3053,7 @@ int main()
   TestLX(lx_driver);
   TestLX(condor_driver, true, true);
   TestLX(condor3_driver, true, false);
+  TestCondor3UDP();
   TestLXEos();
   TestLXV7();
   TestLXV7POLAR();

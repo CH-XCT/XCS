@@ -3,8 +3,4 @@
 
 #pragma once
 
-class SingleWindow;
-struct DialogLook;
-
-void
-ShowWifiDialog();
+void ShowImportDataDialog();
