@@ -1,6 +1,11 @@
 Test and Debug Utilities
 =========================
 
+.. _test-debug-utilities:
+
+For a shorter overview of debugging workflows (replay, simulator, gdb,
+device tools), see :doc:`debugging`.
+
 The XCSoar test suite includes a collection of standalone utility programs
 for debugging, testing, and interactive exploration of XCSoar components
 without running the full application. Many of these utilities are prefixed
@@ -47,16 +52,21 @@ find your output directory, check what was created in the ``output/`` folder
 after building.
 
 Building Run* Utilities
-------------------------
+-----------------------
 
-All Run* utilities are automatically built when you compile XCSoar. They are
-defined in ``build/test.mk`` and compiled as part of the debug programs target.
+These utilities are **not** built by plain ``make``; use the ``debug`` target
+(see :ref:`development-workflow` in :doc:`build`). They are defined in
+:file:`build/test.mk` and compiled as the ``debug`` make target.
 
 To build all Run* utilities:
 
 .. code-block:: bash
 
-   make DEBUG
+   make -j$(nproc) debug
+
+Or build everything (main binary, utilities, unit tests, harness)::
+
+   make -j$(nproc) everything
 
 To build a specific utility:
 
@@ -742,7 +752,7 @@ device connection issues.
 Monitoring Device Communication with socat
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-`socat` is a powerful command-line utility available in Debian/Ubuntu that can
+``socat`` is a powerful command-line utility available in Debian/Ubuntu that can
 monitor bidirectional serial port traffic between XCSoar and devices. This is
 useful for debugging device communication protocols and seeing all NMEA
 sentences in both directions.
@@ -764,8 +774,7 @@ To monitor a serial port and see all traffic in both directions:
 
 The flags:
 - ``-x``: Shows hex dump of all data
-- ``-v``: Verbose output with direction indicators (``>`` for TX, ``<`` for
-  RX)
+- ``-v``: Verbose output with direction indicators (``>`` for TX, ``<`` for RX)
 - ``-``: Outputs to stdout
 
 **Spying on XCSoar Device Communication**:
@@ -793,8 +802,7 @@ If you can temporarily disconnect the device, monitor it directly:
 
 This will:
 - Display all traffic in real-time with hex dumps
-- Show direction indicators (``>`` for data sent to device, ``<`` for data
-  received from device)
+- Show direction indicators (``>`` for data sent to device, ``<`` for data received from device)
 - Save output to ``device_traffic.log`` file
 
 **What it does**:
