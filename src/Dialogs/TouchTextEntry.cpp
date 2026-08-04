@@ -198,7 +198,7 @@ FormKeyDown(unsigned key_code)
     }
   }
 
-  if (key_code == KEY_BACK) {
+  if (key_code == KEY_BACK || key_code == KEY_F1) {
     DoBackspace();
     return true;
   }
@@ -269,6 +269,10 @@ TouchTextEntry(char *text, size_t width,
   WindowStyle button_style;
   button_style.TabStop();
 
+  /* Create OK first so FocusFirstControl lands there: Enter confirms
+     instead of typing the focused soft key (often @em 1).  Do not use
+     HasKeyboard() for this — joystick remotes often appear as HID
+     keyboards.  Up from OK still enters the grid (Space). */
   Button ok_button(client_area, look.button, _("OK"),
                    L.ok,
                    button_style, form.MakeModalResultCallback(mrOK));

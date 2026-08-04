@@ -103,6 +103,38 @@ MainWindow::GetShowMenuButtonRect(const PixelRect rc) noexcept
   return GetMapOverlayButtonRect(rc, rc.top + Layout::GetTextPadding());
 }
 
+/**
+ * The width of the overlay button column in the top right corner, or 0
+ * if there is none.  The zoom buttons alone are placed in the bottom
+ * left corner and do not occupy this column.
+ */
+[[gnu::pure]]
+static unsigned
+GetMapOverlayTopRightWidth(const PixelRect rc) noexcept
+{
+  const UISettings &settings = CommonInterface::GetUISettings();
+
+  if (!settings.show_menu_button && !settings.show_quickmenu_button)
+    return 0;
+
+  const PixelRect button_rc = GetMapOverlayButtonRect(rc, rc.top);
+  return unsigned(std::max(0, rc.right - button_rc.left));
+}
+
+[[gnu::pure]]
+PixelRect
+MainWindow::GetShowQuickMenuButtonRect(const PixelRect rc) noexcept
+{
+  const UISettings &settings = CommonInterface::GetUISettings();
+  const unsigned padding = Layout::GetTextPadding();
+
+  int top = rc.top + int(padding);
+  if (settings.show_menu_button)
+    top = GetShowMenuButtonRect(rc).bottom + int(padding);
+
+  return GetMapOverlayButtonRect(rc, top);
+}
+
 [[gnu::pure]]
 PixelRect
 MainWindow::GetShowZoomButtonRect(const PixelRect rc,
@@ -112,8 +144,17 @@ MainWindow::GetShowZoomButtonRect(const PixelRect rc,
   const unsigned padding = Layout::GetTextPadding();
   const unsigned size = Layout::GetMaximumControlHeight();
 
-  if (settings.show_menu_button && ShowMapOverlayZoomButtons(settings)) {
-    int top = GetShowMenuButtonRect(rc).bottom + int(padding);
+  const bool stack_top_right =
+    (settings.show_menu_button || settings.show_quickmenu_button) &&
+    ShowMapOverlayZoomButtons(settings);
+
+  if (stack_top_right) {
+    int top;
+    if (settings.show_quickmenu_button)
+      top = GetShowQuickMenuButtonRect(rc).bottom + int(padding);
+    else
+      top = GetShowMenuButtonRect(rc).bottom + int(padding);
+
     if (sign == ShowZoomButton::Sign::ZOOM_IN) {
       const PixelRect zoom_out =
         GetShowZoomButtonRect(rc, ShowZoomButton::Sign::ZOOM_OUT);
@@ -260,10 +301,47 @@ MainWindow::GetMapAreaRect() const noexcept
 }
 
 void
+MainWindow::BeginCoalesceMapLayout() noexcept
+{
+  if (coalesce_map_layout++ != 0)
+    return;
+
+  coalesce_map_redraw = map != nullptr;
+  if (coalesce_map_redraw)
+    map->BeginCoalesceFullRedraw();
+}
+
+void
+MainWindow::EndCoalesceMapLayout() noexcept
+{
+  assert(coalesce_map_layout > 0);
+
+  if (--coalesce_map_layout > 0)
+    return;
+
+  if (map_layout_pending) {
+    map_layout_pending = false;
+    LayoutMapArea();
+    UpdateMapOverlayButtonLayout();
+  }
+
+  if (coalesce_map_redraw) {
+    coalesce_map_redraw = false;
+    if (map != nullptr)
+      map->EndCoalesceFullRedraw();
+  }
+}
+
+void
 MainWindow::LayoutMapArea() noexcept
 {
   if (map == nullptr)
     return;
+
+  if (coalesce_map_layout > 0) {
+    map_layout_pending = true;
+    return;
+  }
 
   PixelRect main_rect = GetMainRect();
   const PixelRect top_rect = GetTopWidgetRect(main_rect, top_widget);
@@ -282,38 +360,108 @@ MainWindow::LayoutMapArea() noexcept
 void
 MainWindow::UpdateMapOverlayButtonLayout() noexcept
 {
-  if (widget != nullptr || map == nullptr)
-    return;
-
   const bool overlay_buttons_active =
+    widget == nullptr && map != nullptr &&
     !CommonInterface::GetUIState().pages.special_page.IsDefined();
-  const PixelRect rc = map->GetPosition();
 
   if (show_menu_button != nullptr) {
     show_menu_button->SetVisible(overlay_buttons_active);
     show_menu_button->SetEnabled(overlay_buttons_active);
     if (overlay_buttons_active)
-      show_menu_button->Move(GetShowMenuButtonRect(rc));
+      show_menu_button->Move(GetShowMenuButtonRect(map->GetPosition()));
+  }
+  if (show_quickmenu_button != nullptr) {
+    show_quickmenu_button->SetVisible(overlay_buttons_active);
+    show_quickmenu_button->SetEnabled(overlay_buttons_active);
+    if (overlay_buttons_active)
+      show_quickmenu_button->Move(GetShowQuickMenuButtonRect(map->GetPosition()));
   }
   if (show_zoom_out_button != nullptr) {
     show_zoom_out_button->SetVisible(overlay_buttons_active);
     show_zoom_out_button->SetEnabled(overlay_buttons_active);
     if (overlay_buttons_active)
-      show_zoom_out_button->Move(GetShowZoomButtonRect(rc,
+      show_zoom_out_button->Move(GetShowZoomButtonRect(map->GetPosition(),
                                                        ShowZoomButton::Sign::ZOOM_OUT));
   }
   if (show_zoom_in_button != nullptr) {
     show_zoom_in_button->SetVisible(overlay_buttons_active);
     show_zoom_in_button->SetEnabled(overlay_buttons_active);
     if (overlay_buttons_active)
-      show_zoom_in_button->Move(GetShowZoomButtonRect(rc,
+      show_zoom_in_button->Move(GetShowZoomButtonRect(map->GetPosition(),
                                                       ShowZoomButton::Sign::ZOOM_IN));
   }
 
 #ifdef ANDROID
-  if (show_rotate_button != nullptr)
-    show_rotate_button->Move(GetShowRotateButtonRect(rc));
+  if (show_rotate_button != nullptr && overlay_buttons_active)
+    show_rotate_button->Move(GetShowRotateButtonRect(map->GetPosition()));
 #endif
+
+  if (map != nullptr)
+    /* keep the north arrow clear of the overlay buttons */
+    map->SetTopRightMargin(overlay_buttons_active
+                           ? GetMapOverlayTopRightWidth(map->GetPosition())
+                           : 0);
+
+  /* Newly created overlay buttons are added after the map; keep the map
+     underneath them (same as ReinitialiseLayout()). */
+  if (overlay_buttons_active)
+    map->BringToBottom();
+}
+
+void
+MainWindow::ReinitialiseMapOverlayButtons() noexcept
+{
+  if (look == nullptr)
+    return;
+
+  const UISettings &settings = CommonInterface::GetUISettings();
+  const PixelRect map_area_rect = GetMapAreaRect();
+
+  if (settings.show_menu_button) {
+    if (show_menu_button == nullptr) {
+      show_menu_button = new ShowMenuButton();
+      show_menu_button->Create(*this, look->dialog.button,
+                               GetShowMenuButtonRect(map_area_rect));
+    }
+  } else if (show_menu_button != nullptr) {
+    delete show_menu_button;
+    show_menu_button = nullptr;
+  }
+
+  if (settings.show_quickmenu_button) {
+    if (show_quickmenu_button == nullptr) {
+      show_quickmenu_button = new ShowQuickMenuButton();
+      show_quickmenu_button->Create(*this, look->dialog.button,
+                                    GetShowQuickMenuButtonRect(map_area_rect));
+    }
+  } else if (show_quickmenu_button != nullptr) {
+    delete show_quickmenu_button;
+    show_quickmenu_button = nullptr;
+  }
+
+  if (ShowMapOverlayZoomButtons(settings)) {
+    if (show_zoom_out_button == nullptr) {
+      show_zoom_out_button = new ShowZoomButton();
+      show_zoom_out_button->Create(*this, look->dialog.button,
+                                   GetShowZoomButtonRect(map_area_rect,
+                                                         ShowZoomButton::Sign::ZOOM_OUT),
+                                   ShowZoomButton::Sign::ZOOM_OUT);
+    }
+    if (show_zoom_in_button == nullptr) {
+      show_zoom_in_button = new ShowZoomButton();
+      show_zoom_in_button->Create(*this, look->dialog.button,
+                                  GetShowZoomButtonRect(map_area_rect,
+                                                        ShowZoomButton::Sign::ZOOM_IN),
+                                  ShowZoomButton::Sign::ZOOM_IN);
+    }
+  } else {
+    delete show_zoom_out_button;
+    show_zoom_out_button = nullptr;
+    delete show_zoom_in_button;
+    show_zoom_in_button = nullptr;
+  }
+
+  UpdateMapOverlayButtonLayout();
 }
 
 MainWindow::MainWindow(UI::Display &display) noexcept
@@ -381,32 +529,15 @@ MainWindow::InitialiseConfigured()
   ReinitialiseLayoutTA(rc, ib_layout);
   ReinitialiseLayout_flarm(rc, ib_layout);
 
-  const UISettings &settings = CommonInterface::GetUISettings();
-  const PixelRect map_area_rect = GetMapAreaRect();
-
-  if (settings.show_menu_button) {
-    show_menu_button = new ShowMenuButton();
-    show_menu_button->Create(*this, look->dialog.button,
-                             GetShowMenuButtonRect(map_area_rect));
-  }
-  if (ShowMapOverlayZoomButtons(settings)) {
-    show_zoom_out_button = new ShowZoomButton();
-    show_zoom_out_button->Create(*this, look->dialog.button,
-                                 GetShowZoomButtonRect(map_area_rect,
-                                                       ShowZoomButton::Sign::ZOOM_OUT),
-                                 ShowZoomButton::Sign::ZOOM_OUT);
-    show_zoom_in_button = new ShowZoomButton();
-    show_zoom_in_button->Create(*this, look->dialog.button,
-                                GetShowZoomButtonRect(map_area_rect,
-                                                      ShowZoomButton::Sign::ZOOM_IN),
-                                ShowZoomButton::Sign::ZOOM_IN);
-  }
+  ReinitialiseMapOverlayButtons();
 
 #ifdef ANDROID
   /* create a rotate button (initially hidden) when orientation is
      DEFAULT (not forced) and the system auto-rotate setting is
      enabled; the button appears temporarily when the Java
      OrientationEventListener detects a physical orientation change */
+  const UISettings &settings = CommonInterface::GetUISettings();
+  const PixelRect map_area_rect = GetMapAreaRect();
   if (settings.display.orientation == DisplayOrientation::DEFAULT &&
       native_view != nullptr &&
       native_view->IsAutoRotateEnabled(Java::GetEnv())) {
@@ -482,6 +613,8 @@ MainWindow::Deinitialise() noexcept
 
   delete show_menu_button;
   show_menu_button = nullptr;
+  delete show_quickmenu_button;
+  show_quickmenu_button = nullptr;
   delete show_zoom_out_button;
   show_zoom_out_button = nullptr;
   delete show_zoom_in_button;
@@ -1517,6 +1650,8 @@ MainWindow::SetWidget(Widget *_widget) noexcept
   widget->Initialise(*this, rc);
   widget->Prepare(*this, rc);
   widget->Show(rc);
+
+  UpdateMapOverlayButtonLayout();
 
   if (!widget->SetFocus())
     SetFocus();

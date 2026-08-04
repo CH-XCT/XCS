@@ -11,10 +11,18 @@
 
 #ifdef ENABLE_OPENGL
 #include "ui/opengl/Features.hpp"
-#include <cstdint>
 #endif
 
 #include "ui/canvas/Features.hpp" // for DRAW_MOUSE_CURSOR
+
+#if defined(ENABLE_OPENGL) || defined(ENABLE_SDL) || \
+  defined(DRAW_REDRAW_COUNTER)
+#include <cstdint>
+#endif
+
+#ifdef DRAW_REDRAW_COUNTER
+#include <chrono>
+#endif
 
 #ifdef ANDROID
 #include "thread/Mutex.hxx"
@@ -169,6 +177,13 @@ public:
   std::chrono::steady_clock::time_point cursor_visible_until;
 #endif
 
+#ifdef DRAW_REDRAW_COUNTER
+  uint64_t redraw_count = 0;
+  unsigned hz_window_frames = 0;
+  double redraw_hz = 0;
+  std::chrono::steady_clock::time_point hz_window_start{};
+#endif
+
 #ifndef USE_WINUSER
   TopCanvas *screen = nullptr;
 
@@ -229,6 +244,39 @@ public:
 #endif
 
   DoubleClick double_click;
+
+#if defined(ENABLE_SDL) && defined(HAVE_MULTI_TOUCH)
+  /**
+   * Number of fingers currently touching the screen.
+   */
+  unsigned touch_fingers = 0;
+
+  /**
+   * Were two or more fingers down during the current touch sequence?
+   */
+  bool touch_multi = false;
+
+  /**
+   * Stable SDL finger ids for the active two-finger gesture.  Indices
+   * into SDL's finger array are not stable across up/down events.
+   */
+  bool touch_pair_valid = false;
+  std::int64_t touch_finger_a = 0;
+  std::int64_t touch_finger_b = 0;
+
+  /**
+   * Is an emulated mouse button release waiting for the last finger to
+   * be lifted?
+   */
+  bool touch_mouse_up_pending = false;
+
+  PixelPoint touch_mouse_up_point{0, 0};
+
+  /**
+   * Deliver a postponed emulated mouse button release, if any.
+   */
+  bool FlushTouchMouseUp() noexcept;
+#endif
 
 #else /* USE_WINUSER */
 
@@ -466,6 +514,11 @@ public:
 #ifdef DRAW_MOUSE_CURSOR
 private:
   void DrawMouseCursor(Canvas &canvas) noexcept;
+#endif
+
+#ifdef DRAW_REDRAW_COUNTER
+private:
+  void DrawRedrawCounter(Canvas &canvas) noexcept;
 #endif
 
 protected:

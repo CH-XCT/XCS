@@ -8,6 +8,7 @@
 #include "Dialogs/WidgetDialog.hpp"
 #include "Look/DialogLook.hpp"
 #include "UIGlobals.hpp"
+#include "ui/event/KeyCode.hpp"
 #include "Form/TabMenuDisplay.hpp"
 #include "Form/TabMenuData.hpp"
 #include "Form/CheckBox.hpp"
@@ -61,8 +62,15 @@
 #include "Panels/CloudConfigPanel.hpp"
 #endif
 
-#if defined(HAVE_PCMET) || defined(HAVE_HTTP)
+#ifdef HAVE_HTTP
 #include "Panels/WeatherConfigPanel.hpp"
+#endif
+#include "Panels/RaspConfigPanel.hpp"
+#ifdef HAVE_PCMET
+#include "Panels/PCMetConfigPanel.hpp"
+#endif
+#ifdef HAVE_HTTP
+#include "Panels/XCThermConfigPanel.hpp"
 #endif
 
 #include "Panels/WeGlideConfigPanel.hpp"
@@ -124,6 +132,20 @@ static constexpr TabMenuPage look_pages[] = {
   { nullptr, nullptr }
 };
 
+static constexpr TabMenuPage weather_pages[] = {
+#ifdef HAVE_HTTP
+  { N_("Thermal Information Map"), CreateWeatherConfigPanel },
+#endif
+  { "RASP", CreateRaspConfigPanel },
+#ifdef HAVE_PCMET
+  { "Flugwetter (pc_met)", CreatePCMetConfigPanel },
+#endif
+#ifdef HAVE_HTTP
+  { "XCTherm", CreateXCThermConfigPanel },
+#endif
+  { nullptr, nullptr }
+};
+
 static constexpr TabMenuPage setup_pages[] = {
   { N_("Logger"), CreateLoggerConfigPanel },
   { N_("Units"), CreateUnitsConfigPanel },
@@ -134,9 +156,6 @@ static constexpr TabMenuPage setup_pages[] = {
 #ifdef HAVE_TRACKING
   { N_("Tracking"), CreateTrackingConfigPanel },
   { "XCSoar Cloud", CreateCloudConfigPanel },
-#endif
-#if defined(HAVE_PCMET) || defined(HAVE_HTTP)
-  { N_("Weather"), CreateWeatherConfigPanel },
 #endif
   { "WeGlide", CreateWeGlideConfigPanel },
 #ifdef HAVE_VOLUME_CONTROLLER
@@ -153,6 +172,7 @@ static constexpr TabMenuGroup main_menu_captions[] = {
   { N_("Gauges"), gauge_pages },
   { N_("Task Defaults"), task_pages },
   { N_("Look"), look_pages },
+  { N_("Weather"), weather_pages },
   { N_("Setup"), setup_pages },
 };
 
@@ -287,7 +307,9 @@ static void
 OnUserLevel(bool expert) noexcept
 {
   CommonInterface::SetUISettings().dialog.expert = expert;
-  Profile::Set(ProfileKeys::UserLevel, expert);
+
+  /* Keep Profile I/O out of this checkbox callback (pager is mid-
+     relayout). Persist UserLevel when the dialog closes instead. */
 
   /* force layout update */
   pager->PagerWidget::Move(pager->GetPosition());
@@ -349,15 +371,44 @@ void dlgConfigurationShowModal()
 
   dialog.FinishPreliminary(pager);
 
-  dialog.ShowModal();
+  /* Esc on a settings panel returns to the menu (same as Close);
+     on the menu itself, leave Esc to cancel the dialog. */
+  dialog.SetKeyDownFunction([&dialog](unsigned key_code) {
+    if (key_code != KEY_ESCAPE || pager->GetCurrentIndex() == 0)
+      return false;
+
+    OnCloseClicked(dialog);
+    return true;
+  });
+
+  const int result = dialog.ShowModal();
 
   /* save page number for next time this dialog is opened */
   current_page = menu.GetCursor();
 
-  if (dialog.GetChanged()) {
+  /* Persist Expert only on OK. Missing UserLevel means beginner —
+     write "1" when enabling Expert; remove the key when returning to
+     beginner (do not leave UserLevel=0 cruft) (#1793). */
+  bool expert_changed = false;
+  if (result == mrOK) {
+    const bool expert = CommonInterface::GetUISettings().dialog.expert;
+    if (expert) {
+      bool profile_expert = false;
+      Profile::Get(ProfileKeys::UserLevel, profile_expert);
+      if (!profile_expert) {
+        Profile::Set(ProfileKeys::UserLevel, true);
+        expert_changed = true;
+      }
+    } else if (Profile::Exists(ProfileKeys::UserLevel)) {
+      Profile::Remove(ProfileKeys::UserLevel);
+      expert_changed = true;
+    }
+  }
+
+  if (dialog.GetChanged() || expert_changed) {
     Profile::Save();
     if (require_restart)
-      ShowMessageBox(_("Changes to configuration saved.  Restart XCSoar to apply changes."),
+      ShowMessageBox(_("Changes to configuration saved. Restart XCSoar to apply changes."),
                   "", MB_OK);
   }
 }

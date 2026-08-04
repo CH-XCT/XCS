@@ -13,6 +13,7 @@
 #include "Profile/Current.hpp"
 #include "Profile/Settings.hpp"
 #include "Asset.hpp"
+#include "Hardware/CPU.hpp"
 #include "Simulator.hpp"
 #include "InfoBoxes/InfoBoxManager.hpp"
 #include "Terrain/RasterTerrain.hpp"
@@ -70,6 +71,7 @@
 #include "net/client/tim/Glue.hpp"
 #include "Hardware/DisplayDPI.hpp"
 #include "Hardware/DisplayGlue.hpp"
+#include "Screen/Layout.hpp"
 #include "util/Compiler.h"
 #include "NMEA/Aircraft.hpp"
 #include "Waypoint/Waypoints.hpp"
@@ -330,9 +332,6 @@ Startup(UI::Display &display)
   if (!main_window->IsDefined())
     return false;
 
-  LogFmt("Display dpi={},{}",
-         Display::GetDPI(display).x, Display::GetDPI(display).y);
-
 #ifdef ENABLE_OPENGL
   LogFmt("OpenGL: "
 #ifdef HAVE_DYNAMIC_MULTI_DRAW_ARRAYS
@@ -419,6 +418,19 @@ Startup(UI::Display &display)
   Display::LoadOrientation(operation);
   main_window->CheckResize();
 
+  SetDisplayType(CommonInterface::GetUISettings().display.display_type);
+
+  {
+    const PixelSize size = main_window->GetSize();
+    const auto dpi = Display::GetDPI(display);
+    LogFmt("Display: {}x{} dpi={},{} vdpi={} size={:.2f}x{:.2f}in "
+           "small_screen={}",
+           size.width, size.height, dpi.x, dpi.y, Layout::vdpi,
+           dpi.x > 0 ? double(size.width) / dpi.x : 0.,
+           dpi.y > 0 ? double(size.height) / dpi.y : 0.,
+           Layout::small_screen);
+  }
+
   /* Log device capabilities and features after initialization */
   LogFormat("Device capabilities: HasIOIOLib()=%s",
             HasIOIOLib() ? "yes" : "no");
@@ -442,6 +454,13 @@ Startup(UI::Display &display)
             HasEPaper() ? "yes" : "no");
   LogFormat("Device capabilities: IsDithered()=%s",
             IsDithered() ? "yes" : "no");
+  if (const unsigned max_cpu_khz = GetMaxCPUFrequencyKHz();
+      max_cpu_khz != 0)
+    LogFormat("Device capabilities: max_cpu_freq=%u kHz", max_cpu_khz);
+  else
+    LogFormat("Device capabilities: max_cpu_freq=unknown");
+  LogFormat("Device capabilities: IsSlowCPU()=%s",
+            IsSlowCPU() ? "yes" : "no");
 
   main_window->InitialiseConfigured();
 

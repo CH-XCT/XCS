@@ -21,6 +21,9 @@
 #include "Look/GestureLook.hpp"
 #include "Input/InputEvents.hpp"
 #include "Renderer/MapScaleRenderer.hpp"
+#include "Components.hpp"
+#include "BackendComponents.hpp"
+#include "Replay/Replay.hpp"
 
 #include <algorithm> // for std::clamp()
 
@@ -110,8 +113,8 @@ GlueMapWindow::DrawPanInfo(Canvas &canvas) const noexcept
     TerrainHeight elevation = terrain->GetTerrainHeight(location);
     if (!elevation.IsSpecial()) {
       StaticString<64> elevation_long;
-      elevation_long = _("Elevation: ");
-      elevation_long += FormatUserAltitude(elevation.GetValue()).c_str();
+      elevation_long.Format("%s: %s", _("Elevation"),
+                            FormatUserAltitude(elevation.GetValue()).c_str());
 
       TextInBox(canvas, elevation_long, p, mode,
                 render_projection.GetScreenSize());
@@ -157,18 +160,32 @@ GlueMapWindow::DrawGPSStatus(Canvas &canvas, const PixelRect &rc,
     // early exit
     return;
 
+  const Font &font = *look.overlay.overlay_font;
+  canvas.Select(font);
+
+  /* DrawMapScale paints the scale bar and the map-title line
+     (AUTO / Simulator / REPLAY / …) after this overlay.  Reserve that
+     band (and bottom_margin) so the GPS label sits above the title. */
+  const int scale_band = (int)font.GetCapitalHeight()
+    + (int)Layout::GetTextPadding();
+  const int title_band = (int)font.GetHeight()
+    + (int)Layout::GetTextPadding();
+  const int clear_bottom = rc.bottom - (int)bottom_margin
+    - scale_band - title_band - Layout::Scale(2);
+
+  const int row_height = std::max((int)icon->GetSize().height,
+                                  (int)font.GetHeight());
   PixelPoint p(rc.left + Layout::FastScale(2),
-               rc.bottom - Layout::FastScale(35));
+               clear_bottom - row_height);
   icon->Draw(canvas, p);
 
   p.x += icon->GetSize().width + Layout::FastScale(4);
-  p.y = rc.bottom - Layout::FastScale(34);
+  p.y = clear_bottom - (int)font.GetAscentHeight()
+    - ((row_height - (int)font.GetHeight()) / 2);
 
   TextInBoxMode mode;
   mode.shape = LabelShape::ROUNDED_BLACK;
 
-  const Font &font = *look.overlay.overlay_font;
-  canvas.Select(font);
   TextInBox(canvas, txt, p, mode, rc, nullptr);
 }
 
@@ -277,6 +294,17 @@ GlueMapWindow::SetBottomMargin(unsigned margin) noexcept
 }
 
 void
+GlueMapWindow::SetTopRightMargin(unsigned margin) noexcept
+{
+  if (margin == top_right_margin)
+    /* no change, don't redraw */
+    return;
+
+  top_right_margin = margin;
+  QuickRedraw();
+}
+
+void
 GlueMapWindow::SetBottomMarginFactor(unsigned margin_factor) noexcept
 {
   if (follow_mode != FOLLOW_PAN || Layout::landscape) {
@@ -304,7 +332,14 @@ GlueMapWindow::DrawMapScale(Canvas &canvas, const PixelRect &rc,
 
   PixelRect scale_pos(rc.left, rc.top, rc.right, rc.bottom - bottom_margin);
 
-  RenderMapScale(canvas, projection, scale_pos, look.overlay);
+  unsigned contour_spacing_m = 0;
+  const auto &terrain = GetMapSettings().terrain;
+  if (projection.IsValid() &&
+      terrain.enable && terrain.contours != Contours::OFF &&
+      background.AreContoursVisible())
+    contour_spacing_m = background.GetContourSpacing();
+
+  RenderMapScale(canvas, projection, scale_pos, look.overlay, contour_spacing_m);
 
   if (!projection.IsValid())
     return;
@@ -334,9 +369,14 @@ GlueMapWindow::DrawMapScale(Canvas &canvas, const PixelRect &rc,
     buffer += " ";
   }
 
-  if (Basic().gps.replay)
-    buffer += "REPLAY ";
-  else if (Basic().gps.simulator) {
+  if (Basic().gps.replay) {
+    if (backend_components != nullptr &&
+        backend_components->replay != nullptr)
+      buffer.AppendFormat(_("REPLAY %.0fx "),
+                          backend_components->replay->GetTimeScale());
+    else
+      buffer += _("REPLAY ");
+  } else if (Basic().gps.simulator) {
     buffer += _("Simulator");
     buffer += " ";
   }

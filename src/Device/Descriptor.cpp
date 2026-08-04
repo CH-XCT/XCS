@@ -112,7 +112,7 @@ DeviceDescriptor::GetState() const noexcept
   if (has_failed)
     return PortState::FAILED;
 
-  if (open_job != nullptr)
+  if (open_job != nullptr || waiting_to_call_open)
     return PortState::LIMBO;
 
   if (port != nullptr)
@@ -124,6 +124,12 @@ DeviceDescriptor::GetState() const noexcept
 
   if (internal_sensors != nullptr)
     return internal_sensors->GetState(Java::GetEnv());
+#elif defined(__APPLE__)
+  /* Like Android internal sensors, this does not use a Port.  The
+     Apple wrapper has no state API; successful construction means it
+     is ready. */
+  if (internal_sensors != nullptr)
+    return PortState::READY;
 #endif
 
   return PortState::FAILED;
@@ -209,14 +215,15 @@ try {
     parser.DisableGeoid();
 
   if (driver->CreateOnPort != nullptr) {
-    Device *new_device = driver->CreateOnPort(config, *port);
+    Device *new_device = driver->CreateOnPort(config, port->GetImplementationPort());
 
     const std::lock_guard lock{mutex};
     device = new_device;
 
     if (driver->HasPassThrough() && config.use_second_device &&
         second_driver->CreateOnPort != nullptr)
-      second_device = second_driver->CreateOnPort(config, *port);
+      second_device = second_driver->CreateOnPort(config,
+                                                  port->GetImplementationPort());
   } else
     port->StartRxThread();
 
