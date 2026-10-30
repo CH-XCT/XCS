@@ -24,6 +24,7 @@ import android.view.WindowMetrics;
 import android.graphics.Insets;
 import android.graphics.Rect;
 import android.widget.TextView;
+import android.widget.Toast;
 import android.os.Build;
 import android.os.Environment;
 import android.os.PowerManager;
@@ -38,6 +39,7 @@ import android.content.BroadcastReceiver;
 import android.content.ServiceConnection;
 import android.content.ComponentName;
 import android.content.pm.PackageManager;
+import android.hardware.usb.UsbManager;
 import android.content.res.Configuration;
 import android.util.Log;
 import android.provider.Settings;
@@ -46,6 +48,22 @@ public class XCSoar extends Activity implements PermissionManager {
   private static final String TAG = "XCSoar";
 
   private static NativeView nativeView;
+
+  /**
+   * Predictive-back registration used on Android 16+, where
+   * {@link KeyEvent#KEYCODE_BACK} is no longer dispatched.
+   * Registered after {@link #initNative()} creates native input.
+   * Typed as Object so older Android never loads
+   * {@code OnBackInvokedCallback}.
+   */
+  private Object predictiveBack;
+
+  /**
+   * The activity that currently owns the process.  A quick relaunch
+   * can construct a new instance before the exiting one is destroyed;
+   * onDestroy() must not System.exit() in that case.
+   */
+  private static XCSoar currentActivity;
 
   private Handler mainHandler;
   private PermissionHelper permissionHelper;
@@ -73,6 +91,8 @@ public class XCSoar extends Activity implements PermissionManager {
     Log.d(TAG, "DEVICE=" + Build.DEVICE);
     Log.d(TAG, "BOARD=" + Build.BOARD);
     Log.d(TAG, "FINGERPRINT=" + Build.FINGERPRINT);
+
+    currentActivity = this;
 
     if (!Loader.loaded) {
       TextView tv = new TextView(this);
@@ -106,6 +126,8 @@ public class XCSoar extends Activity implements PermissionManager {
     NativeView.initNative();
 
     NetUtil.initialise(this);
+
+    SoundUtil.preload(this);
 
     IOIOHelper.onCreateContext(this);
 
@@ -148,8 +170,28 @@ public class XCSoar extends Activity implements PermissionManager {
        This ensures the consent rationale is always shown before requesting permission. */
   }
 
+  private void registerPredictiveBack() {
+    if (Build.VERSION.SDK_INT < 36 || predictiveBack != null)
+      return;
+
+    predictiveBack = PredictiveBack.register(this);
+  }
+
+  /**
+   * Drop the consuming callback so the activity can handle Back
+   * (finish / system navigation) when native input is gone.
+   */
+  private void unregisterPredictiveBack() {
+    if (predictiveBack == null)
+      return;
+
+    PredictiveBack.unregister(this, predictiveBack);
+    predictiveBack = null;
+  }
+
   private void quit() {
     nativeView = null;
+    unregisterPredictiveBack();
 
     TextView tv = new TextView(XCSoar.this);
     tv.setText("Shutting down XCSoar...");
@@ -167,6 +209,7 @@ public class XCSoar extends Activity implements PermissionManager {
   final Handler errorHandler = new Handler() {
     public void handleMessage(Message msg) {
       nativeView = null;
+      unregisterPredictiveBack();
       TextView tv = new TextView(XCSoar.this);
       tv.setText(msg.obj.toString());
       setContentView(tv);
@@ -266,13 +309,13 @@ public class XCSoar extends Activity implements PermissionManager {
           decorView.post(new Runnable() {
             @Override
             public void run() {
-              int display_width = nativeView.getWidth();
-              int display_height = nativeView.getHeight();
-              int inset_left = 0, inset_top = 0, inset_right = 0, inset_bottom = 0;
-              
-              if (display_width > 0 && display_height > 0) {
-                nativeView.resizedNative(display_width, display_height, inset_left, inset_top, inset_right, inset_bottom);
-              }
+              if (nativeView == null)
+                return;
+
+              /* let NativeView determine the insets; hard-coding
+                 zeroes here would drop the safe area whenever the
+                 user toggles full screen mode */
+              nativeView.reportSize();
             }
           });
         }
@@ -288,6 +331,7 @@ public class XCSoar extends Activity implements PermissionManager {
        long as external storage is being forwarded to a PC */
     String state = Environment.getExternalStorageState();
     if (!Environment.MEDIA_MOUNTED.equals(state)) {
+      unregisterPredictiveBack();
       TextView tv = new TextView(this);
       tv.setText("External storage is not available (state='" + state
                  + "').  Please turn off USB storage.");
@@ -304,6 +348,7 @@ public class XCSoar extends Activity implements PermissionManager {
     nativeView.setFocusableInTouchMode(true);
     nativeView.setFocusable(true);
     nativeView.requestFocus();
+    registerPredictiveBack();
   }
 
   @Override protected void onPause() {
@@ -326,6 +371,18 @@ public class XCSoar extends Activity implements PermissionManager {
       nativeView.setHapticFeedback(hapticFeedbackEnabled);
   }
 
+  @Override protected void onNewIntent(Intent intent) {
+    super.onNewIntent(intent);
+
+    /* an IOIO plugged in while XCSoar runs (launchMode singleInstance
+       delivers USB_*_ATTACHED here); wake the connect attempt that is
+       waiting for it */
+    final String action = intent.getAction();
+    if (UsbManager.ACTION_USB_ACCESSORY_ATTACHED.equals(action) ||
+        UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action))
+      IOIOHelper.onUsbAttached();
+  }
+
   @Override protected void onResume() {
     super.onResume();
 
@@ -345,10 +402,21 @@ public class XCSoar extends Activity implements PermissionManager {
 
   @Override protected void onDestroy()
   {
+    unregisterPredictiveBack();
+
     if (!Loader.loaded) {
       super.onDestroy();
       return;
     }
+
+    /* A newer activity is already running in this process (quick
+       relaunch).  Leave JNI and the VM alone. */
+    if (currentActivity != this) {
+      super.onDestroy();
+      return;
+    }
+
+    currentActivity = null;
 
     /* Mark the app as shutting down so that MyService will not restart
        itself after System.exit() kills the process.  The flag must be
@@ -448,6 +516,18 @@ public class XCSoar extends Activity implements PermissionManager {
   @Override
   public synchronized void onRequestPermissionsResult(int requestCode, String[] permissions,
                                                       int[] grantResults) {
+    if (requestCode == REQUEST_CODE_CAMERA) {
+      if (grantResults.length > 0 &&
+          grantResults[0] == PackageManager.PERMISSION_GRANTED)
+        startQRScanner();
+      else
+        /* say so rather than returning to the map with no explanation
+           for why nothing happened */
+        Toast.makeText(this, "No camera permission",
+                       Toast.LENGTH_LONG).show();
+      return;
+    }
+
     if (permissionHelper != null) {
       permissionHelper.onRequestPermissionsResult(requestCode, permissions, grantResults);
     }
@@ -505,4 +585,99 @@ public class XCSoar extends Activity implements PermissionManager {
     if (permissionHelper != null)
       permissionHelper.onDisclosureResult(accepted);
   }
+
+  // ---- SAF (Storage Access Framework) support ----
+
+  private SAFHelper safHelper;
+
+  /**
+   * Called from native code to launch the system document-tree picker
+   * for a given volume UUID.
+   *
+   * This method is intentionally non-blocking. If called from the UI
+   * thread, it launches directly; otherwise it posts to the UI thread.
+   */
+  public void launchSAFTreePicker(String volumeUuid) {
+    final Runnable launch = () -> {
+      try {
+        if (safHelper == null)
+          safHelper = new SAFHelper(this);
+
+        Intent intent = safHelper.buildOpenTreeIntent(volumeUuid);
+        startActivityForResult(intent, SAFHelper.REQUEST_CODE_OPEN_TREE);
+      } catch (Exception e) {
+        Log.e(TAG, "Failed to launch SAF tree picker", e);
+      }
+    };
+
+    if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+      launch.run();
+    } else {
+      runOnUiThread(launch);
+    }
+  }
+
+  // ---- Task QR code scanner ----
+
+  /**
+   * Called from native code to open the camera and scan a task QR
+   * code.  Acquires the camera permission first if necessary.
+   *
+   * Like launchSAFTreePicker(), this never blocks: the scanner
+   * Activity delivers the decoded task to native code itself.
+   */
+  private static final int REQUEST_CODE_CAMERA = 0x7101;
+
+  public void scanQRCode() {
+    runOnUiThread(() -> {
+      /* request the camera directly instead of going through
+         PermissionHelper: that shortcuts every request to "granted"
+         in simulator mode without actually asking, which would leave
+         the scanner staring at a camera it may not open */
+      if (Build.VERSION.SDK_INT >= 23 &&
+          checkSelfPermission(Manifest.permission.CAMERA)
+          != PackageManager.PERMISSION_GRANTED) {
+        requestPermissions(new String[]{Manifest.permission.CAMERA},
+                           REQUEST_CODE_CAMERA);
+        return;
+      }
+
+      startQRScanner();
+    });
+  }
+
+  private void startQRScanner() {
+    try {
+      startActivity(new Intent(this, QRScannerActivity.class));
+    } catch (Exception e) {
+      Log.e(TAG, "Failed to start QR scanner", e);
+    }
+  }
+
+  @Override
+  protected void onActivityResult(int requestCode, int resultCode,
+                                   Intent data) {
+    super.onActivityResult(requestCode, resultCode, data);
+
+    if (requestCode == SAFHelper.REQUEST_CODE_OPEN_TREE) {
+      if (resultCode == RESULT_OK && data != null) {
+        android.net.Uri treeUri = data.getData();
+        if (treeUri != null) {
+          if (safHelper == null)
+            safHelper = new SAFHelper(this);
+          if (safHelper.persistTreePermission(treeUri)) {
+            // Notify native code so it can re-enumerate volumes.
+            onSAFPermissionGranted(treeUri.toString());
+          }
+        }
+      }
+
+    }
+  }
+
+  /**
+   * JNI callback: notify native StorageManager that a new SAF
+   * tree permission was granted.
+   */
+  private static native void onSAFPermissionGranted(String treeUri);
 }

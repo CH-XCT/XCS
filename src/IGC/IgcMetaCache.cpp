@@ -1,0 +1,186 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The XCSoar Project
+
+#include "IgcMetaCache.hpp"
+
+#include "IGC/FlightTimes.hpp"
+#include "Formatter/TimeFormatter.hpp"
+#include "Job/Async.hpp"
+#include "Job/Job.hpp"
+#include "Operation/Cancelled.hpp"
+#include "Operation/Operation.hpp"
+#include "ui/event/Notify.hpp"
+#include "ui/event/DelayedNotify.hpp"
+#include "LogFile.hpp"
+#include <utility>
+
+class IgcMetaCache::FillJob final : public Job {
+  IgcMetaCache &cache;
+  std::vector<AllocatedPath> paths;
+  UI::DelayedNotify *progress_notify;
+
+public:
+  FillJob(IgcMetaCache &_cache, std::vector<AllocatedPath> &&_paths,
+          UI::DelayedNotify *_progress_notify) noexcept
+    :cache(_cache), paths(std::move(_paths)),
+     progress_notify(_progress_notify) {}
+
+  void Run(OperationEnvironment &env) override {
+    for (const auto &path : paths) {
+      if (env.IsCancelled())
+        break;
+
+      if (cache.Find(Path(path.c_str())) == nullptr) {
+        cache.Insert(cache.ParseEntry(Path(path.c_str()), env));
+        if (progress_notify != nullptr)
+          progress_notify->SendNotification();
+      }
+    }
+  }
+};
+
+IgcMetaCache::IgcMetaCache() = default;
+
+IgcMetaCache::~IgcMetaCache() noexcept
+{
+  Shutdown();
+}
+
+IgcMetaCache::CacheEntry
+IgcMetaCache::ParseEntry(Path path, OperationEnvironment &env)
+{
+  CacheEntry entry;
+  entry.path = path;
+  entry.text = "";
+
+  try {
+    const auto times = DetectIGCFlightTimes(path, &env);
+    entry.detected = times.takeoff_detected && times.landing_detected;
+    if (entry.detected)
+      entry.duration = times.duration;
+
+    if (times.has_valid_fixes) {
+      StaticString<32> lbuf;
+      lbuf.Format("%02u:%02u - %02u:%02u",
+                  (unsigned)times.takeoff.hour,
+                  (unsigned)times.takeoff.minute,
+                  (unsigned)times.landing.hour,
+                  (unsigned)times.landing.minute);
+      entry.text = lbuf.c_str();
+
+      const auto dur = FormatTimespanSmart(times.duration, 2);
+      entry.text.append(" (");
+      entry.text.append(dur.c_str());
+      entry.text.append(")");
+    }
+  } catch (const OperationCancelled &) {
+    throw;
+  } catch (...) {
+    LogError(std::current_exception(), "Failed to read IGC metadata");
+  }
+
+  return entry;
+}
+
+IgcMetaCache::CacheEntry *
+IgcMetaCache::FindUnlocked(Path path) noexcept
+{
+  for (auto &e : cache)
+    if (e.path == path)
+      return &e;
+
+  return nullptr;
+}
+
+IgcMetaCache::CacheEntry *
+IgcMetaCache::Find(Path path) noexcept
+{
+  const std::lock_guard lock{cache_mutex};
+  return FindUnlocked(path);
+}
+
+void
+IgcMetaCache::Insert(CacheEntry entry)
+{
+  const std::lock_guard lock{cache_mutex};
+  if (FindUnlocked(entry.path) != nullptr)
+    return;
+
+  cache.push_back(std::move(entry));
+}
+
+const char *
+IgcMetaCache::GetCompactInfoPtr(Path path) noexcept
+{
+  CacheEntry *entry = Find(path);
+  return entry != nullptr ? entry->text.c_str() : nullptr;
+}
+
+std::optional<IgcCachedFlight>
+IgcMetaCache::GetFlight(Path path) noexcept
+{
+  const CacheEntry *entry = Find(path);
+  if (entry == nullptr)
+    return std::nullopt;
+
+  return IgcCachedFlight{entry->duration, entry->detected};
+}
+
+void
+IgcMetaCache::StartBackgroundFill(std::vector<AllocatedPath> paths,
+                                  UI::DelayedNotify *progress_notify,
+                                  UI::Notify *completion_notify)
+{
+  if (async.IsBusy())
+    CancelBackgroundFill();
+
+  fill_job = std::make_unique<FillJob>(*this, std::move(paths),
+                                       progress_notify);
+  try {
+    async.Start(fill_job.get(), operation, completion_notify);
+  } catch (...) {
+    fill_job.reset();
+    throw;
+  }
+}
+
+void
+IgcMetaCache::JoinFill() noexcept
+{
+  if (!async.IsBusy())
+    return;
+
+  try {
+    async.Wait();
+  } catch (const OperationCancelled &) {
+  } catch (...) {
+    LogError(std::current_exception(), "IGC metadata worker failed");
+  }
+
+  fill_job.reset();
+}
+
+void
+IgcMetaCache::CancelBackgroundFill() noexcept
+{
+  if (!async.IsBusy())
+    return;
+
+  async.Cancel();
+  JoinFill();
+}
+
+void
+IgcMetaCache::Shutdown() noexcept
+{
+  CancelBackgroundFill();
+}
+
+void
+IgcMetaCache::PollBackgroundFill() noexcept
+{
+  if (!async.IsBusy() || !async.HasFinished())
+    return;
+
+  JoinFill();
+}

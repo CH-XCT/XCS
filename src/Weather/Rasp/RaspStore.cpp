@@ -2,10 +2,13 @@
 // Copyright The XCSoar Project
 
 #include "RaspStore.hpp"
+#include "util/StringFormat.hpp"
 #include "Language/Language.hpp"
 #include "Units/Units.hpp"
 #include "system/ConvertPathName.hpp"
+#include "system/FileUtil.hpp"
 #include "system/Path.hpp"
+#include "time/BrokenDateTime.hpp"
 #include "io/ZipArchive.hpp"
 #include "util/StringCompare.hxx"
 #include "util/Macros.hpp"
@@ -21,16 +24,19 @@
 
 #define RASP_FORMAT "%s.curr.%02u%02ulst.d2.jp2"
 
+static constexpr const char *WSTAR_HELP =
+  N_("Average dry thermal updraft strength near mid-BL height. Subtract glider descent rate to get average vario reading for cloudless thermals. Updraft strengths will be stronger than this forecast if convective clouds are present, since cloud condensation adds buoyancy aloft (i.e. this neglects \"cloudsuck\"). W* depends upon both the surface heating and the BL depth.");
+
 static constexpr RaspStore::MapInfo WeatherDescriptors[] = {
   {
     "wstar",
     N_("W*"),
-    N_("Average dry thermal updraft strength near mid-BL height. Subtract glider descent rate to get average vario reading for cloudless thermals. Updraft strengths will be stronger than this forecast if convective clouds are present, since cloud condensation adds buoyancy aloft (i.e. this neglects \"cloudsuck\"). W* depends upon both the surface heating and the BL depth."),
+    WSTAR_HELP,
   },
   {
     "wstar_bsratio",
     N_("W*"),
-    N_("Average dry thermal updraft strength near mid-BL height. Subtract glider descent rate to get average vario reading for cloudless thermals. Updraft strengths will be stronger than this forecast if convective clouds are present, since cloud condensation adds buoyancy aloft (i.e. this neglects \"cloudsuck\"). W* depends upon both the surface heating and the BL depth."),
+    WSTAR_HELP,
   },
   {
     "blwindspd",
@@ -45,7 +51,7 @@ static constexpr RaspStore::MapInfo WeatherDescriptors[] = {
   {
     "dwcrit",
     N_("dwcrit"),
-    N_("This parameter estimates the height above ground at which the average dry updraft strength drops below 225 fpm and is expected to give better quantitative numbers for the maximum cloudless thermalling height than the BL Top height, especially when mixing results from vertical wind shear rather than thermals. (Note: the present assumptions tend to underpredict the max. thermalling height for dry conditions.) In the presence of clouds the maximum thermalling height may instead be limited by the cloud base. Being for \"dry\" thermals, this parameter omits the effect of \"cloudsuck\"."),
+    nullptr,
   },
   {
     "blcloudpct",
@@ -60,7 +66,7 @@ static constexpr RaspStore::MapInfo WeatherDescriptors[] = {
   {
     "hwcrit",
     N_("hwcrit"),
-    N_("This parameter estimates the height at which the average dry updraft strength drops below 225 fpm and is expected to give better quantitative numbers for the maximum cloudless thermalling height than the BL Top height, especially when mixing results from vertical wind shear rather than thermals. (Note: the present assumptions tend to underpredict the max. thermalling height for dry conditions.) In the presence of clouds the maximum thermalling height may instead be limited by the cloud base. Being for \"dry\" thermals, this parameter omits the effect of \"cloudsuck\"."),
+    nullptr,
   },
   {
     "wblmaxmin",
@@ -80,6 +86,23 @@ RaspStore::MapItem::MapItem(const char *_name)
   std::fill_n(times, ARRAY_SIZE(times), false);
 }
 
+BrokenDateTime
+RaspStore::GetFileModifiedTime() const noexcept
+{
+  if (path == nullptr || path.empty() || !File::Exists(path))
+    return BrokenDateTime::Invalid();
+
+  const auto modified = File::GetLastModification(path);
+  if (modified == std::chrono::system_clock::time_point{})
+    return BrokenDateTime::Invalid();
+
+  const BrokenDateTime dt{modified};
+  if (!dt.IsPlausible())
+    return BrokenDateTime::Invalid();
+
+  return dt.ToLocal();
+}
+
 BrokenTime
 RaspStore::IndexToTime(unsigned index)
 {
@@ -87,9 +110,53 @@ RaspStore::IndexToTime(unsigned index)
 }
 
 unsigned
+RaspStore::TimeToIndex(BrokenTime t) noexcept
+{
+  return unsigned(t.hour) * 4u + unsigned(t.minute) / 15u;
+}
+
+unsigned
+RaspStore::CountAvailableTimes(unsigned item_index) const noexcept
+{
+  if (item_index >= maps.size())
+    return 0;
+
+  unsigned n = 0;
+  for (unsigned i = 0; i < MAX_WEATHER_TIMES; ++i)
+    if (maps[item_index].times[i])
+      ++n;
+  return n;
+}
+
+bool
+RaspStore::HasSelectedTimeData(unsigned item_index, bool auto_advance,
+                               BrokenTime manual_time,
+                               BrokenTime auto_local_time) const noexcept
+{
+  if (item_index >= maps.size())
+    return false;
+
+  /* All-day / single-slot fields always have displayable raster data;
+     RaspCache snaps to that slot via GetNearestTime. */
+  if (IsSingleTimeField(item_index))
+    return true;
+
+  const BrokenTime forecast = (auto_advance || !manual_time.IsPlausible())
+    ? auto_local_time
+    : manual_time;
+  if (!forecast.IsPlausible())
+    return false;
+
+  const unsigned time_index = TimeToIndex(forecast);
+  return IsTimeAvailable(item_index, time_index);
+}
+
+unsigned
 RaspStore::GetNearestTime(unsigned item_index, unsigned time_index) const
 {
-  assert(item_index < maps.size());
+  if (item_index >= maps.size() || time_index >= MAX_WEATHER_TIMES)
+    return MAX_WEATHER_TIMES;
+
   assert(time_index < MAX_WEATHER_TIMES);
 
   // scan forward to next valid time
@@ -108,19 +175,32 @@ bool
 RaspStore::WeatherFilename(char *filename, Path name,
                                           unsigned time_index)
 {
+  if (filename == nullptr || MAX_PATH <= 0)
+    return false;
+
+  filename[0] = '\0';
+
   const NarrowPathName narrow_name(name);
   if (!narrow_name.IsDefined())
     return false;
 
   const BrokenTime t = IndexToTime(time_index);
-  sprintf(filename, RASP_FORMAT,
-          (const char *)narrow_name, t.hour, t.minute);
+  const int n = StringFormat(filename, MAX_PATH, RASP_FORMAT,
+                         (const char *)narrow_name, t.hour, t.minute);
+  if (n < 0 || n >= MAX_PATH) {
+    filename[0] = '\0';
+    return false;
+  }
+
   return true;
 }
 
 std::unique_ptr<ZipArchive>
 RaspStore::OpenArchive() const
 {
+  if (path == nullptr || path.empty())
+    return nullptr;
+
   return std::make_unique<ZipArchive>(path);
 }
 

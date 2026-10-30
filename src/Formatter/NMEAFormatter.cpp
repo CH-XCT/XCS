@@ -3,6 +3,15 @@
 
 #include "NMEAFormatter.hpp"
 #include "Units/Units.hpp"
+#include "Geo/GeoVector.hpp"
+#include "Geo/GeoPoint.hpp"
+#include "util/UTF8.hpp"
+
+#include <algorithm>
+#include <cstring>
+
+/** Distance under which GPRMB reports "arrived" (metres). */
+static constexpr double ARRIVAL_RADIUS_M = 1000.0;
 
 void
 FormatGPRMC(char *buffer, size_t buffer_size, const NMEAInfo &info) noexcept
@@ -22,14 +31,30 @@ FormatGPRMC(char *buffer, size_t buffer_size, const NMEAInfo &info) noexcept
   FormatTime(time_buffer, sizeof(time_buffer), date_time);
   FormatDate(date_buffer, sizeof(date_buffer), date_time);
 
+  /* Empty fields when the value was not measured.  A cleared validity
+     flag can still leave a stale number in the struct. */
+  char speed_buffer[16];
+  char track_buffer[16];
+  if (info.ground_speed_available)
+    snprintf(speed_buffer, sizeof(speed_buffer), "%05.1f",
+             (double)Units::ToUserUnit(info.ground_speed, Unit::KNOTS));
+  else
+    speed_buffer[0] = '\0';
+
+  if (info.track_available)
+    snprintf(track_buffer, sizeof(track_buffer), "%05.1f",
+             (double)info.track.Degrees());
+  else
+    track_buffer[0] = '\0';
+
   if (info.time_available && info.location_available) {
     StringFormat(buffer, buffer_size,
-                 "GPRMC,%s,A,%s,%s,%05.1f,%05.1f,%s,%s",
+                 "GPRMC,%s,A,%s,%s,%s,%s,%s,%s",
                  time_buffer,
                  lat_buffer,
                  long_buffer,
-                 (double)Units::ToUserUnit(info.ground_speed, Unit::KNOTS),
-                 (double)info.track.Degrees(),
+                 speed_buffer,
+                 track_buffer,
                  date_buffer,
                  info.variation_available ? var_buffer : ",");
   } else {
@@ -53,21 +78,85 @@ FormatGPGGA(char *buffer, size_t buffer_size, const NMEAInfo &info) noexcept
   FormatLongitude(long_buffer, sizeof(long_buffer), location.longitude);
   FormatTime(time_buffer, sizeof(time_buffer), date_time);
 
+  /* Negative HDOP means unknown.  Altitude is omitted when its
+     validity flag is clear, even if a previous fix left a number. */
+  char hdop_buffer[16];
+  char alt_buffer[16];
+  if (info.gps.hdop >= 0)
+    snprintf(hdop_buffer, sizeof(hdop_buffer), "%.1f", info.gps.hdop);
+  else
+    hdop_buffer[0] = '\0';
+
+  if (info.gps_altitude_available)
+    snprintf(alt_buffer, sizeof(alt_buffer), "%.3f", info.gps_altitude);
+  else
+    alt_buffer[0] = '\0';
+
   if (info.time_available && info.location_available) {
     StringFormat(buffer, buffer_size,
-                 "GPGGA,%s,%s,%s,%u,%02u,%.1f,%.3f,M,,,,0000",
+                 "GPGGA,%s,%s,%s,%u,%02u,%s,%s,M,,,,0000",
                  time_buffer,
                  lat_buffer,
                  long_buffer,
                  (unsigned)info.gps.fix_quality,
                  info.gps.satellites_used_available ? info.gps.satellites_used : 0,
-                 info.gps.hdop,
-                 info.gps_altitude);
+                 hdop_buffer,
+                 alt_buffer);
   } else {
     StringFormat(buffer, buffer_size,
                  "%s",
                  "GPGGA,,,,,,,,,,M,,,,");
   }
+}
+
+bool
+FormatGPRMB(char *buffer, size_t buffer_size,
+            const GeoPoint &here, const AGeoPoint &destination,
+            std::string_view destination_name) noexcept
+{
+  if (!here.IsValid() || !destination.IsValid())
+    return false;
+
+  const GeoVector vector(here, destination);
+  const bool has_arrived = vector.distance < ARRIVAL_RADIUS_M;
+  const double range_nm =
+    (double)Units::ToUserUnit(vector.distance, Unit::NAUTICAL_MILES);
+  const double bearing_deg = (double)vector.bearing.Degrees();
+  const char arrival = has_arrived ? 'A' : 'V';
+
+  /* NB: legacy `cai_lnav` emits the arrival flag in field 12 (the spec
+     reserves field 12 for closing velocity, field 13 for arrival).
+     We preserve that byte-for-byte so this lift is a pure refactor of
+     CaiLNav's helper.  The LX160 ignores fields beyond 11 anyway. */
+
+  if (destination_name.empty()) {
+    snprintf(buffer, buffer_size,
+             "GPRMB,A,,,,,,,,,%06.1f,%04.1f,%c",
+             range_nm, bearing_deg, arrival);
+    return true;
+  }
+
+  /* truncate the name to a NMEA-friendly size, preserving valid UTF-8
+     and stripping any embedded commas that would forge extra fields */
+  char name_buf[16];
+  const auto name_len =
+    std::min(destination_name.size(), sizeof(name_buf) - 1);
+  std::memcpy(name_buf, destination_name.data(), name_len);
+  name_buf[name_len] = '\0';
+  CropIncompleteUTF8(name_buf);
+  for (char *p = name_buf; *p != '\0'; ++p)
+    if (*p == ',')
+      *p = '_';
+
+  char lat_buffer[20], lon_buffer[20];
+  FormatLatitude(lat_buffer, sizeof(lat_buffer), destination.latitude);
+  FormatLongitude(lon_buffer, sizeof(lon_buffer), destination.longitude);
+
+  snprintf(buffer, buffer_size,
+           "GPRMB,A,,,,%s,%s,%s,%06.1f,%04.1f,%c",
+           name_buf, lat_buffer, lon_buffer,
+           range_nm, bearing_deg, arrival);
+  return true;
 }
 
 void

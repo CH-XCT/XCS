@@ -2,9 +2,18 @@
 // Copyright The XCSoar Project
 
 #include "Formatter/TimeFormatter.hpp"
+#include "Formatter/LocalTimeFormatter.hpp"
+#include "time/BrokenDateTime.hpp"
+#include "time/RoughTime.hpp"
+#include "time/Stamp.hpp"
 #include "util/Macros.hpp"
 #include "util/StringAPI.hxx"
 #include "TestUtil.hpp"
+
+#include <algorithm>
+#include <array>
+
+using namespace std::chrono_literals;
 
 static void
 TestFormat()
@@ -235,15 +244,82 @@ TestSmart()
             "-3 days 19 h 47 min 5 sec");
 }
 
+/**
+ * Regression for #957: flight time must match takeoff/landing after
+ * minute rounding, not raw second-precision duration.
+ */
+static void
+TestFlightTimeFromRoundedTakeoffLanding()
+{
+  const TimeStamp takeoff{10h + 3min + 30s};
+  const TimeStamp landing{11h + 47min + 29s};
+  const FloatDuration raw_flight_time = landing - takeoff;
+
+  ok1(StringIsEqual(FormatSignedTimeHHMM(raw_flight_time).c_str(), "01:43"));
+
+  const RoughTime rough_takeoff = RoughTime::FromSinceMidnight(takeoff);
+  const RoughTime rough_landing = RoughTime::FromSinceMidnight(landing);
+  ok1(StringIsEqual(FormatSignedTimeHHMM(FloatDuration{rough_landing - rough_takeoff}).c_str(),
+                  "01:44"));
+}
+
+static void
+TestFlightTimeFromRoundedBrokenDateTime()
+{
+  const BrokenDateTime takeoff{2024, 1, 1, 23, 3, 30};
+  const BrokenDateTime landing{2024, 1, 2, 0, 47, 29};
+  const auto raw = landing - takeoff;
+
+  ok1(StringIsEqual(FormatSignedTimeHHMM(
+        std::chrono::duration_cast<std::chrono::seconds>(raw)).c_str(),
+        "01:43"));
+
+  const auto rounded = landing.FloorToMinute() - takeoff.FloorToMinute();
+  ok1(StringIsEqual(FormatSignedTimeHHMM(
+        std::chrono::duration_cast<std::chrono::seconds>(rounded)).c_str(),
+        "01:44"));
+}
+
+static void
+TestFormatUTCTime()
+{
+  char buffer[32];
+  const BrokenDate today{2026, 10, 22};
+
+  FormatUTCTime(buffer, BrokenDateTime{2026, 10, 22, 14, 5, 9}, today);
+  ok1(StringIsEqual(buffer, "14:05Z"));
+
+  FormatUTCTime(buffer, BrokenDateTime{2000, 1, 1, 0, 1, 30}, today);
+  ok1(StringIsEqual(buffer, "2000-01-01 00:01Z"));
+}
+
+static void
+TestFormatLocalDateTimeYYYYMMDDHHMM()
+{
+  std::array<char, 21> buffer;
+  buffer.fill(char{0x55});
+
+  FormatLocalDateTimeYYYYMMDDHHMM(buffer.data(), TimeStamp{12h + 34min},
+                                  RoughTimeDelta::FromHours(2));
+
+  ok1(StringIsEqual(buffer.data(), "1970-01-01 14:34"));
+  ok1(std::all_of(buffer.begin() + 17, buffer.end(),
+                  [](char value) { return value == char{0x55}; }));
+}
+
 int main()
 {
-  plan_tests(111);
+  plan_tests(119);
 
   TestFormat();
   TestFormatLong();
   TestHHMM();
   TestTwoLines();
   TestSmart();
+  TestFlightTimeFromRoundedTakeoffLanding();
+  TestFlightTimeFromRoundedBrokenDateTime();
+  TestFormatUTCTime();
+  TestFormatLocalDateTimeYYYYMMDDHHMM();
 
   return exit_status();
 }

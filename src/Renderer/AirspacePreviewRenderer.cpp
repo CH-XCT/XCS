@@ -3,7 +3,6 @@
 
 #include "AirspacePreviewRenderer.hpp"
 #include "ui/canvas/Canvas.hpp"
-#include "ui/canvas/Features.hpp"
 #include "Airspace/AirspacePolygon.hpp"
 #include "Renderer/AirspaceRendererSettings.hpp"
 #include "Look/AirspaceLook.hpp"
@@ -61,16 +60,6 @@ AirspacePreviewRenderer::PrepareFill(
 #elif defined(USE_MEMORY_CANVAS)
   Color color = class_look.fill_color;
   canvas.Select(Brush(LightColor(color)));
-#else
-  unsigned brush = class_settings.brush;
-#ifdef HAVE_ALPHA_BLEND
-  if (settings.transparency)
-    brush = 3;
-#endif
-
-  canvas.Select(look.brushes[brush]);
-  canvas.SetTextColor(LightColor(class_look.fill_color));
-  canvas.SetMixMask();
 #endif
 
   canvas.SelectNullPen();
@@ -79,13 +68,11 @@ AirspacePreviewRenderer::PrepareFill(
 }
 
 void
-AirspacePreviewRenderer::UnprepareFill([[maybe_unused]] Canvas &canvas)
+AirspacePreviewRenderer::UnprepareFill([[maybe_unused]] Canvas &canvas,
+                                       [[maybe_unused]] Color text_color) noexcept
 {
 #ifdef ENABLE_OPENGL
   ::glDisable(GL_BLEND);
-#elif defined(USE_GDI)
-  canvas.SetTextColor(COLOR_BLACK);
-  canvas.SetMixCopy();
 #endif
 }
 
@@ -133,9 +120,10 @@ AirspacePreviewRenderer::Draw(Canvas &canvas, const AbstractAirspace &airspace,
   if (shape == AbstractAirspace::Shape::POLYGON)
     GetPolygonPoints(pts, (const AirspacePolygon &)airspace, pt, radius);
 
+  const Color text_color = canvas.GetTextColor();
   if (PrepareFill(canvas, as_type_or_class, look, settings)) {
     DrawShape(canvas, shape, pt, radius, pts);
-    UnprepareFill(canvas);
+    UnprepareFill(canvas, text_color);
   }
 
   if (PrepareOutline(canvas, as_type_or_class, look, settings))

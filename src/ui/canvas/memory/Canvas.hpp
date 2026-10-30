@@ -56,6 +56,20 @@ public:
     buffer = _buffer;
   }
 
+  /**
+   * Copy drawing state (pen/brush/font/colors) from another canvas.
+   * This is useful when painting to temporary canvases that should
+   * behave exactly like the caller's canvas.
+   */
+  void CopyStateFrom(const Canvas &other) noexcept {
+    pen = other.pen;
+    brush = other.brush;
+    font = other.font;
+    text_color = other.text_color;
+    background_color = other.background_color;
+    background_mode = other.background_mode;
+  }
+
 protected:
   /**
    * Returns true if the outline should be drawn after the area has
@@ -422,4 +436,20 @@ public:
                           const Canvas src,
                           PixelPoint src_position, PixelSize src_size,
                           uint8_t alpha);
+
+  /**
+   * Stretch with per-pixel (from src) alpha blending.
+   */
+  void StretchWithSourceAlpha(PixelPoint dest_position, PixelSize dest_size,
+                              ConstImageBuffer src,
+                              PixelPoint src_position, PixelSize src_size) noexcept;
+
+  /**
+   * Stretch with per-pixel (from src) alpha blending, combined with a
+   * global constant alpha (effective alpha is source_alpha * alpha)
+   */
+  void StretchWithSourceAlpha(PixelPoint dest_position, PixelSize dest_size,
+                              ConstImageBuffer src,
+                              PixelPoint src_position, PixelSize src_size,
+                              uint8_t alpha) noexcept;
 };

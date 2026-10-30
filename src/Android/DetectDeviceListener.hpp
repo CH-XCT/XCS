@@ -18,9 +18,10 @@ public:
     USB_SERIAL = 4,
   };
 
-  static constexpr uint64_t FEATURE_HM10 = 0x1;
+  static constexpr uint64_t FEATURE_BLE_SERIAL = 0x1;
   static constexpr uint64_t FEATURE_HEART_RATE = 0x2;
   static constexpr uint64_t FEATURE_FLYTEC_SENSBOX = 0x4;
+  static constexpr uint64_t FEATURE_PULSE_OXIMETER = 0x8;
 
   /**
    * A new device was detected or new information about a device

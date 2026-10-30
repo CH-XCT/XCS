@@ -1,0 +1,245 @@
+---
+description: Style and audience for NEWS.txt release notes
+globs:
+  - "NEWS.txt"
+alwaysApply: false
+---
+
+# NEWS.txt release notes
+
+`NEWS.txt` ships with XCSoar (Credits dialog, release packages). It is a
+**cumulative** changelog: the top uses current style; older entries at the
+bottom retain legacy formats (prose lists, “Changes from …”, contributor
+attributions). **New entries** always go at the top under the current
+unreleased version.
+
+## When to add an entry
+
+- Under **`Version X.Y - not yet released`** at the top of the file
+- **User-visible** changes → platform/feature sections (`* Windows`, `* ui`, …)
+- **Manual / user documentation** users would notice → `* documentation` (see
+  below)
+- **Build, CI, contributor docs, scripting APIs** → `* development` (see below)
+- Pure refactors or CI tweaks with nothing worth noting: omit
+
+## Bug fixes vs the previous release
+
+`fix` / crash bullets in the current unreleased version must describe
+bugs that **already existed in the last released version**. Example: 7.45
+notes only list bugs that were present in 7.44.
+
+- Do **not** list regressions introduced and fixed during development of
+  the current version — users of the last release never saw them
+- If a **new feature** in this version had bugs during development, fold
+  the final behaviour into the feature bullet (or omit); do not add a
+  separate `fix` line
+- What's New shows only the first version block. Do not repeat a fix
+  already shipped in a patch release of the previous minor (7.46 must
+  not restate 7.45.1–7.45.3). Keep those patch blocks in the cumulative
+  file, below the unreleased version
+
+```text
+# BAD in Version 7.45 (only happened on 7.45 development builds)
+- Fix crash when opening Weather Setup from the weather overlay picker
+
+# GOOD: bug already present in 7.44
+- fix crash when opening the aircraft type picker without a network
+  connection
+```
+
+## Structure
+
+```text
+Version X.Y - not yet released
+* highlights
+  - headline features for this release (moved here, not duplicated)
+* section
+  - bullet describing the change
+* documentation
+  - clarify task speed calculation section
+* development
+  - build system: ...
+  - documentation: ...
+```
+
+- **Version line**: `Version X.Y - YYYY-MM-DD` or `- not yet released`
+- **Section headers**: `* android`, `* Windows`, `* ui`, … — lowercase after
+  `*` unless a proper noun (Windows, macOS, iOS, Android, Linux, Kobo)
+- **Bullets**: start with a verb (`add`, `fix`, `deprecate`, `support`,
+  `let`, `allow`, `remember`, `replace`, …). Do not lead with a noun
+  label or a bare adjective (`BlueFly Vario:`, `airspace warnings:`,
+  `configurable XCSoar Cloud…`, `Alternate 1/2 InfoBoxes can…`)
+- **Wrap** at 79 columns (same as source)
+- **Order within a section**: features first, then bug fixes. Do not
+  put an `add` after a `fix` / `accept` in the same section
+- **Issue references**: append ` #1234` at end when related to a GitHub
+  issue (project practice since 2012). **One issue, one bullet** — do
+  not list the same `#1234` under two sections; fold the device-specific
+  cause into the user-facing symptom
+
+```text
+# BAD (same fix twice)
+* glide computer
+  - fix wild T Avg climb rates … #2754
+* devices
+  - fix LXNAV thermal averages … #2754
+
+# GOOD
+* glide computer
+  - fix wild T Avg climb rates by preferring the instrument vario
+    when available (including LXNAV conflicting altitude sources)
+    #2754
+```
+
+### Section naming (historical mess — pick one style per release)
+
+The file mixes `* user interface` and `* ui`, `* android` and `* Android`,
+`* devices` and `* Devices`. For **new** entries in a release block, match the
+sections already used in that block; prefer lowercase generic names (`* ui`,
+`* devices`, `* android`) unless the release already uses another form.
+
+Each section header should appear **once** per version block. Do not start a
+second `* ui` (or `* map`, `* weather`, …) later in the same release.
+
+When `* ui` grows large, split into existing feature sections (`* map`,
+`* weather`, `* airspace`, `* input`, …) and add focused headings rather
+than stacking more `* ui` blocks. 7.45 uses `* highlights`, `* infoboxen`,
+`* waypoints`, `* task`, `* FLARM`, `* simulator`, `* Quick Guide`, and
+`* dialogs`.
+The in-app What's New view turns each `* section` into a heading.
+
+### `* highlights`
+
+Optional first section in a version block. Move a short list of
+**headline** user-facing features here so What's New opens with them.
+
+- **Move, do not copy.** Supporting detail, related polish, input-event
+  names, and bug fixes stay under `* map`, `* weather`, `* data files`,
+  `* input`, and so on
+- **One class of feature, one bullet.** SkySight, EDL, and XCTherm are
+  weather overlays — not three highlight items. Pinch-to-zoom and
+  two-finger rotate are one map-gesture bullet
+- **Keep highlight text short.** Drop ``DataManagement``-style event
+  names, long option lists, and upgrade-migration detail; leave those
+  in the original section
+- **If a section is emptied** by the move (e.g. a one-bullet
+  `* NOTAM`), delete the empty heading
+- Distinctive map/safety/audio items (turn-back marker, distance rings,
+  internal audio STF) may be promoted when they are first-launch
+  noticeable
+
+```text
+# BAD (three overlays + a leftover twist bullet + an event name)
+- add SkySight forecast overlays …
+- add EDL weather overlays …
+- add XCTherm as a map-page overlay …
+- add pinch-to-zoom … a two-finger drag or twist enters pan mode
+- add two-finger twist to temporarily rotate the map …
+- add a Data Management hub (menu, Quick Menu, and
+  ``DataManagement`` input event): …
+
+# GOOD
+- add SkySight, EDL, and XCTherm weather overlays … unified forecast
+  controls …
+- add pinch-to-zoom and two-finger map rotate …
+- add a Data Management hub (menu and Quick Menu): site files, …
+  (``DataManagement`` stays under * data files)
+```
+
+## User-facing sections
+
+Platform and feature sections (`* Windows`, `* ui`, `* devices`, `* map`, …).
+Aim for language pilots understand when **adding new** bullets. Older entries
+often use technical terms (`targetSdkVersion`, driver names) — that is fine to
+leave; do not rewrite history.
+
+### Wording — prefer for new user bullets
+
+- Plain language: “OpenGL Windows version”, “installer”, “legacy
+  single-file executable”
+- What the user gets or should do: “use the OpenGL version instead”
+- Match tone of other bullets in the same release block
+
+### Wording — avoid in new user bullets when a plain phrase exists
+
+- Build target names: `WIN64OPENGL`, `WIN32OPENGL`, `TARGET=…`
+- Internal stack terms users do not see: GDI, NSIS, ANGLE, SDL, `USE_*`
+- Source paths, class names, “targets” in the build-system sense
+- Code identifiers when the UI uses another name: `pc_met` →
+  flugwetter.de; leave internals for `* development` or one
+  parenthetical if search needs them
+
+Driver names, file formats, and platform APIs are OK when that is what
+the user configures or sees.
+
+Translation catalog refresh: `update translations for N languages`
+under `* ui` (`N` = number of `po/*.po` files). Do not rewrite older
+version blocks.
+
+### Examples
+
+```text
+# BAD (* Windows)
+- add NSIS installer for OpenGL builds (WIN64OPENGL, WIN32OPENGL)
+
+# GOOD (* Windows)
+- add installer for the OpenGL Windows version (64-bit and 32-bit)
+```
+
+## `* documentation` section
+
+Use for **end-user or pilot documentation** shipped or maintained with the
+release: manual chapters, installation instructions, Lua reference updates users
+read, clarifications in the built-in help. Established in 7.43+ as a top-level
+section.
+
+```text
+* documentation
+  - clarify task speed calculation section
+  - lua reference updated
+```
+
+Do not use this for `doc/build.rst` or other contributor-only docs — those go
+under `* development` with a `documentation:` prefix.
+
+User-facing behaviour belongs in `doc/manual/en/` as well as `NEWS.txt`.
+See `.cursor/rules/user-manual.mdc`.
+
+## `* development` section
+
+Use for people **building** or **hacking on** XCSoar. Introduced in 7.44 as a
+consolidated block; before that, similar items appeared as `* build system`,
+top-level `build system:` bullets, or inside platform sections.
+
+Technical terms and target names are fine here.
+
+- Prefix bullets with a topic: `build system:`, `documentation:`, `iOS:`,
+  `Linux:`, … (match 7.44 style)
+- Examples: new targets, makefile/CI changes, `doc/build.rst`, dev guides,
+  contributor scripting APIs
+
+```text
+* development
+  - build system: add WIN32OPENGL target and NSIS installer target
+  - documentation: document OpenGL Windows cross-compile and outputs
+```
+
+Legacy: a standalone `* build system` section still exists at Version 6.0 in
+the file; prefer `* development` with a `build system:` prefix for new entries.
+
+## Avoid duplication
+
+Do not repeat the same change in multiple sections unless one line is
+user-facing and another adds separate technical detail (e.g. installer in
+`* Windows`, `build system: WIN64OPENGL installer target` in `* development`).
+
+## Deprecations and removals
+
+- User sections: what is going away and what to use instead, in user terms
+- `* development`: target names and flags OK (e.g. `WIN64OPENGL` /
+  `WIN32OPENGL`)
+
+## Platform notes (user sections)
+
+- Prefer “OpenGL Windows version” over naming the renderer stack
+- Mention installer and zip when both are shipped

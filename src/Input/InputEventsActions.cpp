@@ -33,11 +33,16 @@ https://xcsoar.readthedocs.io/en/latest/input_events.html
 #include "Dialogs/Error.hpp"
 #include "Dialogs/Device/Vega/SwitchesDialog.hpp"
 #include "Dialogs/Airspace/Airspace.hpp"
+#ifdef HAVE_HTTP
+#include "Dialogs/Airspace/NOTAMList.hpp"
+#endif
 #include "Dialogs/Task/TaskDialogs.hpp"
 #include "Dialogs/Traffic/TrafficDialogs.hpp"
 #include "Dialogs/Waypoint/WaypointDialogs.hpp"
 #include "Dialogs/Weather/WeatherDialog.hpp"
 #include "Dialogs/Plane/PlaneDialogs.hpp"
+#include "Dialogs/DataManagement/DataManagement.hpp"
+#include "Dialogs/DataManagement/ExportFlightsPanel.hpp"
 #include "Dialogs/ProfileListDialog.hpp"
 #include "Dialogs/dlgAnalysis.hpp"
 #include "Dialogs/FileManager.hpp"
@@ -51,6 +56,7 @@ https://xcsoar.readthedocs.io/en/latest/input_events.html
 #include "Projection/MapWindowProjection.hpp"
 #include "Audio/Sound.hpp"
 #include "UIActions.hpp"
+#include "InfoBoxes/InfoBoxArrange.hpp"
 #include "Interface.hpp"
 #include "ActionInterface.hpp"
 #include "Language/Language.hpp"
@@ -67,9 +73,7 @@ https://xcsoar.readthedocs.io/en/latest/input_events.html
 #include "Formatter/TimeFormatter.hpp"
 #include "Operation/MessageOperationEnvironment.hpp"
 #include "Device/MultipleDevices.hpp"
-#include "Form/DataField/File.hpp"
-#include "Dialogs/FilePicker.hpp"
-#include "net/client/WeGlide/UploadIGCFile.hpp"
+#include "Dialogs/InternalLink.hpp"
 #include "Components.hpp"
 #include "BackendComponents.hpp"
 #include "DataComponents.hpp"
@@ -77,7 +81,7 @@ https://xcsoar.readthedocs.io/en/latest/input_events.html
 
 #include <cassert>
 #include <algorithm>
-#include <limits>
+#include <optional>
 
 #ifdef __APPLE__
 #include <TargetConditionals.h>
@@ -85,6 +89,7 @@ https://xcsoar.readthedocs.io/en/latest/input_events.html
 
 #ifdef _WIN32
 #include <processthreadsapi.h> // for CreateProcess()
+#include <windef.h> // for HWND (needed by winbase.h)
 #include <winbase.h> // for INFINITE
 #endif
 
@@ -343,8 +348,9 @@ InputEvents::eventAnalysis([[maybe_unused]] const char *misc)
 // WaypointDetails
 // Displays waypoint details
 //         current: the current active waypoint
-//          select: brings up the waypoint selector, if the user then
-//                  selects a waypoint, then the details dialog is shown.
+//          select: opens waypoint search; details on selection; search stays
+//                  open until Esc or a successful GoTo / task / home / pan in
+//                  details (pan dismisses search so the map is visible).
 //  See the waypoint dialog section of the reference manual
 // for more info.
 void
@@ -373,18 +379,34 @@ InputEvents::eventWaypointDetails(const char *misc)
     allow_navigation = false;
     allow_edit = false;
   } else if (StringIsEqual(misc, "select")) {
-    wp = ShowWaypointListDialog(*data_components->waypoints, basic.location);
+    /* List stays open until Esc or a navigation/task change in details. */
+    ShowWaypointListPersistentDialog(basic.location, true, true);
+    return;
   }
   if (wp)
-    dlgWaypointDetailsShowModal(data_components->waypoints.get(),
-                                std::move(wp),
+    dlgWaypointDetailsShowModal(data_components->waypoints.get(), std::move(wp),
                                 allow_navigation, allow_edit);
+}
+
+// WaypointDetailsPersistent: same list+details flow as "WaypointDetails" select
+// (kept for existing .xci configurations).
+void
+InputEvents::eventWaypointDetailsPersistent(gcc_unused const char *misc)
+{
+  const NMEAInfo &basic = CommonInterface::Basic();
+  ShowWaypointListPersistentDialog(basic.location, true, true);
 }
 
 void
 InputEvents::eventWaypointEditor([[maybe_unused]] const char *misc)
 {
   dlgConfigWaypointsShowModal(*data_components->waypoints);
+}
+
+void
+InputEvents::eventWaypointImage(const char *misc)
+{
+  WaypointDetailsDispatchImageInput(misc);
 }
 
 // StatusMessage
@@ -515,6 +537,18 @@ InputEvents::eventGestureHelp([[maybe_unused]] const char *misc)
   dlgGestureHelpShowModal();
 }
 
+// NOTAMList
+// Opens the list of loaded NOTAMs
+void
+InputEvents::eventNOTAMList([[maybe_unused]] const char *misc)
+{
+#ifdef HAVE_HTTP
+  ShowNOTAMListDialog(*CommonInterface::main_window);
+#else
+  Message::AddMessage(_("NOTAM list requires HTTP support"));
+#endif
+}
+
 // NearestWaypointDetails
 // Displays the waypoint details dialog
 void
@@ -552,11 +586,7 @@ InputEvents::eventNull([[maybe_unused]] const char *misc)
 void
 InputEvents::eventBeep([[maybe_unused]] const char *misc)
 {
-#ifdef _WIN32
-  MessageBeep(MB_ICONEXCLAMATION);
-#else
   PlayResource("IDR_WAV_CLEAR");
-  #endif
 }
 
 // Setup
@@ -674,7 +704,7 @@ InputEvents::eventAddWaypoint(const char *misc)
     if (!location.IsValid())
       return;
 
-    double elevation = std::numeric_limits<double>::quiet_NaN();
+    std::optional<double> elevation;
     if (data_components->terrain != nullptr) {
       const auto h = data_components->terrain->GetTerrainHeight(location);
       if (!h.IsSpecial()) {
@@ -686,7 +716,10 @@ InputEvents::eventAddWaypoint(const char *misc)
     way_points.AddTempPoint(location, elevation, "(goto)");
   } else {
     Waypoint edit_waypoint = way_points.Create(basic.location);
-    edit_waypoint.elevation = calculated.terrain_altitude;
+    if (calculated.terrain_valid) {
+      edit_waypoint.elevation = calculated.terrain_altitude;
+      edit_waypoint.elevation_source = Waypoint::ElevationSource::FILE;
+    }
     if (dlgWaypointEditShowModal(edit_waypoint) == WaypointEditResult::CANCEL ||
         edit_waypoint.name.empty()) {
       trigger_redraw();
@@ -753,9 +786,27 @@ InputEvents::eventQuickMenu([[maybe_unused]] const char *misc)
 }
 
 void
+InputEvents::eventArrangeInfoBoxes([[maybe_unused]] const char *misc)
+{
+  InfoBoxArrange::Begin();
+}
+
+void
 InputEvents::eventFileManager([[maybe_unused]] const char *misc)
 {
   ShowFileManager();
+}
+
+void
+InputEvents::eventDataManagement([[maybe_unused]] const char *misc)
+{
+  ShowDataManagementDialog();
+}
+
+void
+InputEvents::eventExportFlights([[maybe_unused]] const char *misc)
+{
+  ShowExportFlightsDialog();
 }
 
 void
@@ -765,15 +816,12 @@ InputEvents::eventExchangeFrequencies([[maybe_unused]] const char *misc)
 }
 
 void
-InputEvents::eventUploadIGCFile([[maybe_unused]] const char *misc) {
-  FileDataField df;
-  df.ScanMultiplePatterns("*.igc\0");
-  df.SetFileType(FileType::IGC);
-  if (FilePicker("IGC-FilePicker", df)) {
-    auto path = df.GetValue();
-    if (!path.empty())
-      if (WeGlide::UploadIGCFile(path)) {
-        // success!
-      }
+InputEvents::eventUploadIGCFile([[maybe_unused]] const char *misc)
+{
+  if (!CommonInterface::GetComputerSettings().weglide.IsConfigured()) {
+    HandleInternalLink("xcsoar://config/weglide");
+    return;
   }
+
+  ShowExportFlightsDialog(ExportFlightsMode::WEGLIDE);
 }

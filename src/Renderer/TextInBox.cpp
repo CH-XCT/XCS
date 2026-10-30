@@ -3,12 +3,30 @@
 
 #include "TextInBox.hpp"
 #include "LabelBlock.hpp"
+#include "Asset.hpp"
+#include "BoxShadowRenderer.hpp"
 #include "ui/canvas/Canvas.hpp"
+#include "ui/canvas/Pen.hpp"
+#include "Math/Angle.hpp"
 #include "Screen/Layout.hpp"
+#include "util/UTF8.hpp"
+
+#include <algorithm>
+
+#include <math.h>
 
 #ifdef ENABLE_OPENGL
+#include "Hardware/CPU.hpp"
 #include "ui/canvas/opengl/Scope.hpp"
+#include "ui/canvas/opengl/Triangulate.hpp"
 #endif
+
+/** Alias raster (e-paper panels). */
+static bool
+LabelUsesAliasRaster() noexcept
+{
+  return HasEPaper() || IsDithered();
+}
 
 static PixelPoint
 TextInBoxMoveInView(PixelRect &rc, const PixelRect &map_rc) noexcept
@@ -51,22 +69,114 @@ TextInBoxMoveInView(PixelRect &rc, const PixelRect &map_rc) noexcept
   return offset;
 }
 
+/**
+ * Stamp the text along a circle of the given radius, one stamp per
+ * ~1.5px of circumference so consecutive stamps always overlap.  The
+ * four diagonal copies this used to be only close up while the offset
+ * is 1px; beyond that they leave gaps along every stroke, which is
+ * what high-DPI screens hit (offset 5 on a 3x iPhone).
+ */
+static void
+DrawTextHalo(Canvas &canvas, const char *text, const PixelPoint p,
+             const unsigned offset) noexcept
+{
+  /* 8 is the full neighbourhood of a 1px halo, 16 caps the cost */
+  const unsigned n = std::clamp(4 * offset, 8u, 16u);
+
+  for (unsigned i = 0; i < n; ++i) {
+    const auto [sin, cos] =
+      (Angle::FullCircle() * ((double)i / n)).SinCos();
+    canvas.DrawText({p.x + (int)lround(cos * offset),
+                     p.y + (int)lround(sin * offset)},
+                    text);
+  }
+}
+
 void
 RenderShadowedText(Canvas &canvas, const char *text,
                    PixelPoint p,
                    bool inverted) noexcept
 {
+  if (text == nullptr || text[0] == '\0')
+    return;
+
+  /* OUTLINED_INVERTED uses a black halo for LCD contrast; alias panels
+     turn that fringe into extra ink. */
+  if (LabelUsesAliasRaster())
+    inverted = false;
+
   canvas.SetBackgroundTransparent();
 
   canvas.SetTextColor(inverted ? COLOR_BLACK : COLOR_WHITE);
-  const int offset = canvas.GetFontHeight() / 12u;
-  canvas.DrawText({p.x + offset, p.y + offset}, text);
-  canvas.DrawText({p.x - offset, p.y + offset}, text);
-  canvas.DrawText({p.x + offset, p.y - offset}, text);
-  canvas.DrawText({p.x - offset, p.y - offset}, text);
+
+  /* at least 1px, or tiny fonts get no halo at all */
+  const unsigned halo = LabelUsesAliasRaster()
+    ? std::max(1u, canvas.GetFontHeight() / 16u)
+    : std::max(1u, canvas.GetFontHeight() / 12u);
+  DrawTextHalo(canvas, text, p, halo);
 
   canvas.SetTextColor(inverted ? COLOR_WHITE : COLOR_BLACK);
   canvas.DrawText(p, text);
+}
+
+/**
+ * The opacity of a #LabelShape::PILL.
+ */
+static constexpr uint8_t PILL_ALPHA = 0xf2;
+
+void
+DrawPill(Canvas &canvas, const PixelRect &rc, uint8_t opacity) noexcept
+{
+  /* a pill: the diameter of the corners is the box's height */
+  const PixelSize ellipse{unsigned(rc.GetHeight())};
+
+  canvas.SelectNullPen();
+
+#ifdef ENABLE_OPENGL
+  /* Android may choose an EGL config without a stencil buffer */
+  GLint stencil_bits = 0;
+  glGetIntegerv(GL_STENCIL_BITS, &stencil_bits);
+
+  if (!IsSlowCPU() && stencil_bits > 0) {
+    /* the pill is translucent, so keep its shadow out from under it:
+       mark the pill's area in the stencil buffer, and draw the shadow
+       only around it */
+    const GLEnable<GL_STENCIL_TEST> stencil_test;
+    glClear(GL_STENCIL_BUFFER_BIT);
+
+    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+    glStencilFunc(GL_ALWAYS, 1, 1);
+    glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+
+    canvas.SelectWhiteBrush();
+    canvas.DrawRoundRectangle(rc, ellipse);
+
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glStencilFunc(GL_NOTEQUAL, 1, 1);
+    glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+
+    BoxShadowStyle shadow = BoxShadowStyle::FLOATING;
+    for (auto &layer : shadow.layers)
+      layer.alpha = layer.alpha * opacity / 0xff;
+
+    DrawBoxShadow(rc, shadow, rc.GetHeight() / 2);
+  } else
+    /* no shadow on a slow CPU or without a stencil buffer: a black
+       outline sets the pill off the map */
+    canvas.Select(Pen(1, COLOR_BLACK.WithAlpha(opacity)));
+
+  const ScopeAlphaBlend alpha_blend;
+  canvas.Select(Brush(COLOR_WHITE.WithAlpha(PILL_ALPHA * opacity / 0xff)));
+#else
+  (void)opacity;
+
+  /* no shadow without OpenGL: a black outline sets the pill off the
+     map */
+  canvas.SelectBlackPen();
+  canvas.SelectWhiteBrush();
+#endif
+
+  canvas.DrawRoundRectangle(rc, ellipse);
 }
 
 // returns true if really wrote something
@@ -76,6 +186,9 @@ TextInBox(Canvas &canvas, const char *text, PixelPoint p,
           LabelBlock *label_block) noexcept
 {
   // landable waypoint label inside white box
+
+  if (text == nullptr || text[0] == '\0' || !ValidateUTF8(text))
+    text = "?";
 
   PixelSize tsize = canvas.CalcTextSize(text);
 
@@ -90,11 +203,17 @@ TextInBox(Canvas &canvas, const char *text, PixelPoint p,
     p.y -= tsize.height / 2;
 
   const unsigned padding = Layout::GetTextPadding();
+
+  /* the round ends of a pill need room of their own */
+  const unsigned side_padding = mode.shape == LabelShape::PILL
+    ? (tsize.height + 2 * padding) / 2
+    : padding;
+
   PixelRect rc;
-  rc.left = p.x - padding - 1;
-  rc.right = p.x + tsize.width + padding;
-  rc.top = p.y;
-  rc.bottom = p.y + tsize.height + 1;
+  rc.left = p.x - side_padding - 1;
+  rc.right = p.x + tsize.width + side_padding;
+  rc.top = p.y - (int)padding;
+  rc.bottom = p.y + tsize.height + padding;
 
   if (mode.move_in_view) {
     auto offset = TextInBoxMoveInView(rc, map_rc);
@@ -107,10 +226,24 @@ TextInBox(Canvas &canvas, const char *text, PixelPoint p,
 
   if (mode.shape == LabelShape::ROUNDED_BLACK ||
       mode.shape == LabelShape::ROUNDED_WHITE) {
-    if (mode.shape == LabelShape::ROUNDED_BLACK)
-      canvas.SelectBlackPen();
-    else
-      canvas.SelectWhitePen();
+    /* A hairline pen breaks up along the rounded corners where the
+       outline is emitted as a triangle strip: its half width (0.5px)
+       rounds to zero on most of the arc segments, leaving a dotted
+       edge.  Widen the pen only there.  Where GL_LINE_LOOP draws the
+       outline (and on the non-OpenGL canvases), a DPI-scaled pen would
+       merely make the box fat and - because LineToTriangles() rounds
+       the segment offsets to whole pixels - ragged around the corners;
+       on a 3x iPhone it turns the 1px hairline into 3px. */
+    unsigned outline_width = 1;
+#ifdef ENABLE_OPENGL
+    if (!UseOpenGLLineLoopOutline(outline_width))
+      outline_width = std::max(2u, Layout::ScaleFinePenWidth(1));
+#endif
+
+    const Pen outline_pen{outline_width,
+                          mode.shape == LabelShape::ROUNDED_BLACK
+                          ? COLOR_BLACK : COLOR_WHITE};
+    canvas.Select(outline_pen);
 
     {
 #ifdef ENABLE_OPENGL
@@ -120,8 +253,20 @@ TextInBox(Canvas &canvas, const char *text, PixelPoint p,
       canvas.SelectWhiteBrush();
 #endif
 
-      canvas.DrawRoundRectangle(rc, PixelSize{Layout::VptScale(8)});
+      /* DrawRoundRectangle takes an ellipse diameter (radius =
+         diameter/2). Cap it so short labels stay rounded rectangles
+         instead of pills. */
+      const unsigned ellipse =
+        std::min(Layout::VptScale(8),
+                 std::max(2u, (unsigned)rc.GetHeight() / 2));
+      canvas.DrawRoundRectangle(rc, PixelSize{ellipse});
     }
+
+    canvas.SetBackgroundTransparent();
+    canvas.SetTextColor(COLOR_BLACK);
+    canvas.DrawText(p, text);
+  } else if (mode.shape == LabelShape::PILL) {
+    DrawPill(canvas, rc);
 
     canvas.SetBackgroundTransparent();
     canvas.SetTextColor(COLOR_BLACK);

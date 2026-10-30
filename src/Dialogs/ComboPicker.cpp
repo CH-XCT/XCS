@@ -3,12 +3,14 @@
 
 #include "Dialogs/ComboPicker.hpp"
 #include "Dialogs/ListPicker.hpp"
+#include "Form/Form.hpp"
 #include "ui/control/List.hpp"
 #include "Form/DataField/Base.hpp"
 #include "Form/DataField/ComboList.hpp"
 #include "Renderer/TextRowListItemRenderer.hpp"
 #include "UIGlobals.hpp"
 #include "Look/DialogLook.hpp"
+#include "Screen/Layout.hpp"
 #include "util/StaticString.hxx"
 
 static const ComboList *ComboListPopup;
@@ -22,7 +24,29 @@ public:
 
   void OnPaintItem(Canvas &canvas, const PixelRect rc,
                    unsigned i) noexcept override {
-    row_renderer.DrawTextRow(canvas, rc, combo_list[i].display_string.c_str());
+    const ComboList::Item &item = combo_list[i];
+    const char *const display_string = item.display_string.c_str();
+
+    row_renderer.DrawTextRow(canvas, rc, display_string);
+
+    if (item.annotation.empty())
+      return;
+
+    /* keep the annotation clear of the scroll bar */
+    PixelRect annotation_rc = rc;
+    annotation_rc.right -= Layout::GetTextPadding() * 2;
+
+    const char *const annotation = item.annotation.c_str();
+    const int left_end = row_renderer.NextColumn(canvas, rc, display_string);
+    const int right_limit =
+      row_renderer.PreviousRightColumn(canvas, annotation_rc, annotation);
+
+    /* Skip the annotation when the row is too narrow for both texts.
+       PreviousRightColumn() reports "does not fit at all" as rc.right,
+       which passes this check; DrawRightColumn() detects that case
+       again and then draws nothing. */
+    if (right_limit > left_end + (int)Layout::GetTextPadding())
+      row_renderer.DrawRightColumn(canvas, annotation_rc, annotation);
   }
 };
 
@@ -37,7 +61,8 @@ ComboPicker(const char *caption,
             const ComboList &combo_list,
             const char *help_text,
             bool enable_item_help,
-            const char *extra_caption)
+            const char *extra_caption,
+            const char *extra_caption2)
 {
   ComboListPopup = &combo_list;
 
@@ -49,13 +74,19 @@ ComboPicker(const char *caption,
                     support, false,
                     help_text,
                     enable_item_help ? OnItemHelp : nullptr,
-                    extra_caption);
+                    extra_caption,
+                    extra_caption2);
 }
 
 bool
 ComboPicker(const char *caption, DataField &df,
-            const char *help_text)
+            const char *help_text,
+            const char *extra_caption,
+            bool *extra_selected)
 {
+  if (extra_selected != nullptr)
+    *extra_selected = false;
+
   StaticString<256> buffer;
   const char *reference = nullptr;
 
@@ -64,7 +95,14 @@ ComboPicker(const char *caption, DataField &df,
     ComboListPopup = &combo_list;
 
     int idx = ComboPicker(caption, combo_list, help_text,
-                          df.GetItemHelpEnabled());
+                          df.GetItemHelpEnabled(),
+                          extra_caption);
+    if (idx == mrExtra) {
+      if (extra_selected != nullptr)
+        *extra_selected = true;
+      return false;
+    }
+
     if (idx < 0)
       return false;
 

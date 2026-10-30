@@ -2,6 +2,7 @@
 // Copyright The XCSoar Project
 
 #include "GlueMapWindow.hpp"
+#include "InfoBoxes/InfoBoxArrange.hpp"
 #include "Input/InputEvents.hpp"
 #include "Screen/Layout.hpp"
 #include "Simulator.hpp"
@@ -14,6 +15,14 @@
 #include "Asset.hpp"
 #include "Components.hpp"
 #include "BackendComponents.hpp"
+#include "ActionInterface.hpp"
+#include "UserMapScale.hpp"
+#include "Form/Button.hpp"
+#include "util/StringAPI.hxx"
+#include "ui/event/Idle.hpp"
+#ifdef HAVE_EDL
+#include "UIState.hpp"
+#endif
 
 #ifdef USE_X11
 #include "ui/event/Globals.hpp"
@@ -25,6 +34,7 @@
 #endif
 
 #include <algorithm> // for std::clamp()
+#include <cmath> // for std::hypot()
 
 void
 GlueMapWindow::OnCreate()
@@ -43,6 +53,8 @@ GlueMapWindow::OnDestroy() noexcept
 
 #ifdef ENABLE_OPENGL
   kinetic_timer.Cancel();
+  CancelZoomAnimation();
+  terrain_quantisation_timer.Cancel();
 #endif
 
   map_item_timer.Cancel();
@@ -51,11 +63,18 @@ GlueMapWindow::OnDestroy() noexcept
 }
 
 bool
-GlueMapWindow::OnMouseDouble([[maybe_unused]] PixelPoint p) noexcept
+GlueMapWindow::OnMouseDouble(PixelPoint p) noexcept
 {
   map_item_timer.Cancel();
 
   mouse_down_clock.Update();
+
+  if (HandleCompassTap(p)) {
+    /* rapid repeated taps on the compass are cycling through the map
+       orientations, not requesting the menu */
+    ignore_single_click = true;
+    return true;
+  }
 
   InputEvents::ShowMenu();
   ignore_single_click = true;
@@ -78,6 +97,27 @@ GlueMapWindow::OnMouseMove(PixelPoint p, unsigned keys) noexcept
 
 #ifdef HAVE_MULTI_TOUCH
   case DRAG_MULTI_TOUCH_PAN:
+    if (resume_pan_after_pinch) {
+      drag_projection = visible_projection;
+      drag_start = p;
+      drag_start_geopoint = drag_projection.ScreenToGeo(p);
+      resume_pan_after_pinch = false;
+      return true;
+    }
+
+    if (!multi_touch_pan_ui &&
+        (unsigned)ManhattanDistance(drag_start, p) > Layout::Scale(20u)) {
+      CommitMultiTouchPanUI();
+
+      /* entering pan mode may have resized the map; re-base the drag so
+         the map does not jump on the next motion event */
+      drag_projection = visible_projection;
+      drag_start = p;
+      drag_start_geopoint = drag_projection.ScreenToGeo(p);
+      return true;
+    }
+
+    [[fallthrough]];
 #endif
   case DRAG_PAN:
     SetLocation(drag_projection.GetGeoLocation()
@@ -91,13 +131,49 @@ GlueMapWindow::OnMouseMove(PixelPoint p, unsigned keys) noexcept
 #endif
     return true;
 
-  case DRAG_GESTURE:
+#ifdef HAVE_MULTI_TOUCH
+  case DRAG_MULTI_TOUCH_PINCH:
+    /* primary-pointer mouse motion is ignored; scale/pan come from
+       OnMultiTouchMove() */
+    return true;
+#endif
+
+  case DRAG_GESTURE: {
+#ifdef HAVE_VIBRATOR
+    const char *old_gesture = gestures.GetGesture();
+    const std::size_t old_length = old_gesture != nullptr
+      ? StringLength(old_gesture)
+      : 0;
+
+    /* an empty figure or a single stroke is only the start of a
+       gesture: continuing it is not worth a tick, so a quick gesture
+       (for example "D" to "DU") vibrates only once, when lifting the
+       finger runs it */
+    const bool tick = old_gesture != nullptr &&
+      (old_length > 1 || !InputEvents::IsGesture(old_gesture));
+#endif
+
     gestures.Update(p);
+
+#ifdef HAVE_VIBRATOR
+    /* a light tick when the figure drawn so far becomes another known
+       gesture: when the trail turns from translucent back to opaque,
+       or when one gesture of several strokes turns into another (for
+       example "Analysis" into "Pan") */
+    const char *gesture = gestures.GetGesture();
+    if (tick && StringLength(gesture) != old_length &&
+        InputEvents::IsGesture(gesture))
+      PlayHapticFeedback(HapticFeedbackType::SELECTION);
+#endif
 
     /* invoke PaintWindow's Invalidate() implementation instead of
        DoubleBufferWindow's in order to reuse the buffered map */
     PaintWindow::Invalidate();
+#ifdef ENABLE_OPENGL
+    NoteTerrainQuantisationUserActivity();
+#endif
     return true;
+  }
 
   case DRAG_SIMULATOR:
     return true;
@@ -112,8 +188,6 @@ IsCtrlKeyPressed() noexcept
 {
 #ifdef ENABLE_SDL
   return SDL_GetModState() & (KMOD_LCTRL|KMOD_RCTRL);
-#elif defined(USE_WINUSER)
-  return GetKeyState(VK_CONTROL) & 0x8000;
 #elif defined(USE_X11)
   return UI::event_queue->WasCtrlClick();
 #else
@@ -124,12 +198,16 @@ IsCtrlKeyPressed() noexcept
 bool
 GlueMapWindow::OnMouseDown(PixelPoint p) noexcept
 {
+  if (InfoBoxArrange::IsActive())
+    return true;
+
   map_item_timer.Cancel();
 
   bool was_kinetic_motion = false;
 #ifdef ENABLE_OPENGL
   was_kinetic_motion = kinetic_timer.IsActive();
   kinetic_timer.Cancel();
+  CancelZoomAnimation();
 #endif
 
   // Ignore single click event if double click detected
@@ -204,7 +282,12 @@ GlueMapWindow::OnMouseUp(PixelPoint p) noexcept
   // Ignore single click event if double click detected
   if (ignore_single_click) {
     ignore_single_click = false;
-    return true;
+
+    /* a multi-touch gesture must still be finished: it has already
+       switched to FOLLOW_PAN, and only the code below enters pan mode
+       properly, including its menu */
+    if (!GestureOwnsMap())
+      return true;
   }
 
   const auto click_time = mouse_down_clock.Elapsed();
@@ -220,8 +303,22 @@ GlueMapWindow::OnMouseUp(PixelPoint p) noexcept
 
 #ifdef HAVE_MULTI_TOUCH
   case DRAG_MULTI_TOUCH_PAN:
-    follow_mode = FOLLOW_SELF;
-    ::PanTo(visible_projection.GetGeoScreenCenter());
+  case DRAG_MULTI_TOUCH_PINCH:
+    PersistCurrentScale();
+
+    resume_pan_after_pinch = false;
+
+    if (multi_touch_was_panning || multi_touch_pan_ui)
+      /* pan UI was already active, or CommitMultiTouchPanUI() ran
+         during the gesture; stay in FOLLOW_PAN */
+      follow_mode = FOLLOW_PAN;
+    else {
+      /* a pure pinch-zoom only changed the scale; resume following the
+         aircraft */
+      follow_mode = FOLLOW_SELF;
+      QuickRedraw();
+    }
+
     return true;
 #endif
 
@@ -236,6 +333,11 @@ GlueMapWindow::OnMouseUp(PixelPoint p) noexcept
     kinetic_x.MouseUp(p.x);
     kinetic_y.MouseUp(p.y);
     kinetic_timer.Schedule(std::chrono::milliseconds(30));
+#endif
+
+#ifdef HAVE_EDL
+    if (CommonInterface::GetUIState().weather.edl.session.IsSuspendedForPan())
+      ActionInterface::ScheduleSendUIState();
 #endif
     break;
 
@@ -271,6 +373,11 @@ GlueMapWindow::OnMouseUp(PixelPoint p) noexcept
 
   case DRAG_GESTURE:
     const char* gesture = gestures.Finish();
+
+    /* repaint to erase the gesture trail; the map is not redrawn on
+       its own unless the gesture happens to trigger it */
+    PaintWindow::Invalidate();
+
     if (gesture && OnMouseGesture(gesture))
       return true;
 
@@ -285,6 +392,12 @@ GlueMapWindow::OnMouseUp(PixelPoint p) noexcept
   }
 
   if (arm_mapitem_list) {
+    /* the compass doubles as a button: tapping it resets a rotated
+       map back to north-up while panning and cycles through the map
+       orientations otherwise */
+    if (HandleCompassTap(drag_start))
+      return true;
+
     map_item_timer.Schedule(std::chrono::milliseconds(200));
     return true;
   }
@@ -296,10 +409,14 @@ bool
 GlueMapWindow::OnMouseWheel([[maybe_unused]] PixelPoint p,
                             [[maybe_unused]] int delta) noexcept
 {
+  if (InfoBoxArrange::IsActive())
+    return true;
+
   map_item_timer.Cancel();
 
 #ifdef ENABLE_OPENGL
   kinetic_timer.Cancel();
+  CancelZoomAnimation();
 #endif
 
   if (drag_mode != DRAG_NONE)
@@ -320,19 +437,237 @@ GlueMapWindow::OnMouseWheel([[maybe_unused]] PixelPoint p,
 bool
 GlueMapWindow::OnMultiTouchDown() noexcept
 {
+  if (InfoBoxArrange::IsActive())
+    return true;
+
   if (!visible_projection.IsValid())
     return false;
 
-  if (drag_mode == DRAG_GESTURE)
-    gestures.Finish();
-  else if (follow_mode != FOLLOW_SELF)
-    return false;
+  if (drag_mode == DRAG_MULTI_TOUCH_PAN ||
+      drag_mode == DRAG_MULTI_TOUCH_PINCH)
+    /* another finger touched down during the gesture; the state below
+       was already captured, and re-capturing it now would read the
+       FOLLOW_PAN that this very gesture has set as "was already
+       panning", which skips entering pan mode on release */
+    return true;
 
-  /* start panning on MultiTouch event */
+  /* Start gesture ownership only.  Do not set FOLLOW_PAN or pan UI
+     yet: that is CommitMultiTouchPanUI()'s job after a drag/twist, so
+     chrome and fullscreen layout appear together at the final size. */
+  BeginMultiTouchOwnership();
 
   drag_mode = DRAG_MULTI_TOUCH_PAN;
   drag_projection = visible_projection;
-  follow_mode = FOLLOW_PAN;
+  arm_mapitem_list = false;
+  return true;
+}
+
+void
+GlueMapWindow::DiscardPendingFingerGesture() noexcept
+{
+  if (drag_mode != DRAG_GESTURE)
+    return;
+
+  /* discard without firing; repaint to erase the gesture trail */
+  gestures.Finish();
+  PaintWindow::Invalidate();
+}
+
+void
+GlueMapWindow::BeginMultiTouchOwnership() noexcept
+{
+  DiscardPendingFingerGesture();
+  multi_touch_was_panning = IsPanning();
+  multi_touch_pan_ui = false;
+  resume_pan_after_pinch = false;
+  pinch_scaling = false;
+  pinch_rotating = false;
+}
+
+void
+GlueMapWindow::ResetMultiTouchSessionState() noexcept
+{
+  resume_pan_after_pinch = false;
+  multi_touch_pan_ui = false;
+  multi_touch_was_panning = false;
+  pinch_scaling = false;
+  pinch_rotating = false;
+}
+
+void
+GlueMapWindow::CommitMultiTouchPanUI() noexcept
+{
+  if (multi_touch_pan_ui)
+    return;
+
+  multi_touch_pan_ui = true;
+
+  if (multi_touch_was_panning)
+    /* pan UI is already active */
+    return;
+
+  /* follow_mode is still FOLLOW_SELF, so ShowOnlyMap()'s DisablePan()
+     is a no-op; PanTo() expands the layout (coalesced) and only then
+     sets FOLLOW_PAN — chrome is drawn at the fullscreen centre. */
+  ::PanTo(visible_projection.GetGeoScreenCenter());
+}
+
+void
+GlueMapWindow::RebasePinchAfterLayoutChange(PixelPoint a, PixelPoint b,
+                                            double distance,
+                                            PixelPoint centroid) noexcept
+{
+  pinch_start_distance = distance;
+  pinch_start_map_scale = visible_projection.GetMapScale();
+  pinch_start_centroid = centroid;
+  pinch_anchor_geo = visible_projection.ScreenToGeo(centroid);
+  pinch_start_finger_angle =
+    Angle::Radians(std::atan2(double(b.y - a.y), double(b.x - a.x)));
+  pinch_start_screen_angle = visible_projection.GetScreenAngle();
+}
+
+bool
+GlueMapWindow::OnMultiTouchMove(PixelPoint a, PixelPoint b) noexcept
+{
+  if (!visible_projection.IsValid())
+    return false;
+
+  const double distance = std::hypot(double(a.x - b.x), double(a.y - b.y));
+  if (distance < 1)
+    return true;
+
+  const PixelPoint centroid{(a.x + b.x) / 2, (a.y + b.y) / 2};
+
+  if (drag_mode != DRAG_MULTI_TOUCH_PINCH) {
+    if (drag_mode != DRAG_MULTI_TOUCH_PAN)
+      /* OnMultiTouchDown() did not run; record the pan state here */
+      BeginMultiTouchOwnership();
+    else
+      DiscardPendingFingerGesture();
+
+    drag_mode = DRAG_MULTI_TOUCH_PINCH;
+    drag_projection = visible_projection;
+    arm_mapitem_list = false;
+    pinch_start_distance = distance;
+    pinch_start_map_scale = visible_projection.GetMapScale();
+    pinch_anchor_geo = visible_projection.ScreenToGeo(centroid);
+    pinch_start_centroid = centroid;
+    pinch_last_a = a;
+    pinch_last_b = b;
+    pinch_scaling = false;
+    pinch_rotating = false;
+    pinch_start_finger_angle =
+      Angle::Radians(std::atan2(double(b.y - a.y), double(b.x - a.x)));
+    pinch_start_screen_angle = visible_projection.GetScreenAngle();
+    SetCapture();
+    return true;
+  }
+
+  if (pinch_start_distance < 1 || !pinch_anchor_geo.IsValid())
+    return true;
+
+  if (a == pinch_last_a && b == pinch_last_b)
+    /* one motion event per finger arrives, but both positions are read
+       from the current device state; skip the duplicate */
+    return true;
+
+  pinch_last_a = a;
+  pinch_last_b = b;
+
+  if (!multi_touch_pan_ui &&
+      (unsigned)ManhattanDistance(pinch_start_centroid, centroid) >
+      Layout::Scale(20u)) {
+    CommitMultiTouchPanUI();
+    RebasePinchAfterLayoutChange(a, b, distance, centroid);
+    return true;
+  }
+
+  if (!pinch_scaling) {
+    /* Require a noticeable change in finger separation before the map
+       is rescaled.  Fingers always wobble while panning, and rescaling
+       invalidates the cached terrain and topography rendering, which
+       is far more expensive than panning. */
+    constexpr double dead_zone = 0.1;
+    const double ratio = distance / pinch_start_distance;
+
+    if (ratio > 1 + dead_zone || ratio < 1 - dead_zone) {
+      /* re-base so that scaling starts from the current scale without
+         a jump */
+      pinch_scaling = true;
+      pinch_start_distance = distance;
+      pinch_start_map_scale = visible_projection.GetMapScale();
+    }
+  }
+
+  if (pinch_scaling) {
+    if (!IsPanning())
+      DisableAutoZoomForManualScale();
+
+    const double new_scale = ClampUserMapScale(
+      pinch_start_map_scale * (pinch_start_distance / distance));
+
+    visible_projection.SetFreeMapScale(new_scale);
+    OnProjectionModified();
+  }
+
+  /* two-finger twist rotates the map around the pinch centroid */
+  const Angle finger_angle =
+    Angle::Radians(std::atan2(double(b.y - a.y), double(b.x - a.x)));
+
+  if (!pinch_rotating) {
+    /* ignore small twists so an ordinary pinch/pan does not rotate */
+    constexpr double rotate_dead_zone_deg = 8;
+    if ((finger_angle - pinch_start_finger_angle).AsDelta().Absolute() >
+        Angle::Degrees(rotate_dead_zone_deg)) {
+      /* re-base so rotation starts from the current angle without a
+         jump */
+      pinch_rotating = true;
+      pinch_start_finger_angle = finger_angle;
+      pinch_start_screen_angle = visible_projection.GetScreenAngle();
+    }
+  }
+
+  if (pinch_rotating) {
+    const Angle twist =
+      (finger_angle - pinch_start_finger_angle).AsDelta();
+
+    /* screen y grows downward, so a visually clockwise finger twist
+       increases the measured angle; subtract it so the map content
+       rotates with the fingers */
+    const Angle new_angle = pinch_start_screen_angle - twist;
+
+    /* a rotation is a deliberate manipulation; enter pan mode so the
+       chosen angle is held (UpdateScreenAngle() leaves the angle alone
+       while panning) */
+    if (!multi_touch_pan_ui) {
+      CommitMultiTouchPanUI();
+      RebasePinchAfterLayoutChange(a, b, distance, centroid);
+      pinch_start_finger_angle = finger_angle;
+      pinch_start_screen_angle = new_angle;
+    }
+
+    visible_projection.SetScreenAngle(new_angle);
+    OnProjectionModified();
+  }
+
+  SetLocation(visible_projection.GetGeoLocation() + pinch_anchor_geo
+              - visible_projection.ScreenToGeo(centroid));
+  QuickRedraw();
+  return true;
+}
+
+bool
+GlueMapWindow::OnMultiTouchUp() noexcept
+{
+  if (drag_mode != DRAG_MULTI_TOUCH_PINCH)
+    return false;
+
+  /* second finger lifted: keep current scale, fall back to single-
+     finger pan with the remaining pointer */
+  PersistCurrentScale();
+
+  drag_mode = DRAG_MULTI_TOUCH_PAN;
+  resume_pan_after_pinch = true;
   return true;
 }
 
@@ -341,6 +676,13 @@ GlueMapWindow::OnMultiTouchDown() noexcept
 bool
 GlueMapWindow::OnMouseGesture(const char *gesture) noexcept
 {
+#ifdef HAVE_VIBRATOR
+  /* generate the feedback before running the event, which may open a
+     modal dialog and thus return only much later */
+  if (InputEvents::IsGesture(gesture))
+    PlayHapticFeedback(HapticFeedbackType::GESTURE);
+#endif
+
   return InputEvents::processGesture(gesture);
 }
 
@@ -351,6 +693,7 @@ GlueMapWindow::OnKeyDown(unsigned key_code) noexcept
 
 #ifdef ENABLE_OPENGL
   kinetic_timer.Cancel();
+  CancelZoomAnimation();
 #endif
 
   if (InputEvents::processKey(key_code)) {
@@ -367,19 +710,42 @@ GlueMapWindow::OnCancelMode() noexcept
 
   if (drag_mode != DRAG_NONE) {
 #ifdef HAVE_MULTI_TOUCH
-    if (drag_mode == DRAG_MULTI_TOUCH_PAN)
-      follow_mode = FOLLOW_SELF;
+    const bool was_multi_touch = GestureOwnsMap();
+    if (was_multi_touch) {
+      PersistCurrentScale();
+
+      /* multi_touch_pan_ui means pan mode has already been entered,
+         and its user interface is visible */
+      follow_mode = multi_touch_was_panning || multi_touch_pan_ui
+        ? FOLLOW_PAN
+        : FOLLOW_SELF;
+    }
+
+    ResetMultiTouchSessionState();
 #endif
 
-    if (drag_mode == DRAG_GESTURE)
+    if (drag_mode == DRAG_GESTURE) {
       gestures.Finish();
+
+      /* repaint to erase the gesture trail */
+      PaintWindow::Invalidate();
+    }
 
     ReleaseCapture();
     drag_mode = DRAG_NONE;
+
+#ifdef HAVE_MULTI_TOUCH
+    if (was_multi_touch)
+      /* refresh after the session flags were cleared; a twist angle
+         from a cancelled gesture that did not enter pan mode is
+         dropped by UpdateScreenAngle() */
+      QuickRedraw();
+#endif
   }
 
 #ifdef ENABLE_OPENGL
   kinetic_timer.Cancel();
+  CancelZoomAnimation();
 #endif
 
   map_item_timer.Cancel();
@@ -390,10 +756,16 @@ GlueMapWindow::OnPaint(Canvas &canvas) noexcept
 {
   MapWindow::OnPaint(canvas);
 
-  // Draw center screen cross hair in pan mode
-  if (IsPanning())
+  if (IsPanChromeVisible())
     DrawCrossHairs(canvas);
 
+  /* over the buffered map, so fading it out does not render the whole
+     map again */
+  DrawPageIndicator(canvas);
+
+  /* the trail may leave this window (the pointer is captured); under
+     OpenGL it is painted over the InfoBoxes, and MainWindow::OnPaint()
+     takes care of erasing it afterwards */
   DrawGesture(canvas);
 }
 
@@ -402,15 +774,34 @@ GlueMapWindow::OnPaintBuffer(Canvas &canvas) noexcept
 {
 #ifdef ENABLE_OPENGL
   ExchangeBlackboard();
-
   EnterDrawThread();
+
+  /* PartialRedraw (vario/GPS/topography) invalidates without running
+     FullRedraw.  Without a projection update here, Render() draws the
+     new aircraft against a stale map origin — the plane slides, then
+     the next FullRedraw recenters and the terrain jerks. */
+  if (IsNearSelf()) {
+    UpdateDisplayMode();
+    UpdateScreenAngle();
+    UpdateProjection();
+    /* Pin origin to the DeviceBlackboard sample we just exchanged so
+       aircraft and terrain share one geo origin in this frame. */
+    if (Basic().location_available)
+      SetLocationLazy(Basic().location);
+    UpdateMapScale();
+    /* Refresh cached screen_bounds only — not GlueMapWindow's
+       UpdateScreenBounds(), which would re-trigger terrain/topo
+       threads.  Stale bounds break airspace GeoClip (MapCanvas). */
+    MapWindow::UpdateScreenBounds();
+  }
 #endif
 
   MapWindow::OnPaintBuffer(canvas);
 
-  DrawMapScale(canvas, GetClientRect(), render_projection);
-  if (IsPanning())
-    DrawPanInfo(canvas);
+  const auto layout = GetHudLayout();
+  DrawMapScale(canvas, layout, render_projection);
+  if (IsPanChromeVisible() || DEBUG_ALL_MAP_OVERLAYS)
+    DrawPanInfo(canvas, layout);
 
 #ifdef ENABLE_OPENGL
   LeaveDrawThread();
@@ -438,6 +829,10 @@ GlueMapWindow::OnKineticTimer() noexcept
     return;
   }
 
+  /* Coasting is still a pan.  Keep the height-matrix scan deferred
+     until the map has actually stopped. */
+  ResetUserIdle();
+
   auto location = drag_projection.ScreenToGeo({kinetic_x.GetPosition(), kinetic_y.GetPosition()});
   location = drag_projection.GetGeoLocation() +
     drag_start_geopoint - location;
@@ -453,14 +848,17 @@ GlueMapWindow::Render(Canvas &canvas, const PixelRect &rc) noexcept
 {
   MapWindow::Render(canvas, rc);
 
-  if (IsNearSelf()) {
+  if (IsNearSelf() || DEBUG_ALL_MAP_OVERLAYS) {
     draw_sw.Mark("DrawGlueMisc");
-    if (GetMapSettings().show_thermal_profile)
-      DrawThermalBand(canvas, rc);
-    DrawStallRatio(canvas, rc);
-    DrawFlightMode(canvas, rc);
-    DrawFinalGlide(canvas, rc);
-    DrawVario(canvas, rc);
-    DrawGPSStatus(canvas, rc, Basic());
+
+    const auto layout = GetHudLayout(GetHudRect(rc));
+
+    if (GetMapSettings().show_thermal_profile || DEBUG_ALL_MAP_OVERLAYS)
+      DrawThermalBand(canvas, layout);
+    DrawStallRatio(canvas, layout);
+    DrawFlightMode(canvas, layout);
+    DrawFinalGlide(canvas, layout);
+    DrawVario(canvas, layout);
+    DrawGPSStatus(canvas, layout, Basic());
   }
 }

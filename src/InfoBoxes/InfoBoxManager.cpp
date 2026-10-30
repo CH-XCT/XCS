@@ -4,14 +4,17 @@
 #include "InfoBoxes/InfoBoxManager.hpp"
 #include "InfoBoxes/InfoBoxWindow.hpp"
 #include "InfoBoxes/InfoBoxLayout.hpp"
+#include "InfoBoxes/Border.hpp"
+#include "InfoBoxes/InfoBoxArrange.hpp"
 #include "InfoBoxes/Content/Factory.hpp"
 #include "Language/Language.hpp"
-#include "Form/DataField/ComboList.hpp"
-#include "Dialogs/ComboPicker.hpp"
+#include "Dialogs/InfoBoxPicker.hpp"
 #include "Profile/InfoBoxConfig.hpp"
 #include "Profile/Current.hpp"
 #include "Interface.hpp"
 #include "UIState.hpp"
+
+#include <cassert>
 
 namespace InfoBoxManager {
 
@@ -34,6 +37,12 @@ InfoBoxDrawIfDirty() noexcept;
 static bool infoboxes_dirty = false;
 static bool infoboxes_hidden = false;
 
+/* True after Create() finishes and until Destroy() runs.  Startup can
+   re-enter layout (terrain load, PageActions::Update) while windows
+   are half-built; defer refresh via ScheduleRefreshInfoBoxes() and
+   skip work here until the manager is ready. */
+static bool infoboxes_ready = false;
+
 static InfoBoxWindow *infoboxes[InfoBoxSettings::Panel::MAX_CONTENTS];
 
 // TODO locking
@@ -43,10 +52,17 @@ InfoBoxManager::Hide() noexcept
   if (infoboxes_hidden)
     return;
 
+  InfoBoxArrange::Save();
+
   infoboxes_hidden = true;
 
-  for (unsigned i = 0; i < layout.count; i++)
-    infoboxes[i]->FastHide();
+  if (!infoboxes_ready)
+    return;
+
+  for (unsigned i = 0; i < layout.count; i++) {
+    if (infoboxes[i] != nullptr)
+      infoboxes[i]->FastHide();
+  }
 }
 
 void
@@ -57,8 +73,13 @@ InfoBoxManager::Show() noexcept
 
   infoboxes_hidden = false;
 
-  for (unsigned i = 0; i < layout.count; i++)
-    infoboxes[i]->Show();
+  if (!infoboxes_ready)
+    return;
+
+  for (unsigned i = 0; i < layout.count; i++) {
+    if (infoboxes[i] != nullptr)
+      infoboxes[i]->Show();
+  }
 
   SetDirty();
 }
@@ -67,6 +88,12 @@ void
 InfoBoxManager::DisplayInfoBox() noexcept
 {
   static int DisplayTypeLast[InfoBoxSettings::Panel::MAX_CONTENTS];
+  static bool displaying = false;
+
+  if (!infoboxes_ready || displaying)
+    return;
+
+  displaying = true;
 
   // JMW note: this is updated every GPS time step
 
@@ -76,6 +103,9 @@ InfoBoxManager::DisplayInfoBox() noexcept
     CommonInterface::GetUISettings().info_boxes.panels[panel];
 
   for (unsigned i = 0; i < layout.count; i++) {
+    if (infoboxes[i] == nullptr)
+      continue;
+
     // All calculations are made in a separate thread. Slow calculations
     // should apply to the function DoCalculationsSlow()
     // Do not put calculations here!
@@ -84,9 +114,9 @@ InfoBoxManager::DisplayInfoBox() noexcept
     if ((unsigned)DisplayType > (unsigned)InfoBoxFactory::MAX_TYPE_VAL)
       DisplayType = InfoBoxFactory::NavAltitude;
 
-    bool needupdate = ((DisplayType != DisplayTypeLast[i]) || first);
+    const bool needupdate = ((DisplayType != DisplayTypeLast[i]) || first);
 
-    if (needupdate) {
+    if (needupdate || !infoboxes[i]->HasContent()) {
       infoboxes[i]->SetTitle(gettext(InfoBoxFactory::GetCaption(DisplayType)));
       infoboxes[i]->SetContentProvider(InfoBoxFactory::Create(DisplayType));
       DisplayTypeLast[i] = DisplayType;
@@ -96,6 +126,7 @@ InfoBoxManager::DisplayInfoBox() noexcept
   }
 
   first = false;
+  displaying = false;
 }
 
 void
@@ -110,6 +141,15 @@ InfoBoxManager::InfoBoxDrawIfDirty() noexcept
     DisplayInfoBox();
     infoboxes_dirty = false;
   }
+}
+
+InfoBoxWindow *
+InfoBoxManager::GetWindow(unsigned id) noexcept
+{
+  if (!infoboxes_ready || id >= layout.count)
+    return nullptr;
+
+  return infoboxes[id];
 }
 
 void
@@ -128,16 +168,27 @@ InfoBoxManager::InvalidateAfterLanguageChange() noexcept
 void
 InfoBoxManager::ScheduleRedraw() noexcept
 {
-  if (infoboxes_hidden)
+  if (infoboxes_hidden || !infoboxes_ready)
     return;
 
-  for (unsigned i = 0; i < layout.count; i++)
-    infoboxes[i]->Invalidate();
+  for (unsigned i = 0; i < layout.count; i++) {
+    if (infoboxes[i] != nullptr)
+      infoboxes[i]->Invalidate();
+  }
+}
+
+bool
+InfoBoxManager::IsReady() noexcept
+{
+  return infoboxes_ready;
 }
 
 void
 InfoBoxManager::ProcessTimer() noexcept
 {
+  if (!infoboxes_ready)
+    return;
+
   InfoBoxDrawIfDirty();
 }
 
@@ -149,11 +200,16 @@ InfoBoxManager::Create(ContainerWindow &parent,
   const InfoBoxSettings &settings =
     CommonInterface::GetUISettings().info_boxes;
 
+  infoboxes_ready = false;
   first = true;
   layout = _layout;
 
+  for (unsigned i = layout.count; i < InfoBoxSettings::Panel::MAX_CONTENTS; ++i)
+    infoboxes[i] = nullptr;
+
   WindowStyle style;
   style.Hide();
+  style.TabStop();
 
   // create infobox windows
   for (unsigned i = layout.count; i-- > 0;) {
@@ -165,63 +221,116 @@ InfoBoxManager::Create(ContainerWindow &parent,
          settings.geometry is the configured layout */
       : InfoBoxLayout::GetBorder(layout.geometry, layout.landscape, i);
 
+    if (settings.border_style != InfoBoxSettings::BorderStyle::TAB) {
+      /* an InfoBox at the outer edge of the layout has no border
+         there, because that edge usually is the screen border; give it
+         one when the layout was kept clear of the screen border */
+      if ((layout.outer_border & BORDERTOP) && rc.top == layout.rc.top)
+        Border |= BORDERTOP;
+      if ((layout.outer_border & BORDERBOTTOM) &&
+          rc.bottom == layout.rc.bottom)
+        Border |= BORDERBOTTOM;
+      if ((layout.outer_border & BORDERLEFT) && rc.left == layout.rc.left)
+        Border |= BORDERLEFT;
+      if ((layout.outer_border & BORDERRIGHT) && rc.right == layout.rc.right)
+        Border |= BORDERRIGHT;
+    }
+
     infoboxes[i] = new InfoBoxWindow(parent, rc,
                                      Border, settings, look,
                                      i, style);
   }
 
   infoboxes_hidden = true;
+  infoboxes_ready = true;
 }
 
 void
 InfoBoxManager::Destroy() noexcept
 {
-  for (unsigned i = 0; i < layout.count; i++) {
+  InfoBoxArrange::Reset();
+
+  infoboxes_ready = false;
+  first = true;
+
+  for (unsigned i = 0; i < InfoBoxSettings::Panel::MAX_CONTENTS; ++i) {
     delete infoboxes[i];
-    infoboxes[i] = NULL;
+    infoboxes[i] = nullptr;
   }
+}
+
+bool
+InfoBoxManager::ShowInfoBoxPicker(InfoBoxSettings::Panel &panel,
+                                  unsigned i) noexcept
+{
+  const InfoBoxFactory::Type old_type = panel.contents[i];
+
+  /* name the set this goes into: from the map it is the set of the
+     current flight mode, which is not necessarily the one on the
+     screen a minute later */
+  StaticString<96> caption;
+  caption.Format("%s %u (%s)", _("InfoBox"), i + 1, gettext(panel.name));
+
+  InfoBoxFactory::Type new_type = old_type;
+  if (!InfoBoxPicker(caption, new_type))
+    return false;
+
+  /* was there a modification? */
+  if (new_type == old_type)
+    return false;
+
+  panel.contents[i] = new_type;
+  return true;
 }
 
 void
 InfoBoxManager::ShowInfoBoxPicker(const int i) noexcept
 {
+  if (i < 0)
+    return;
+
   InfoBoxSettings &settings = CommonInterface::SetUISettings().info_boxes;
   const unsigned panel_index = CommonInterface::GetUIState().panel_index;
   InfoBoxSettings::Panel &panel = settings.panels[panel_index];
 
-  const InfoBoxFactory::Type old_type = panel.contents[i];
-
-  ComboList list;
-  for (unsigned j = InfoBoxFactory::MIN_TYPE_VAL; j < InfoBoxFactory::NUM_TYPES; j++) {
-    const char *desc = InfoBoxFactory::GetDescription((InfoBoxFactory::Type)j);
-    list.Append(j, gettext(InfoBoxFactory::GetName((InfoBoxFactory::Type)j)),
-                gettext(InfoBoxFactory::GetName((InfoBoxFactory::Type)j)),
-                desc != NULL ? gettext(desc) : NULL);
-  }
-
-  list.Sort();
-  list.current_index = list.LookUp(old_type);
-
-  /* let the user select */
-
-  StaticString<20> caption;
-  caption.Format("%s: %d", _("InfoBox"), i + 1);
-  int result = ComboPicker(caption, list, nullptr, true);
-  if (result < 0)
+  if (!ShowInfoBoxPicker(panel, i))
     return;
 
-  /* was there a modification? */
-
-  InfoBoxFactory::Type new_type = (InfoBoxFactory::Type)list[result].int_value;
-  if (new_type == old_type)
-    return;
-
-  /* yes: apply and save it */
-
-  panel.contents[i] = new_type;
   DisplayInfoBox();
-
   Profile::Save(Profile::map, panel, panel_index);
+}
+
+InfoBoxSettings::Panel &
+InfoBoxManager::GetPanel(unsigned index) noexcept
+{
+  assert(index < InfoBoxSettings::MAX_PANELS);
+
+  InfoBoxSettings &settings = CommonInterface::SetUISettings().info_boxes;
+  return settings.panels[index];
+}
+
+InfoBoxSettings::Panel &
+InfoBoxManager::GetCurrentPanel() noexcept
+{
+  return GetPanel(CommonInterface::GetUIState().panel_index);
+}
+
+void
+InfoBoxManager::Refresh() noexcept
+{
+  DisplayInfoBox();
+}
+
+void
+InfoBoxManager::SavePanel(unsigned index) noexcept
+{
+  Profile::Save(Profile::map, GetPanel(index), index);
+}
+
+void
+InfoBoxManager::SaveCurrentPanel() noexcept
+{
+  SavePanel(CommonInterface::GetUIState().panel_index);
 }
 
 void

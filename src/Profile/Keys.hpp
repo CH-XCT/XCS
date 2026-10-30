@@ -8,16 +8,22 @@
 namespace ProfileKeys {
 
 constexpr std::string_view FullScreen = "FullScreen";
+constexpr std::string_view InfoBoxAreaStretch = "InfoBoxAreaStretch";
+constexpr std::string_view StatusBar = "StatusBar";
 constexpr std::string_view UIScale = "UIScale";
+constexpr std::string_view ViewingDistance = "ViewingDistance";
 constexpr std::string_view CustomDPI = "CustomDPI";
 constexpr std::string_view DarkMode = "DarkMode";
+constexpr std::string_view DisplayType = "DisplayType";
+constexpr std::string_view DownloadAreaFilter = "DownloadAreaFilter";
 constexpr std::string_view Password = "Password";
 constexpr std::string_view AirspaceWarning = "AirspaceWarn";
 constexpr std::string_view AirspaceWarningDialog = "AirspaceWarnDialog";
 constexpr std::string_view AirspaceBlackOutline = "AirspaceBlackOutline";
-constexpr std::string_view AirspaceTransparency = "AirspaceTransparency";
 constexpr std::string_view AirspaceFillMode = "AirspaceFillMode";
 constexpr std::string_view AirspaceLabelSelection = "AirspaceLabelSelection";
+constexpr std::string_view AirspaceShowNOTAMLabels =
+  "AirspaceShowNOTAMLabels";
 constexpr std::string_view AltMargin = "AltMargin";
 constexpr std::string_view AltMode = "AltitudeMode";
 constexpr std::string_view AltitudeUnitsValue = "AltitudeUnit";
@@ -64,6 +70,7 @@ constexpr std::string_view SnailTrail = "SnailTrail";
 constexpr std::string_view TrailDrift = "TrailDrift";
 constexpr std::string_view DetourCostMarker = "DetourCostMarker";
 constexpr std::string_view DisplayTrackBearing = "DisplayTrackBearing";
+constexpr std::string_view TurnBackMarkerEnabled = "TurnBackMarkerEnabled";
 constexpr std::string_view SpeedUnitsValue = "SpeedUnit";
 constexpr std::string_view TaskSpeedUnitsValue = "TaskSpeedUnit";
 constexpr std::string_view WarningTime = "WarnTime";
@@ -78,6 +85,8 @@ constexpr std::string_view WatchedWaypointFileList = "WatchedWPFileList"; // pL
 constexpr std::string_view LanguageFile = "LanguageFile"; // pL
 constexpr std::string_view InputFile = "InputFile"; // pL
 constexpr std::string_view ChecklistFile = "ChecklistFile"; // pL
+constexpr std::string_view UserRepositoriesList = "UserRepositoriesList";
+constexpr std::string_view RepositoryAutoUpdate = "RepositoryAutoUpdate";
 constexpr std::string_view PilotName = "PilotName";
 constexpr std::string_view WeGlideEnabled = "WeGlideEnabled";
 constexpr std::string_view WeGlidePilotID = "WeGlidePilotID";
@@ -105,6 +114,7 @@ constexpr std::string_view VarioGauge = "VarioGauge";
 constexpr std::string_view AppIndLandable = "AppIndLandable";
 constexpr std::string_view AppUseSWLandablesRendering = "AppUseSWLandablesRendering";
 constexpr std::string_view AppLandableRenderingScale = "AppLandableRenderingScale";
+constexpr std::string_view MapWaypointIconScale = "MapWaypointIconScale";
 constexpr std::string_view AppScaleRunwayLength = "AppScaleRunwayLength";
 
 /** deprecated, use #DarkMode */
@@ -127,6 +137,7 @@ constexpr std::string_view TeamcodeRefWaypoint = "TeamcodeRefWaypoint";
 constexpr std::string_view AppInfoBoxBorder = "AppInfoBoxBorder";
 constexpr std::string_view ShowMenuButton = "ShowMenuButton";
 constexpr std::string_view ShowZoomButton = "ShowZoomButton";
+constexpr std::string_view ShowQuickMenuButton = "ShowQuickMenuButton";
 constexpr std::string_view CursorSize = "CursorSize";
 constexpr std::string_view CursorColorsInverted = "CursorColorsInverted";
 constexpr std::string_view NoPositionTargetDistanceRing = "NoPositionTargetDistanceRing";
@@ -137,6 +148,8 @@ constexpr std::string_view AppAveThermalNeedle = "AppAveThermalNeedle";
 constexpr std::string_view AutoAdvance = "AutoAdvance";
 constexpr std::string_view UTCOffset = "UTCOffset";
 constexpr std::string_view UTCOffsetSigned = "UTCOffsetSigned";
+constexpr std::string_view LocalTimeSource = "LocalTimeSource";
+constexpr std::string_view TimeZone = "TimeZone";
 constexpr std::string_view BlockSTF = "BlockSpeedToFly";
 constexpr std::string_view AutoZoom = "AutoZoom";
 constexpr std::string_view MenuTimeout = "MenuTimeout";
@@ -147,9 +160,11 @@ constexpr std::string_view EnableFLARMMap = "EnableFLARMDisplay";
 constexpr std::string_view FadeTraffic = "FadeTraffic";
 constexpr std::string_view EnableFLARMGauge = "EnableFLARMGauge";
 constexpr std::string_view AutoCloseFlarmDialog = "AutoCloseFlarmDialog";
+constexpr std::string_view FlarmSpokenAlerts = "FlarmSpokenAlerts";
 constexpr std::string_view EnableTAGauge = "EnableTAGauge";
 constexpr std::string_view TAPosition = "TAPosition";
 constexpr std::string_view EnableThermalProfile = "EnableThermalProfile";
+constexpr std::string_view DistanceRingsEnabled = "DistanceRingsEnabled";
 constexpr std::string_view GliderScreenPosition = "GliderScreenPosition";
 constexpr std::string_view SetSystemTimeFromGPS = "SetSystemTimeFromGPS";
 
@@ -167,6 +182,7 @@ constexpr std::string_view TurnpointRadius = "TurnpointRadius";
 constexpr std::string_view FinishType = "FinishType";
 constexpr std::string_view FinishRadius = "FinishRadius";
 constexpr std::string_view TaskType = "TaskType";
+constexpr std::string_view NavigateNearest = "NavigateNearest";
 constexpr std::string_view AATMinTime = "AATMinTime";
 constexpr std::string_view AATTimeMargin = "AATTimeMargin";
 constexpr std::string_view PEVStartWaitTime = "PEVStartWaitTime";
@@ -177,11 +193,13 @@ constexpr std::string_view EnableNavBaroAltitude = "EnableNavBaroAltitude";
 constexpr std::string_view LoggerTimeStepCruise = "LoggerTimeStepCruise";
 constexpr std::string_view LoggerTimeStepCircling = "LoggerTimeStepCircling";
 
+constexpr std::string_view TaskMacCready = "TaskMacCready";
 constexpr std::string_view SafetyMacCready = "SafetyMacCready";
 constexpr std::string_view AbortTaskMode = "AbortTaskMode";
 constexpr std::string_view AutoMcMode = "AutoMcMode";
 constexpr std::string_view AutoMc = "AutoMc";
 constexpr std::string_view EnableExternalTriggerCruise = "EnableExternalTriggerCruise";
+constexpr std::string_view SpeedCommandSwitch = "SpeedCommandSwitch";
 constexpr std::string_view CruiseToCirclingModeSwitchThreshold = "CruiseToCirclingModeSwitchThreshold";
 constexpr std::string_view CirclingToCruiseModeSwitchThreshold = "CirclingToCruiseModeSwitchThreshold";
 constexpr std::string_view OLCRules = "OLCRules"; // legacy name, key contains contest rules
@@ -260,8 +278,16 @@ constexpr std::string_view SkyLinesTrafficMapMode = "SkyLinesTrafficMapMode";
 constexpr std::string_view SkyLinesTrackingKey = "SkyLinesTrackingKey";
 
 constexpr std::string_view CloudEnabled = "CloudEnabled";
+constexpr std::string_view CloudShowTraffic = "CloudShowTraffic";
 constexpr std::string_view CloudShowThermals = "CloudShowThermals";
+constexpr std::string_view CloudRoaming = "CloudRoaming";
+constexpr std::string_view CloudHost = "CloudHost";
+constexpr std::string_view CloudPort = "CloudPort";
 constexpr std::string_view CloudKey = "CloudKey";
+
+constexpr std::string_view CloudOwnFlarmId = "CloudOwnFlarmId";
+
+constexpr std::string_view OnlineTrafficMapMode = "OnlineTrafficMapMode";
 
 constexpr std::string_view LiveTrack24Enabled = "LiveTrack24Enabled";
 constexpr std::string_view LiveTrack24Server = "LiveTrack24Server";
@@ -275,8 +301,27 @@ constexpr std::string_view PCMetUsername = "PCMetUsername";
 constexpr std::string_view PCMetPassword = "PCMetPassword";
 constexpr std::string_view PCMetFtpUsername = "PCMetFtpUsername";
 constexpr std::string_view PCMetFtpPassword = "PCMetFtpPassword";
+constexpr std::string_view SkySightEmail = "SkySightEmail";
+constexpr std::string_view SkySightPassword = "SkySightPassword";
+constexpr std::string_view SkySightRegion = "SkySightRegion";
+constexpr std::string_view SkySightSelectedLayers = "SkySightSelectedLayers";
+constexpr std::string_view LegacySkySightEmail = "SkysightEmail";
+constexpr std::string_view LegacySkySightPassword = "SkysightPassword";
+constexpr std::string_view LegacySkySightRegion = "SkysightRegion";
+constexpr std::string_view LegacySkySightSelectedLayers =
+  "SkysightSelectedLayers";
 
 constexpr std::string_view EnableThermalInformationMap = "EnableThermalInformationMap";
+
+constexpr std::string_view NOTAMEnabled = "NOTAMEnabled";
+constexpr std::string_view NOTAMRadius = "NOTAMRadius";
+constexpr std::string_view NOTAMRefreshInterval = "NOTAMRefreshInterval";
+constexpr std::string_view NOTAMShowIFR = "NOTAMShowIFR";
+constexpr std::string_view NOTAMShowOnlyEffective = 
+  "NOTAMShowOnlyEffective";
+constexpr std::string_view NOTAMMaxRadius = "NOTAMMaxRadius";
+constexpr std::string_view NOTAMHiddenQCodes = "NOTAMHiddenQCodes";
+constexpr std::string_view NOTAMApiUrl = "NOTAMApiUrl";
 
 constexpr std::string_view EnableLocationMapItem = "EnableLocationMapItem";
 constexpr std::string_view EnableArrivalAltitudeMapItem = "EnableArrivalAltitudeMapItem";
@@ -286,6 +331,7 @@ constexpr std::string_view VarioZeroFrequency = "VarioZeroFrequency";
 constexpr std::string_view VarioMaxFrequency = "VarioMaxFrequency";
 constexpr std::string_view VarioMinPeriod = "VarioMinPeriod";
 constexpr std::string_view VarioMaxPeriod = "VarioMaxPeriod";
+constexpr std::string_view VarioSoundSwitchingMode = "VarioSoundSwitchingMode";
 constexpr std::string_view VarioDeadBandEnabled = "VarioDeadBandEnabled";
 constexpr std::string_view VarioDeadBandMin = "VarioDeadBandMin";
 constexpr std::string_view VarioDeadBandMax = "VarioDeadBandMax";
@@ -297,14 +343,44 @@ constexpr std::string_view WaveAssistant = "WaveAssistant";
 constexpr std::string_view MasterAudioVolume = "MasterAudioVolume";
 
 constexpr std::string_view RaspFile = "RaspFile";
+constexpr std::string_view RaspAutoUpdate = "RaspAutoUpdate";
+constexpr std::string_view EdlAutoUpdate = "EdlAutoUpdate";
+constexpr std::string_view SkySightAutoUpdate = "SkySightAutoUpdate";
+constexpr std::string_view XCThermAutoSwitch = "XCThermAutoSwitch";
+constexpr std::string_view XCThermEmail = "XCThermEmail";
+constexpr std::string_view XCThermPassword = "XCThermPassword";
+constexpr std::string_view XCThermModel = "XCThermModel";
+constexpr std::string_view XCThermParameter = "XCThermParameter";
+constexpr std::string_view XCThermWaveHeight = "XCThermWaveHeight";
+constexpr std::string_view XCThermVerticalWindAGL = "XCThermVerticalWindAGL";
+constexpr std::string_view RaspLayerOpacity = "RaspLayerOpacity";
+constexpr std::string_view RaspContours = "RaspContours";
 
 constexpr std::string_view StratuxHorizontalRange = "StratuxHorizontalRange";
 constexpr std::string_view StratuxVerticalRange = "StratuxVerticalRange";
 
+constexpr std::string_view GDL90HorizontalRange = "GDL90HorizontalRange";
+constexpr std::string_view GDL90VerticalRange = "GDL90VerticalRange";
+constexpr std::string_view GDL90UseSystemUtcDate = "GDL90UseSystemUtcDate";
+
 constexpr std::string_view HideQuickGuideDialogOnStartup =
   "HideQuickGuideDialogOnStartup";
+constexpr std::string_view HideRadarStaleWarning =
+  "HideRadarStaleWarning";
 constexpr std::string_view DisclaimerAcknowledgedVersion =
   "DisclaimerAcknowledgedVersion";
 constexpr std::string_view LastSeenNewsVersion =
   "LastSeenNewsVersion";
+
+/* whether the flight setup may fill Max. temp. from the forecast */
+constexpr std::string_view MosmixForecastTemperature =
+  "MosmixForecastTemperature";
+
+/* the day, as 20260920, on which the forecast maximum temperature was
+   last fetched and on which the pilot last set it by hand */
+constexpr std::string_view MosmixLastFetch = "MosmixLastFetch";
+constexpr std::string_view MosmixManualEntry = "MosmixManualEntry";
+
+/* what that fetch said, in Kelvin; zero when it said nothing */
+constexpr std::string_view MosmixForecast = "MosmixForecast";
 }

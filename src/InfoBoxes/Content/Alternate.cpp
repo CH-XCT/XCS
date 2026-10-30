@@ -6,6 +6,7 @@
 #include "InfoBoxes/Data.hpp"
 #include "Interface.hpp"
 #include "Components.hpp"
+#include "Computer/WaypointReach.hpp"
 #include "Engine/GlideSolvers/GlideResult.hpp"
 #include "Engine/Task/Solvers/TaskSolution.hpp"
 #include "Task/ProtectedTaskManager.hpp"
@@ -56,22 +57,53 @@ const char *
 GetAlternateModeShortLabel(AlternateInfoBoxMode mode) noexcept
 {
   return mode == AlternateInfoBoxMode::MANUAL
-    ? _("MAN")
-    : _("AUTO");
+    ? C_("Abbreviation", "MAN")
+    : C_("Abbreviation", "AUTO");
 }
 
-[[gnu::pure]]
+/**
+ * True when the map would mark this field best glide. The safety
+ * polar is the one the Alternate solution uses. A landable without
+ * an elevation stays unmarked, as it does on the map.
+ */
+bool
+AlternateArrivesAtBestGlide(const Waypoint &waypoint) noexcept
+{
+  const auto &basic = CommonInterface::Basic();
+  const auto &calculated = CommonInterface::Calculated();
+  const auto &settings = CommonInterface::GetComputerSettings();
+  return PromoteBestGlide(WaypointReachability::UNREACHABLE, waypoint,
+                          basic, calculated.GetWindOrZero(),
+                          calculated.glide_polar_safety,
+                          settings.task.glide,
+                          settings.task.safety_height_arrival) ==
+         WaypointReachability::BEST_GLIDE;
+}
+
+/**
+ * Value colour for Alternate InfoBoxes.
+ *
+ * Final glide on the safety polar is blue, like Next waypoint.
+ * Orange means that glide misses but a straight best glide still
+ * arrives. Otherwise unreachable is red. Below both, AUTO stays the
+ * default colour and MANUAL is red, because the pilot pinned a field
+ * that is not yet flyable.
+ */
 unsigned
 GetAlternateInfoBoxValueColor(const ResolvedAlternateInfo& alternate) noexcept
 {
   if (!alternate.solution.IsOk())
     return 1;
 
-  if (alternate.mode == AlternateInfoBoxMode::MANUAL)
-    return alternate.solution.IsFinalGlide() ? 3 : 1;
-
   if (alternate.solution.IsFinalGlide())
     return 2;
+
+  if (alternate.waypoint != nullptr &&
+      AlternateArrivesAtBestGlide(*alternate.waypoint))
+    return InfoBoxData::COLOR_ORANGE;
+
+  if (alternate.mode == AlternateInfoBoxMode::MANUAL)
+    return 1;
 
   return 0;
 }
@@ -105,6 +137,9 @@ SolveManualAlternate(const Waypoint &waypoint) noexcept
   GlideResult solution;
   solution.Reset();
 
+  if (!waypoint.HasElevation())
+    return solution;
+
   if (!basic.location_available || !basic.NavAltitudeAvailable())
     return solution;
 
@@ -113,8 +148,7 @@ SolveManualAlternate(const Waypoint &waypoint) noexcept
 
   return TaskSolution::GlideSolutionRemaining(
     basic.location, waypoint.location,
-    (waypoint.has_elevation ? waypoint.elevation : 0.) +
-      settings.task.safety_height_arrival,
+    waypoint.elevation + settings.task.safety_height_arrival,
     basic.nav_altitude, calculated.GetWindOrZero(),
     settings.task.glide, calculated.glide_polar_safety);
 }
@@ -256,7 +290,7 @@ InfoBoxContentAlternateName::Update(InfoBoxData &data) noexcept
 void
 InfoBoxContentAlternateGR::Update(InfoBoxData &data) noexcept
 {
-  SetAlternateTitle(data, slot, _("GR"));
+  SetAlternateTitle(data, slot, C_("Abbreviation", "GR"));
 
   const auto alternate = ResolveAlternateInfo(slot);
   if (!alternate.IsValid()) {
@@ -286,7 +320,7 @@ InfoBoxContentAlternateGR::Update(InfoBoxData &data) noexcept
 void
 InfoBoxContentAlternateAltDiff::Update(InfoBoxData &data) noexcept
 {
-  SetAlternateTitle(data, slot, _("AltD"));
+  SetAlternateTitle(data, slot, C_("Abbreviation", "AltD"));
 
   const auto alternate = ResolveAlternateInfo(slot);
   if (!alternate.IsValid()) {

@@ -11,6 +11,7 @@
 static constexpr unsigned menubar_height_scale_factor = 6;
 
 class ContainerWindow;
+namespace UI { class SingleWindow; }
 
 /**
  * A container for menu buttons.
@@ -32,14 +33,24 @@ protected:
   };
 
   Button buttons[MAX_BUTTONS];
+  const ButtonLook &look;
 
 public:
-  MenuBar(ContainerWindow &parent, const ButtonLook &look);
+  /**
+   * @param rc the area the buttons are laid out in (the InfoBox
+   * stretch rect: screen border on stretched edges, safe area on
+   * the others)
+   */
+  MenuBar(ContainerWindow &parent, const PixelRect &rc,
+          const ButtonLook &look);
 
 public:
   void ShowButton(unsigned i, bool enabled, const char *text,
                   unsigned event);
   void HideButton(unsigned i);
+
+  /** Keep visible menu buttons above page overlays and below dialogs. */
+  void BringToTop(UI::SingleWindow &parent) noexcept;
 
   bool IsButtonEnabled(unsigned i) const {
     return buttons[i].IsEnabled();
@@ -50,4 +61,20 @@ public:
    * to a new position.
    */
   void OnResize(const PixelRect &rc);
+
+  /**
+   * Shorten @p rc so it ends above visible menu buttons that touch its
+   * bottom edge.  Buttons elsewhere on the screen do not affect it.
+   */
+  [[gnu::pure]]
+  PixelRect GetRemainingRectAboveBottomButtons(PixelRect rc) const noexcept;
+
+  /**
+   * Portrait: screen/6, capped at
+   * Layout::GetInflightButtonHeight() for gloved use on tall phones.
+   * Landscape: screen/5, uncapped.
+   */
+  [[gnu::pure]]
+  static unsigned GetButtonHeight(unsigned screen_height,
+                                  bool portrait) noexcept;
 };

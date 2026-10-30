@@ -4,7 +4,7 @@
 #pragma once
 
 #include "GPSState.hpp"
-#include "NMEA/Validity.hpp"
+#include "time/Validity.hpp"
 #include "NMEA/ExternalSettings.hpp"
 #include "NMEA/Acceleration.hpp"
 #include "NMEA/Gyroscope.hpp"
@@ -116,6 +116,11 @@ struct NMEAInfo {
 
   /** GPS altitude AMSL (m) */
   double gps_altitude;
+
+  Validity gps_ellipsoid_altitude_available;
+
+  /** GPS altitude above WGS84 ellipsoid (m) */
+  double gps_ellipsoid_altitude;
 
   /**
    * Static pressure value [Pa].
@@ -322,6 +327,11 @@ struct NMEAInfo {
   Validity heart_rate_available;
   unsigned heart_rate;
 
+  Validity blood_oxygen_available;
+
+  /** blood oxygen saturation (SpO2) [percent] */
+  unsigned blood_oxygen;
+
   Validity engine_noise_level_available;
   unsigned engine_noise_level;
 
@@ -383,6 +393,7 @@ struct NMEAInfo {
     location_available.Clear();
     gps_altitude = _altitude;
     gps_altitude_available.Clear();
+    gps_ellipsoid_altitude_available.Clear();
   }
 
   void ProvideTime(TimeStamp time) noexcept;
@@ -425,6 +436,12 @@ struct NMEAInfo {
    * the previous altitude was not present or the same/lower priority.
    */
   constexpr void ProvidePressureAltitude(double value) noexcept {
+    /* Replacing weak pressure (e.g. FLARM $PGRMZ) with strong pressure clears
+       the FLARM igc mirror so IGCFix does not prefer stale igc_pressure_altitude.
+       Logger igc from another sentence (e.g. $PLXVS) can be applied after. */
+    if (pressure_altitude_available && pressure_altitude_weak)
+      igc_pressure_altitude_available.Clear();
+
     pressure_altitude = value;
     pressure_altitude_weak = false;
     pressure_altitude_available.Update(clock);

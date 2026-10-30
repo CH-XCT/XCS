@@ -15,6 +15,16 @@ namespace SymbolRenderer
     RIGHT,
   };
 
-  void DrawArrow(Canvas &canvas, PixelRect rc, Direction direction) noexcept;
-  void DrawSign(Canvas &canvas, PixelRect rc, bool plus) noexcept;
+  void DrawArrow(Canvas &canvas, PixelRect rc, Direction direction,
+                 unsigned max_draw_size=0) noexcept;
+  void DrawSign(Canvas &canvas, PixelRect rc, bool plus,
+                unsigned max_draw_size=0) noexcept;
+  void DrawHamburger(Canvas &canvas, PixelRect rc) noexcept;
+  void DrawBolt(Canvas &canvas, PixelRect rc) noexcept;
+
+  /**
+   * Android share glyph: one node on the left, two on the right,
+   * joined by two arms.
+   */
+  void DrawShare(Canvas &canvas, PixelRect rc) noexcept;
 }

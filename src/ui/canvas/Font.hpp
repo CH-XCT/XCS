@@ -17,10 +17,6 @@ class GLTexture;
 #include <cstddef>
 #include <string_view>
 
-#ifdef _WIN32
-#include <windef.h>
-#endif
-
 #ifdef USE_FREETYPE
 typedef struct FT_FaceRec_ *FT_Face;
 #endif
@@ -39,8 +35,6 @@ protected:
   TextUtil *text_util_object = nullptr;
 
   unsigned line_spacing;
-#elif defined(USE_GDI)
-  HFONT font = nullptr;
 #elif defined(USE_APPKIT) || defined(USE_UIKIT)
   NSDictionary *draw_attributes = nil;
 #else
@@ -77,8 +71,6 @@ public:
     return nil != draw_attributes;
 #elif defined(ANDROID)
     return text_util_object != nullptr;
-#else
-    return font != nullptr;
 #endif
   }
 
@@ -104,6 +96,15 @@ public:
   [[gnu::pure]]
   PixelSize TextSize(std::string_view text) const noexcept;
 
+  /**
+   * Can this font render the given Unicode character?  Backends whose
+   * text API falls back to other fonts of the operating system always
+   * return true; those without a fallback (FreeType, which loads one
+   * font file) really check the font.
+   */
+  [[gnu::pure]]
+  bool HasGlyph(unsigned unicode) const noexcept;
+
 #if defined(USE_FREETYPE) || defined(USE_APPKIT) || defined(USE_UIKIT)
   static constexpr std::size_t BufferSize(const PixelSize size) noexcept {
     return std::size_t(size.width) * std::size_t(size.height);
@@ -113,10 +114,6 @@ public:
               void *buffer) const noexcept;
 #elif defined(ANDROID)
   std::unique_ptr<GLTexture> TextTextureGL(std::string_view text) const noexcept;
-#elif defined(USE_GDI)
-  HFONT Native() const noexcept {
-    return font;
-  }
 #endif
 
   unsigned GetHeight() const noexcept {

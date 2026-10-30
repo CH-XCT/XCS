@@ -2,13 +2,42 @@
 // Copyright The XCSoar Project
 
 #include "Sender.hpp"
+#include "OGNTraffic.hpp"
 #include "Tracking/SkyLines/Export.hpp"
+#include "Tracking/SkyLines/Protocol.hpp"
+#include "Tracking/SkyLines/TrafficExtensions.hpp"
 #include "Geo/GeoPoint.hpp"
 #include "util/CRC16CCITT.hpp"
+#include "util/UTF8.hpp"
+
+#include <array>
+#include <cstring>
+
+TrafficRecordExtensions
+TrafficRecordExtensions::FromOgn(unsigned track_deg, bool track_valid,
+                                 unsigned aircraft_type,
+                                 uint32_t flarm_id,
+                                 bool flarm_valid,
+                                 bool altitude_valid) noexcept
+{
+  const auto ext = SkyLinesTracking::TrafficExtensions::FromOgn(
+    track_deg, track_valid, aircraft_type, flarm_id, flarm_valid,
+    altitude_valid);
+  const auto wire = ext.ToWire();
+  return {wire.reserved, wire.reserved2};
+}
+
+TrafficRecordExtensions
+TrafficRecordExtensions::FromOgn(const OGNTrafficEntry &t) noexcept
+{
+  return FromOgn(t.track_deg, t.track_valid, t.aircraft_type,
+                 t.flarm_id, t.flarm_valid, t.altitude_valid);
+}
 
 void
 TrafficResponseSender::Add(uint32_t pilot_id, uint32_t time,
-                           GeoPoint location, int altitude)
+                           GeoPoint location, int altitude,
+                           TrafficRecordExtensions ext)
 {
   assert(n_traffic < MAX_TRAFFIC);
 
@@ -17,8 +46,8 @@ TrafficResponseSender::Add(uint32_t pilot_id, uint32_t time,
   traffic.time = ToBE32(time);
   traffic.location = SkyLinesTracking::ExportGeoPoint(location);
   traffic.altitude = ToBE16(altitude);
-  traffic.reserved = 0;
-  traffic.reserved2 = 0;
+  traffic.reserved = ToBE16(ext.reserved);
+  traffic.reserved2 = ToBE32(ext.reserved2);
 
   if (n_traffic == MAX_TRAFFIC)
     Flush();
@@ -38,6 +67,45 @@ TrafficResponseSender::Flush()
   data.header.header.crc = 0;
   data.header.header.crc = ToBE16(UpdateCRC16CCITT(&data, size, 0));
   server.SendBuffer(address, {(const std::byte *)&data, size});
+}
+
+void
+SendUserNameResponse(SkyLinesTracking::Server &server,
+                     SocketAddress address, uint64_t key,
+                     uint32_t user_id, std::string_view name) noexcept
+{
+  if (name.empty() || name.size() > 255 || !ValidateUTF8(name))
+    return;
+
+  /* The name follows the packet on the wire.  The packet is 40
+     bytes and 8-byte aligned, so the name starts immediately after
+     it.  A std::byte buffer is only 1-byte aligned, and ARM rejects
+     the cast. */
+  struct {
+    SkyLinesTracking::UserNameResponsePacket packet;
+    std::array<std::byte, 255> name;
+  } storage{};
+
+  auto &packet = storage.packet;
+  packet.header.magic = ToBE32(SkyLinesTracking::MAGIC);
+  packet.header.crc = 0;
+  packet.header.type = ToBE16(SkyLinesTracking::Type::USER_NAME_RESPONSE);
+  packet.header.key = ToBE64(key);
+  packet.user_id = ToBE32(user_id);
+  packet.flags = 0;
+  packet.club_id = 0;
+  packet.name_length = uint8_t(name.size());
+  packet.reserved1 = 0;
+  packet.reserved2 = 0;
+  packet.reserved3 = 0;
+  packet.reserved4 = 0;
+  packet.reserved5 = 0;
+
+  std::memcpy(storage.name.data(), name.data(), name.size());
+
+  const size_t size = sizeof(packet) + name.size();
+  packet.header.crc = ToBE16(UpdateCRC16CCITT(&storage, size, 0));
+  server.SendBuffer(address, {(const std::byte *)&storage, size});
 }
 
 void

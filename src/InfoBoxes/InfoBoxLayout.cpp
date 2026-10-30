@@ -31,7 +31,8 @@ ValidateGeometry(InfoBoxSettings::Geometry geometry,
 
 static void
 CalcInfoBoxSizes(Layout &layout, PixelSize screen_size,
-                 InfoBoxSettings::Geometry geometry) noexcept;
+                 InfoBoxSettings::Geometry geometry,
+                 unsigned scale_title_font) noexcept;
 
 } // namespace InfoBoxLayout
 
@@ -101,20 +102,25 @@ MakeRightColumn(const InfoBoxLayout::Layout &layout,
 }
 
 InfoBoxLayout::Layout
-InfoBoxLayout::Calculate(PixelRect rc, InfoBoxSettings::Geometry geometry) noexcept
+InfoBoxLayout::Calculate(PixelRect rc, InfoBoxSettings::Geometry geometry,
+                         unsigned scale_title_font,
+                         PixelSize orientation_size) noexcept
 {
-  const PixelSize screen_size = rc.GetSize();
+  const PixelSize placed = rc.GetSize();
+  if (orientation_size.width == 0 && orientation_size.height == 0)
+    orientation_size = placed;
 
-  geometry = ValidateGeometry(geometry, screen_size);
+  geometry = ValidateGeometry(geometry, orientation_size);
 
   Layout layout;
 
+  layout.rc = rc;
   layout.geometry = geometry;
-  layout.landscape = screen_size.width > screen_size.height;
+  layout.landscape = orientation_size.width > orientation_size.height;
   layout.count = geometry_counts[(unsigned)geometry];
   assert(layout.count <= InfoBoxSettings::Panel::MAX_CONTENTS);
 
-  CalcInfoBoxSizes(layout, screen_size, geometry);
+  CalcInfoBoxSizes(layout, placed, geometry, scale_title_font);
 
   layout.ClearVario();
 
@@ -207,8 +213,8 @@ InfoBoxLayout::Calculate(PixelRect rc, InfoBoxSettings::Geometry geometry) noexc
   case InfoBoxSettings::Geometry::LEFT_6_RIGHT_3_VARIO:
     layout.vario.left = rc.right - layout.control_size.width;
     layout.vario.right = rc.right;
-    layout.vario.top = 0;
-    layout.vario.bottom = layout.vario.top + layout.control_size.height * 3;
+    layout.vario.top = rc.top;
+    layout.vario.bottom = rc.top + layout.control_size.height * 3;
 
     rc.left = MakeLeftColumn(layout, layout.positions, 6,
                              rc.left, rc.top, rc.bottom);
@@ -219,8 +225,8 @@ InfoBoxLayout::Calculate(PixelRect rc, InfoBoxSettings::Geometry geometry) noexc
   case InfoBoxSettings::Geometry::LEFT_12_RIGHT_3_VARIO:
     layout.vario.left = rc.right - layout.control_size.width;
     layout.vario.right = rc.right;
-    layout.vario.top = 0;
-    layout.vario.bottom = layout.vario.top + layout.control_size.height * 3;
+    layout.vario.top = rc.top;
+    layout.vario.bottom = rc.top + layout.control_size.height * 3;
 
     rc.right = MakeRightColumn(layout, layout.positions + 6, 3, rc.right,
                                rc.top + 3 * layout.control_size.height, rc.bottom);
@@ -373,8 +379,8 @@ InfoBoxLayout::Calculate(PixelRect rc, InfoBoxSettings::Geometry geometry) noexc
   case InfoBoxSettings::Geometry::RIGHT_9_VARIO:
     layout.vario.left = rc.right - layout.control_size.width;
     layout.vario.right = rc.right;
-    layout.vario.top = 0;
-    layout.vario.bottom = layout.vario.top + layout.control_size.height * 3;
+    layout.vario.top = rc.top;
+    layout.vario.bottom = rc.top + layout.control_size.height * 3;
 
     rc.right = MakeRightColumn(layout, layout.positions + 6, 3,
                                rc.right,
@@ -514,11 +520,21 @@ InfoBoxLayout::ValidateGeometry(InfoBoxSettings::Geometry geometry,
 
 static constexpr unsigned
 CalculateInfoBoxRowHeight(unsigned screen_height,
-                          unsigned control_width) noexcept
+                          unsigned control_width,
+                          unsigned scale_title_font) noexcept
 {
-  return std::clamp(unsigned(screen_height / CONTROLHEIGHTRATIO),
-                    control_width * 5 / 7,
-                    control_width);
+  /* 5:7 packs default titles; grow toward square as title zoom goes
+     to 150% so title+comment still fit. */
+  unsigned max_height = control_width * 5 / 7;
+  if (scale_title_font > 100) {
+    const unsigned extra = control_width * 2 / 7;
+    max_height += extra * (scale_title_font - 100) / 50;
+    if (max_height > control_width)
+      max_height = control_width;
+  }
+
+  return std::min(unsigned(screen_height / CONTROLHEIGHTRATIO),
+                  max_height);
 }
 
 static constexpr unsigned
@@ -532,9 +548,12 @@ CalculateInfoBoxColumnWidth(unsigned screen_width,
 
 void
 InfoBoxLayout::CalcInfoBoxSizes(Layout &layout, PixelSize screen_size,
-                                InfoBoxSettings::Geometry geometry) noexcept
+                                InfoBoxSettings::Geometry geometry,
+                                unsigned scale_title_font) noexcept
 {
-  const bool landscape = screen_size.width > screen_size.height;
+  /* follow the geometry's orientation, not a page that was only
+     shortened by an inset */
+  const bool landscape = layout.landscape;
 
   switch (geometry) {
   case InfoBoxSettings::Geometry::SPLIT_8:
@@ -551,8 +570,10 @@ InfoBoxLayout::CalcInfoBoxSizes(Layout &layout, PixelSize screen_size,
                                                               layout.control_size.height);
     } else {
       layout.control_size.width = 2 * screen_size.width / layout.count;
-      layout.control_size.height = CalculateInfoBoxRowHeight(screen_size.height,
-                                                             layout.control_size.width);
+      layout.control_size.height =
+        CalculateInfoBoxRowHeight(screen_size.height,
+                                  layout.control_size.width,
+                                  scale_title_font);
     }
 
     break;
@@ -566,8 +587,10 @@ InfoBoxLayout::CalcInfoBoxSizes(Layout &layout, PixelSize screen_size,
                                                               layout.control_size.height);
     } else {
       layout.control_size.width = 3 * screen_size.width / layout.count;
-      layout.control_size.height = CalculateInfoBoxRowHeight(screen_size.height,
-                                                             layout.control_size.width);
+      layout.control_size.height =
+        CalculateInfoBoxRowHeight(screen_size.height,
+                                  layout.control_size.width,
+                                  scale_title_font);
     }
 
     break;
@@ -580,24 +603,23 @@ InfoBoxLayout::CalcInfoBoxSizes(Layout &layout, PixelSize screen_size,
                                                               layout.control_size.height);
     } else {
       layout.control_size.width = screen_size.width / layout.count;
-      layout.control_size.height = CalculateInfoBoxRowHeight(screen_size.height,
-                                                             layout.control_size.width);
+      layout.control_size.height =
+        CalculateInfoBoxRowHeight(screen_size.height,
+                                  layout.control_size.width,
+                                  scale_title_font);
     }
 
     break;
 
   case InfoBoxSettings::Geometry::BOTTOM_8_VARIO:
-    // calculate control dimensions
-    layout.control_size.width = 2 * screen_size.width / (layout.count + 2);
-    layout.control_size.height = CalculateInfoBoxRowHeight(screen_size.height,
-                                                           layout.control_size.width);
-    break;
-
   case InfoBoxSettings::Geometry::TOP_8_VARIO:
-    // calculate control dimensions
+    /* the gauge takes one column, the same width as each box in the
+       row. The dial radius is capped to the two-row height. */
     layout.control_size.width = 2 * screen_size.width / (layout.count + 2);
-    layout.control_size.height = CalculateInfoBoxRowHeight(screen_size.height,
-                                                           layout.control_size.width);
+    layout.control_size.height =
+      CalculateInfoBoxRowHeight(screen_size.height,
+                                layout.control_size.width,
+                                scale_title_font);
     break;
 
   case InfoBoxSettings::Geometry::RIGHT_9_VARIO:
@@ -616,9 +638,12 @@ InfoBoxLayout::CalcInfoBoxSizes(Layout &layout, PixelSize screen_size,
     break;
 
   case InfoBoxSettings::Geometry::RIGHT_5:
-    // calculate control dimensions
-    layout.control_size.width = screen_size.width / 5;
+    /* Landscape caps the width like the other columns so the font fits. */
     layout.control_size.height = screen_size.height / 5;
+    layout.control_size.width = landscape
+      ? CalculateInfoBoxColumnWidth(screen_size.width,
+                                    layout.control_size.height)
+      : screen_size.width / 5;
     break;
 
   case InfoBoxSettings::Geometry::RIGHT_16:
@@ -632,8 +657,10 @@ InfoBoxLayout::CalcInfoBoxSizes(Layout &layout, PixelSize screen_size,
       layout.control_size.width = layout.control_size.height * 1.44;
     } else {
       layout.control_size.width = 3 * screen_size.width / layout.count;
-      layout.control_size.height = CalculateInfoBoxRowHeight(screen_size.height,
-                                                             layout.control_size.width);
+      layout.control_size.height =
+        CalculateInfoBoxRowHeight(screen_size.height,
+                                  layout.control_size.width,
+                                  scale_title_font);
     }
     break;
 

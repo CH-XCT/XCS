@@ -81,6 +81,13 @@ bool
 IsDefault() noexcept;
 
 /**
+ * @return true if the named input mode (from the ``.xci`` file) is active.
+ */
+[[gnu::pure]]
+bool
+IsMode(const char *name) noexcept;
+
+/**
  * Process an event chain.
  */
 void
@@ -95,11 +102,33 @@ ProcessKey(Mode mode, unsigned key_code) noexcept;
 bool
 processKey(unsigned key) noexcept;
 
+/**
+ * Look up the input mode id from a name (from the ``.xci`` file) or
+ * -1 if unknown.  For use with #ProcessKeyInMode.
+ */
+[[gnu::pure]]
+int GetModeId(const char *name) noexcept;
+
+/**
+ * Dispatch a key for exactly one mode's map (no overlay, no
+ * default-mode key fallback), then run the event.
+ */
+bool ProcessKeyInMode(Mode mode, unsigned key_code) noexcept;
+
 bool
 processGesture(const char *data) noexcept;
 
 bool
 IsGesture(const char *data) noexcept;
+
+/**
+ * Returns the translated name of the action the given gesture
+ * triggers, e.g. the title of the dialog it opens, or nullptr if
+ * there is no such name (unknown gesture or action, or a Lua
+ * gesture).
+ */
+const char *
+GetGestureLabel(const char *data) noexcept;
 
 bool
 processNmea_real(unsigned key) noexcept;
@@ -121,6 +150,8 @@ void sub_SetZoom(double value);
 void eventAbortTask(const char *misc);
 void eventAdjustForecastTemperature(const char *misc);
 void eventAdjustVarioFilter(const char *misc);
+void eventVarioAudioMode(const char *misc);
+void eventVarioVolume(const char *misc);
 void eventAdjustWaypoint(const char *misc);
 void eventAnalysis(const char *misc);
 void eventArmAdvance(const char *misc);
@@ -139,6 +170,7 @@ void eventMarkLocation(const char *misc);
 void eventPilotEvent(const char *misc);
 void eventMode(const char *misc);
 void eventNearestAirspaceDetails(const char *misc);
+void eventNOTAMList(const char *misc);
 void eventNearestWaypointDetails(const char *misc);
 void eventNearestMapItems(const char *misc);
 void eventNull(const char *misc);
@@ -159,6 +191,7 @@ void eventSendNMEAPort2(const char *misc);
 void eventSetup(const char *misc);
 void eventSnailTrail(const char *misc);
 void eventAirSpace(const char *misc); // VENTA3
+void eventAirspaceLabels(const char *misc);
 void eventSounds(const char *misc);
 void eventStatus(const char *misc);
 void eventStatusMessage(const char *misc);
@@ -168,6 +201,9 @@ void eventTaskTransition(const char *misc);
 void eventTerrainTopography(const char *misc);
 void eventTerrainTopology(const char *misc);
 void eventWaypointDetails(const char *misc);
+void eventWaypointDetailsPersistent(const char *misc);
+void eventWeatherOverlay(const char *misc);
+void eventWaypointImage(const char *misc);
 void eventWaypointEditor(const char *misc);
 void eventZoom(const char *misc);
 void eventBrightness(const char *misc);
@@ -180,14 +216,20 @@ void eventUserDisplayModeForce(const char *misc);
 void eventAirspaceDisplayMode(const char *misc);
 void eventAutoLogger(const char *misc);
 void eventGotoLookup(const char *misc);
+void eventInfoBoxGeometry(const char *misc);
+void eventTextSize(const char *misc);
 void eventAddWaypoint(const char *misc);
 void eventTraffic(const char *misc);
 void eventFlarmTraffic(const char *misc);
 void eventFlarmDetails(const char *misc);
 void eventCredits(const char *misc);
+void eventDarkMode(const char *misc);
 void eventWeather(const char *misc);
 void eventQuickMenu(const char *misc);
+void eventArrangeInfoBoxes(const char *misc);
 void eventFileManager(const char *misc);
+void eventDataManagement(const char *misc);
+void eventExportFlights(const char *misc);
 void eventRunLuaFile(const char *misc);
 void eventResetTask(const char *misc);
 void eventLockScreen(const char *misc);
@@ -195,6 +237,7 @@ void eventExchangeFrequencies(const char *misc);
 void eventUploadIGCFile(const char *misc);
 void eventOrientationCruise(const char *misc);
 void eventOrientationCircling(const char *misc);
+void eventDistanceRings(const char *misc);
 // -------
 
 } // namespace InputEvents

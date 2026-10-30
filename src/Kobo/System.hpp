@@ -9,6 +9,13 @@ KoboReboot();
 bool
 KoboPowerOff();
 
+/**
+ * Ask the KoboMenu parent to power off after XCSoar exits.
+ * Returns false when the KoboMenu request channel is unavailable.
+ */
+bool
+KoboRequestPowerOff() noexcept;
+
 bool
 KoboUmountData();
 
@@ -26,6 +33,15 @@ bool
 IsKoboWifiOn();
 
 bool
+IsKoboWifiAutoOn();
+
+bool
+SetKoboWifiAutoOn(bool enabled);
+
+void
+ApplyKoboWifiAutoOn();
+
+bool
 KoboWifiOn();
 
 bool
@@ -34,7 +50,7 @@ KoboWifiOff();
 void
 KoboExecNickel();
 
-void
+bool
 KoboRunXCSoar(const char *mode);
 
 void

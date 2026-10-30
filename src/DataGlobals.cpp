@@ -8,10 +8,14 @@
 #include "Waypoint/WaypointGlue.hpp"
 #include "Waypoint/Waypoints.hpp"
 #include "Weather/Rasp/RaspStore.hpp"
+#ifdef HAVE_HTTP
+#include "Weather/SkySight/SkySightClient.hpp"
+#endif
 #include "MapWindow/GlueMapWindow.hpp"
 #include "Computer/GlideComputer.hpp"
 #include "UIGlobals.hpp"
 #include "Interface.hpp"
+#include "ActionInterface.hpp"
 #include "Components.hpp"
 #include "BackendComponents.hpp"
 #include "DataComponents.hpp"
@@ -19,6 +23,10 @@
 #include "PageActions.hpp"
 #include "Protection.hpp" // for global_running
 #include "LogFile.hpp"
+
+#ifdef HAVE_HTTP
+static std::shared_ptr<SkySightClient> sky_sight;
+#endif
 
 void
 DataGlobals::UnsetTerrain() noexcept
@@ -53,7 +61,7 @@ DataGlobals::SetTerrain(std::unique_ptr<RasterTerrain> _terrain) noexcept
   /* re-create the bottom widget if it was deleted by
      UnsetTerrain() */
   if (global_running)
-    PageActions::Update();
+    PageActions::ScheduleUpdate();
 }
 
 std::shared_ptr<RaspStore>
@@ -77,6 +85,20 @@ DataGlobals::SetRasp(std::shared_ptr<RaspStore> rasp) noexcept
     map->SetRasp(std::move(rasp));
 }
 
+#ifdef HAVE_HTTP
+std::shared_ptr<SkySightClient>
+DataGlobals::GetSkySight() noexcept
+{
+  return sky_sight;
+}
+
+void
+DataGlobals::SetSkySight(std::shared_ptr<SkySightClient> skysight) noexcept
+{
+  sky_sight = std::move(skysight);
+}
+#endif
+
 void
 DataGlobals::UpdateHome(bool reset) noexcept
 {
@@ -85,12 +107,11 @@ DataGlobals::UpdateHome(bool reset) noexcept
     return;
   }
 
+  auto &settings = CommonInterface::SetComputerSettings();
   WaypointGlue::SetHome(*data_components->waypoints,
-                        data_components->terrain.get(),
-                        CommonInterface::SetComputerSettings().poi,
-                        CommonInterface::SetComputerSettings().team_code,
-                        backend_components->device_blackboard.get(),
+                        settings.poi, settings.team_code,
                         reset);
+  ActionInterface::SetStartupLocation();
   WaypointGlue::SaveHome(Profile::map,
                          CommonInterface::GetComputerSettings().poi,
                          CommonInterface::GetComputerSettings().team_code);

@@ -8,6 +8,12 @@
 #include "Engine/Task/Ordered/Points/OrderedTaskPoint.hpp"
 #include "Engine/Task/Points/TaskWaypoint.hpp"
 #include "Engine/Route/ReachResult.hpp"
+#include "Waypoint/LastUsed.hpp"
+#include "Waypoint/Waypoint.hpp"
+
+#include <string>
+
+static ProtectedTaskManager::GotoPersistedHandler goto_persisted;
 
 ProtectedTaskManager::ProtectedTaskManager(TaskManager &_task_manager,
                                            const TaskBehaviour &tb) noexcept
@@ -27,6 +33,13 @@ ProtectedTaskManager::SetGlidePolar(const GlidePolar &glide_polar) noexcept
 {
   ExclusiveLease lease(*this);
   lease->SetGlidePolar(glide_polar);
+}
+
+void
+ProtectedTaskManager::SetDensityRatio(const double dr) noexcept
+{
+  ExclusiveLease lease(*this);
+  lease->SetDensityRatio(dr);
 }
 
 void
@@ -111,11 +124,37 @@ ProtectedTaskManager::IncrementActiveTaskPointArm(int offset) noexcept
   if(nextwp && nextwp->HasEntered()) nextwp->Reset();
 }
 
-bool 
+void
+ProtectedTaskManager::SetGotoPersistedHandler(
+    GotoPersistedHandler handler) noexcept
+{
+  goto_persisted = handler;
+}
+
+bool
 ProtectedTaskManager::DoGoto(WaypointPtr &&wp) noexcept
 {
-  ExclusiveLease lease(*this);
-  return lease->DoGoto(std::move(wp));
+  if (wp == nullptr)
+    return false;
+
+  LastUsedWaypoints::Add(*wp);
+
+  const unsigned id = wp->id;
+  const GeoPoint location = wp->location;
+  const bool has_elevation = wp->HasElevation();
+  const double elevation = wp->elevation;
+  const std::string name = wp->name;
+
+  {
+    ExclusiveLease lease(*this);
+    if (!lease->DoGoto(std::move(wp)))
+      return false;
+  }
+
+  if (goto_persisted != nullptr && name != "(takeoff)")
+    goto_persisted(id, location, has_elevation, elevation, name);
+
+  return true;
 }
 
 std::unique_ptr<OrderedTask>

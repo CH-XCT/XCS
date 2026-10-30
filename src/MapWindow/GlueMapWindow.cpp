@@ -6,12 +6,15 @@
 #include "Blackboard/DeviceBlackboard.hpp"
 #include "Look/Look.hpp"
 #include "Interface.hpp"
+#include "PageActions.hpp"
 #include "time/PeriodClock.hpp"
 #include "ui/event/Idle.hpp"
 #include "Topography/Thread.hpp"
 #include "Terrain/Thread.hpp"
 #include "Components.hpp"
 #include "BackendComponents.hpp"
+
+#include <cassert>
 
 GlueMapWindow::GlueMapWindow(const Look &look) noexcept
   :MapWindow(look.map, look.traffic),
@@ -93,9 +96,25 @@ GlueMapWindow::SetUIState(const UIState &new_value) noexcept
 #ifdef ENABLE_OPENGL
   ReadUIState(new_value);
 #else
-  const std::lock_guard lock{next_mutex};
-  next_ui_state = new_value;
+  {
+    const std::lock_guard lock{next_mutex};
+    next_ui_state = new_value;
+  }
 #endif
+
+  page_indicator_count = new_value.pages.special_page.IsDefined()
+    ? 0
+    : new_value.page_indicator_count;
+  page_indicator_index = new_value.pages.current_index;
+
+  if (new_value.page_indicator_time != page_indicator_time) {
+    page_indicator_time = new_value.page_indicator_time;
+    OnPageIndicatorTimer();
+
+    /* the page indicator is painted over the buffered map, which need
+       not be rendered again for it */
+    PaintWindow::Invalidate();
+  }
 }
 
 void
@@ -139,8 +158,40 @@ GlueMapWindow::ResumeThreads() noexcept
 }
 
 void
+GlueMapWindow::InjectRedraw() noexcept
+{
+#ifdef ENABLE_OPENGL
+  /* async tile/topography loads may arrive after the idle upgrade
+     timer has already fired (common in simulator startup) */
+  terrain_quantisation_idle_done = false;
+#endif
+
+  redraw_notify.SendNotification();
+}
+
+void
+GlueMapWindow::EndCoalesceFullRedraw() noexcept
+{
+  assert(coalesce_full_redraw > 0);
+
+  if (--coalesce_full_redraw > 0)
+    return;
+
+  if (!full_redraw_pending)
+    return;
+
+  full_redraw_pending = false;
+  FullRedraw();
+}
+
+void
 GlueMapWindow::FullRedraw() noexcept
 {
+  if (coalesce_full_redraw > 0) {
+    full_redraw_pending = true;
+    return;
+  }
+
   UpdateDisplayMode();
   UpdateScreenAngle();
   UpdateProjection();
@@ -148,6 +199,16 @@ GlueMapWindow::FullRedraw() noexcept
   UpdateScreenBounds();
 
   DeferRedraw();
+
+#ifdef ENABLE_OPENGL
+  NoteTerrainQuantisationUserActivity();
+#endif
+}
+
+void
+GlueMapWindow::OnProjectionModified() noexcept
+{
+  PageActions::OnMapProjectionModified();
 }
 
 void
@@ -160,6 +221,21 @@ GlueMapWindow::PartialRedraw() noexcept
   if (draw_thread != nullptr)
     draw_thread->TriggerRedraw();
 #endif
+}
+
+void
+GlueMapWindow::SetHudMargins(unsigned left, unsigned top,
+                             unsigned right, unsigned bottom) noexcept
+{
+  if (left == hud_margin_left && top == hud_margin_top &&
+      right == hud_margin_right && bottom == hud_margin_bottom)
+    return;
+
+  MapWindow::SetHudMargins(left, top, right, bottom);
+
+  /* UpdateProjection() centres on GetHudRect().  Invalidate() alone
+     leaves published_projection on the DrawThread at the old origin. */
+  QuickRedraw();
 }
 
 void
@@ -186,5 +262,59 @@ GlueMapWindow::QuickRedraw() noexcept
   /* we suppose that the operation will need a full redraw later, so
      trigger that now */
   DeferRedraw();
+#else
+  NoteTerrainQuantisationUserActivity();
 #endif
 }
+
+#ifdef ENABLE_OPENGL
+
+/** Must match the steps in RasterRenderer::GetQuantisation(). */
+static constexpr auto TERRAIN_QUANTISATION_IDLE_STEP =
+  std::chrono::milliseconds(750);
+
+void
+GlueMapWindow::NoteTerrainQuantisationUserActivity() noexcept
+{
+  terrain_quantisation_idle_done = false;
+  terrain_quantisation_timer.Schedule(TERRAIN_QUANTISATION_IDLE_STEP);
+}
+
+void
+GlueMapWindow::PollTerrainQuantisationIdle() noexcept
+{
+  if (!IsUserIdle(750)) {
+    terrain_quantisation_idle_done = false;
+    return;
+  }
+
+  if (terrain_quantisation_timer.IsPending())
+    return;
+
+  if (IsUserIdle(1500)) {
+    if (!terrain_quantisation_idle_done) {
+      terrain_quantisation_idle_done = true;
+      PartialRedraw();
+    }
+    return;
+  }
+
+  /* idle past the first threshold but the one-shot timer was missed
+     (e.g. simulator startup before the map was shown) */
+  terrain_quantisation_idle_done = false;
+  PartialRedraw();
+  terrain_quantisation_timer.Schedule(TERRAIN_QUANTISATION_IDLE_STEP);
+}
+
+void
+GlueMapWindow::OnTerrainQuantisationTimer() noexcept
+{
+  PartialRedraw();
+
+  if (!IsUserIdle(1500))
+    terrain_quantisation_timer.Schedule(TERRAIN_QUANTISATION_IDLE_STEP);
+  else
+    terrain_quantisation_idle_done = true;
+}
+
+#endif

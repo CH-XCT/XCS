@@ -4,9 +4,9 @@
 #include "ConfiguredPort.hpp"
 #include "UDPPort.hpp"
 #include "TCPPort.hpp"
+#include "OpenSpectateFilePort.hpp"
 #include "K6BtPort.hpp"
 #include "Device/Config.hpp"
-#include "LogFile.hpp"
 #include "TCPClientPort.hpp"
 
 #ifdef ANDROID
@@ -32,19 +32,6 @@
 #include <unistd.h>
 #include <errno.h>
 #endif
-
-#include <windef.h> /* for MAX_PATH */
-
-/**
- * Attempt to detect the GPS device.
- *
- * See http://msdn.microsoft.com/en-us/library/bb202042.aspx
- */
-static bool
-DetectGPS([[maybe_unused]] char *path, [[maybe_unused]] std::size_t path_max_size)
-{
-  return false;
-}
 
 static std::unique_ptr<Port>
 WrapPort(const DeviceConfig &config, PortListener *listener,
@@ -73,7 +60,6 @@ OpenPortInternal(EventLoop &event_loop, Cares::Channel &cares,
                  DataHandler &handler)
 {
   const char *path = nullptr;
-  char buffer[MAX_PATH];
 
   switch (config.port_type) {
   case DeviceConfig::PortType::DISABLED:
@@ -86,17 +72,17 @@ OpenPortInternal(EventLoop &event_loop, Cares::Channel &cares,
     path = config.path.c_str();
     break;
 
-  case DeviceConfig::PortType::BLE_HM10:
+  case DeviceConfig::PortType::BLE_SERIAL:
 #ifdef ANDROID
     if (config.bluetooth_mac.empty())
       throw std::runtime_error("No Bluetooth MAC configured");
 
     if (bluetooth_helper == nullptr)
       throw std::runtime_error("Bluetooth not available");
-                         
-    return OpenAndroidBleHm10Port(*bluetooth_helper,
-                                  config.bluetooth_mac,
-                                  listener, handler);
+
+    return OpenAndroidBleSerialPort(*bluetooth_helper,
+                                    config.bluetooth_mac,
+                                    listener, handler);
 #else
     throw std::runtime_error("Bluetooth not available");
 #endif
@@ -140,15 +126,6 @@ OpenPortInternal(EventLoop &event_loop, Cares::Channel &cares,
     throw std::runtime_error("IOIO driver not available");
 #endif
 
-  case DeviceConfig::PortType::AUTO:
-    if (!DetectGPS(buffer, sizeof(buffer)))
-      throw std::runtime_error("No GPS detected");
-
-    LogFormat("GPS detected: %s", buffer);
-
-    path = buffer;
-    break;
-
   case DeviceConfig::PortType::INTERNAL:
   case DeviceConfig::PortType::BLE_SENSOR:
   case DeviceConfig::PortType::DROIDSOAR_V2:
@@ -174,6 +151,16 @@ OpenPortInternal(EventLoop &event_loop, Cares::Channel &cares,
   case DeviceConfig::PortType::UDP_LISTENER:
     return std::make_unique<UDPPort>(event_loop, config.tcp_port,
                                      listener, handler);
+
+  case DeviceConfig::PortType::SPECTATE_FILE: {
+    const char *spectate_path = config.path.empty()
+      ? DeviceConfig::DEFAULT_SPECTATE_PATH
+      : config.path.c_str();
+
+    return OpenSpectateFilePort(Path(spectate_path),
+                                config.port_name,
+                                listener, handler);
+  }
 
   case DeviceConfig::PortType::PTY: {
 #if defined(HAVE_POSIX) && !defined(ANDROID)

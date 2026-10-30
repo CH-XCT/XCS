@@ -21,22 +21,27 @@ public:
   const FlatProjection &GetProjection() const noexcept;
 
   void Clear() noexcept;
-  void AcknowledgeAll() noexcept;
+  void AcknowledgeAll();
 
   [[gnu::pure]]
   bool GetAckDay(const AbstractAirspace &airspace) const noexcept;
 
-  void AcknowledgeDay(ConstAirspacePtr airspace, bool set=true) noexcept;
-  void AcknowledgeWarning(ConstAirspacePtr airspace, bool set=true) noexcept;
-  void AcknowledgeInside(ConstAirspacePtr airspace, bool set=true) noexcept;
+  void AcknowledgeDay(ConstAirspacePtr airspace, bool set=true);
+
+  void SetCleared(ConstAirspacePtr airspace, bool set=true);
+
+  [[gnu::pure]]
+  bool GetCleared(const AbstractAirspace &airspace) const noexcept;
+  void AcknowledgeWarning(ConstAirspacePtr airspace, bool set=true);
+  void AcknowledgeInside(ConstAirspacePtr airspace, bool set=true);
   void Acknowledge(ConstAirspacePtr airspace) noexcept;
 
   [[gnu::pure]]
   bool IsEmpty() const noexcept;
 
   /**
-   * Returns a copy of the highest priority warning, or an empty
-   * instance if there is no warning.
+   * Returns a copy of the highest-priority warning that is currently
+   * alerting, or an empty instance if none is.
    */
   [[gnu::pure]]
   std::optional<AirspaceWarning> GetTopWarning() const noexcept;

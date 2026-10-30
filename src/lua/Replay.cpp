@@ -7,8 +7,12 @@
 #include "Util.hxx"
 #include "system/Path.hpp"
 #include "Replay/Replay.hpp"
+#include "Interface.hpp"
 #include "Components.hpp"
 #include "BackendComponents.hpp"
+#include "CalculationThread.hpp"
+#include "MergeThread.hpp"
+#include "Protection.hpp"
 
 extern "C" {
 #include <lauxlib.h>
@@ -53,7 +57,8 @@ l_replay_fastforward(lua_State *L)
     return luaL_error(L, "Invalid parameters");
 
   FloatDuration delta_s{luaL_checknumber(L, 1)};
-  return !backend_components->replay->FastForward(delta_s);
+  Lua::Push(L, backend_components->replay->FastForward(delta_s));
+  return 1;
 }
 
 static int
@@ -67,7 +72,8 @@ l_replay_start(lua_State *L)
     Path p(filename.data());
 
     try {
-      backend_components->replay->Start(p);
+      backend_components->replay->Start(p,
+        CommonInterface::GetSystemSettings().devices[0]);
       return 0;
     } catch (...) {
     }
@@ -82,11 +88,48 @@ l_replay_stop([[maybe_unused]] lua_State *L)
   return 0;
 }
 
+static int
+l_replay_process_all([[maybe_unused]] lua_State *L)
+{
+  Replay *replay = backend_components->replay.get();
+  if (replay == nullptr || !replay->IsActive()) {
+    Lua::Push(L, lua_Integer{0});
+    return 1;
+  }
+
+  MergeThread *merge_thread = backend_components->merge_thread.get();
+  CalculationThread *calc_thread =
+    backend_components->calculation_thread.get();
+  if (merge_thread == nullptr || calc_thread == nullptr) {
+    Lua::Push(L, lua_Integer{0});
+    return 1;
+  }
+
+  merge_thread->Suspend();
+
+  unsigned count = 0;
+  {
+    const ScopeSuspendAllThreads suspend;
+    count = replay->ProcessAllFixes(*merge_thread, *calc_thread);
+  }
+
+  merge_thread->Resume();
+
+  if (count > 0) {
+    TriggerCalculatedUpdate();
+    TriggerMapUpdate();
+  }
+
+  Lua::Push(L, (lua_Integer)count);
+  return 1;
+}
+
 static constexpr struct luaL_Reg settings_funcs[] = {
   {"set_time_scale", l_replay_settimescale},
   {"fast_forward", l_replay_fastforward},
   {"start", l_replay_start},
   {"stop", l_replay_stop},
+  {"process_all", l_replay_process_all},
   {nullptr, nullptr}
 };
 

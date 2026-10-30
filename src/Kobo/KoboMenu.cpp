@@ -157,6 +157,8 @@ Main()
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char **argv)
 {
+  ApplyKoboWifiAutoOn();
+
   while (true) {
     int action = Main();
 
@@ -166,12 +168,18 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char **argv)
       return EXIT_FAILURE;
 
     case int(SimulatorPromptWindow::Result::FLY):
-      KoboRunXCSoar("-fly");
+      if (KoboRunXCSoar("-fly")) {
+        KoboPowerOff();
+        return EXIT_SUCCESS;
+      }
       /* return to menu after XCSoar quits */
       break;
 
     case int(SimulatorPromptWindow::Result::SIMULATOR):
-      KoboRunXCSoar("-simulator");
+      if (KoboRunXCSoar("-simulator")) {
+        KoboPowerOff();
+        return EXIT_SUCCESS;
+      }
       /* return to menu after XCSoar quits */
       break;
 

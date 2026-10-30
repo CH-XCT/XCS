@@ -206,7 +206,7 @@ ExpandTrafficMacros(std::string_view name) noexcept
     return nullptr;
 
   if (name == "TrafficZoomAutoToggleActionName")
-    return widget->GetAutoZoom() ? _("Manual") : _("Auto");
+    return widget->GetAutoZoom() ? C_("Status", "Manual") : C_("Status", "Auto");
   else if (name == "TrafficNorthUpToggleActionName")
     return widget->GetNorthUp() ? _("Track up") : _("North up");
   else
@@ -259,6 +259,72 @@ LookupMacro(std::string_view name, bool &invalid) noexcept
   value = ExpandTrafficMacros(name);
   if (value != nullptr)
     return value;
+
+  if (name == "WeatherSecondaryPlusLabel" ||
+      name == "WeatherSecondaryMinusLabel") {
+    const bool plus = name == "WeatherSecondaryPlusLabel";
+    switch (GetUIState().page_overlay) {
+    case PageLayout::Overlay::EDL:
+      return plus
+        ? C_("Weather control", "Level+\n(UP)")
+        : C_("Weather control", "Level-\n(DOWN)");
+
+    case PageLayout::Overlay::XCTHERM:
+      return plus
+        ? C_("Weather control", "Altitude+\n(UP)")
+        : C_("Weather control", "Altitude-\n(DOWN)");
+
+    case PageLayout::Overlay::SKYSIGHT:
+    case PageLayout::Overlay::RASP:
+    case PageLayout::Overlay::RADAR:
+    case PageLayout::Overlay::SATELLITE:
+    case PageLayout::Overlay::NONE:
+    case PageLayout::Overlay::MAX:
+      return plus
+        ? C_("Weather control", "Field+\n(UP)")
+        : C_("Weather control", "Field-\n(DOWN)");
+    }
+  }
+
+  if (name == "WeatherSecondaryPickerLabel") {
+    switch (GetUIState().page_overlay) {
+    case PageLayout::Overlay::EDL:
+      return C_("Weather control", "Level\nList\n(F2/+)");
+
+    case PageLayout::Overlay::XCTHERM:
+      return C_("Weather control", "Altitude\nList\n(F2/+)");
+
+    case PageLayout::Overlay::SKYSIGHT:
+      return "";
+
+    case PageLayout::Overlay::RASP:
+    case PageLayout::Overlay::RADAR:
+    case PageLayout::Overlay::SATELLITE:
+    case PageLayout::Overlay::NONE:
+    case PageLayout::Overlay::MAX:
+      return C_("Weather control", "Layer\nList\n(F2/+)");
+    }
+  }
+
+  if (name == "WeatherSecondaryAutoLabel") {
+    switch (GetUIState().page_overlay) {
+    case PageLayout::Overlay::EDL:
+      return C_("Weather control", "Level\nAuto\n(F3/-)");
+
+    case PageLayout::Overlay::XCTHERM:
+      return C_("Weather control", "Altitude\nAuto\n(F3/-)");
+
+    case PageLayout::Overlay::SKYSIGHT:
+      return C_("Weather control", "Time\nAuto\n(F3/-)");
+
+    case PageLayout::Overlay::RASP:
+    case PageLayout::Overlay::RADAR:
+    case PageLayout::Overlay::SATELLITE:
+    case PageLayout::Overlay::NONE:
+    case PageLayout::Overlay::MAX:
+      return C_("Weather control", "Time\nAuto\n(F3/-)");
+    }
+  }
 
   if (name =="CheckFLARM") {
     invalid |= !Basic().flarm.status.available;
@@ -340,7 +406,7 @@ LookupMacro(std::string_view name, bool &invalid) noexcept
   } else if (name == "FullScreenToggleActionName") {
     return CommonInterface::main_window->GetFullScreen() ? _("Off") : _("On");
   } else if (name == "ZoomAutoToggleActionName") {
-    return GetMapSettings().auto_zoom_enabled ? _("Manual") : _("Auto");
+    return GetMapSettings().auto_zoom_enabled ? C_("Status", "Manual") : C_("Status", "Auto");
   } else if (name == "TopologyToggleActionName" ||
              name == "TopographyToggleActionName") {
     return GetMapSettings().topography_enabled ? _("Hide") : _("Show");
@@ -348,6 +414,12 @@ LookupMacro(std::string_view name, bool &invalid) noexcept
     return GetMapSettings().terrain.enable ? _("Hide") : _("Show");
   } else if (name == "AirspaceToggleActionName") {
     return GetMapSettings().airspace.enable ? _("Hide") : _("Show");
+  } else if (name == "AirspaceLabelsToggleActionName") {
+    return GetMapSettings().airspace.label_selection
+      == AirspaceRendererSettings::LabelSelection::ALL
+      ? _("Hide") : _("Show");
+  } else if (name == "DistanceRingsToggleActionName") {
+    return GetMapSettings().distance_rings_enabled ? _("Hide") : _("Show");
   } else if (name == "MapLabelsToggleActionName") {
     static const char *const labels[] = {
       N_("All"),
@@ -361,7 +433,7 @@ LookupMacro(std::string_view name, bool &invalid) noexcept
     unsigned int i = (unsigned)GetMapSettings().waypoint.label_selection;
     return gettext(labels[(i + 1) % n]);
   } else if (name == "MacCreadyToggleActionName") {
-    return GetComputerSettings().task.auto_mc ? _("Manual") : _("Auto");
+    return GetComputerSettings().task.auto_mc ? C_("Status", "Manual") : C_("Status", "Auto");
   } else if (name == "AuxInfoToggleActionName") {
     return GetUIState().auxiliary_enabled ? _("Off") : _("On");
   } else if (name == "DispModeClimbShortIndicator") {
@@ -411,13 +483,15 @@ LookupMacro(std::string_view name, bool &invalid) noexcept
     return CommonInterface::GetUISettings().traffic.enable_gauge
       ? _("Off") : _("On");
   } else if (name == "ZoomAutoToggleActionName") {
-    return GetMapSettings().auto_zoom_enabled ? _("Manual") : _("Auto");
+    return GetMapSettings().auto_zoom_enabled ? C_("Status", "Manual") : C_("Status", "Auto");
   } else if (name == "NextPageName") {
     static char label[64]; // TODO: oh no, a static string buffer!
     const PageLayout &page =
       CommonInterface::GetUISettings().pages.pages[PageActions::NextIndex()];
     return page.MakeTitle(CommonInterface::GetUISettings().info_boxes,
-                          std::span{label}, true);
+                          std::span{label},
+                          DataGlobals::GetRasp().get(),
+                          true);
   } else if (name == "CheckWeGlide") {
     invalid |= !CommonInterface::GetComputerSettings().weglide.enabled;
     return nullptr;

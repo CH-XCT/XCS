@@ -9,8 +9,15 @@
 #include "Audio/Sound.hpp"
 #include "StatusMessage.hpp"
 #include "UISettings.hpp"
+#include "Form/Button.hpp"
 
 #include <algorithm>
+
+#ifdef HAVE_VIBRATOR
+/** the minimum time between two haptic feedbacks for new messages */
+static constexpr std::chrono::steady_clock::duration HAPTIC_INTERVAL =
+  std::chrono::seconds(2);
+#endif
 
 using std::min;
 using std::max;
@@ -19,13 +26,15 @@ void
 PopupMessage::Message::Set(Type _type,
                            std::chrono::steady_clock::duration _tshow,
                            const char *_text,
-                           std::chrono::steady_clock::time_point now) noexcept
+                           std::chrono::steady_clock::time_point now,
+                           const char *_sound) noexcept
 {
   type = _type;
   tshow = _tshow;
   tstart = now;
   texpiry = now;
   text = _text;
+  sound = _sound;
 }
 
 bool
@@ -85,9 +94,6 @@ PopupMessage::Create(const PixelRect _rc) noexcept
   rc = _rc;
 
   WindowStyle style;
-#ifdef USE_WINUSER
-  style.Border();
-#endif
   style.Hide();
 
   PaintWindow::Create(parent, GetRect(), style);
@@ -108,10 +114,8 @@ PopupMessage::OnPaint(Canvas &canvas) noexcept
   canvas.Clear(look.dark_mode ? look.background_color : COLOR_WHITE);
 
   auto rc = GetClientRect();
-#ifndef USE_WINUSER
   canvas.DrawOutlineRectangle(rc,
                               look.dark_mode ? COLOR_GRAY : COLOR_BLACK);
-#endif
 
   const int padding = Layout::GetTextPadding();
   rc.Grow(-padding);
@@ -198,8 +202,13 @@ PopupMessage::Render() noexcept
   // new messages
 
   bool changed = false;
-  for (unsigned i = 0; i < MAXMESSAGES; ++i)
+  [[maybe_unused]] bool appeared = false;
+  for (unsigned i = 0; i < MAXMESSAGES; ++i) {
+    if (!messages[i].IsUnknown() && messages[i].IsNew())
+      appeared = true;
+
     changed = messages[i].Update(now) || changed;
+  }
 
   if (!changed) {
     return false;
@@ -215,6 +224,14 @@ PopupMessage::Render() noexcept
       n_visible++;
 
   lock.unlock();
+
+#ifdef HAVE_VIBRATOR
+  /* a burst of messages shall not turn into a burst of vibrations */
+  if (appeared && now >= last_haptic + HAPTIC_INTERVAL) {
+    last_haptic = now;
+    PlayHapticFeedback(HapticFeedbackType::NOTIFICATION);
+  }
+#endif
 
   UpdateTextAndLayout();
 
@@ -241,12 +258,12 @@ PopupMessage::GetEmptySlot() noexcept
 
 void
 PopupMessage::AddMessage(std::chrono::steady_clock::duration tshow, Type type,
-                         const char *Text) noexcept
+                         const char *Text, const char *snd) noexcept
 {
   const auto now = std::chrono::steady_clock::now();
 
   int i = GetEmptySlot();
-  messages[i].Set(type, tshow, Text, now);
+  messages[i].Set(type, tshow, Text, now, snd);
 }
 
 void
@@ -273,6 +290,8 @@ PopupMessage::Repeat(Type type) noexcept
   if (imax >= 0) {
     messages[imax].tstart = now;
     messages[imax].texpiry = messages[imax].tstart;
+    if (enable_sound && messages[imax].sound != nullptr)
+      PlayResource(messages[imax].sound);
   }
 }
 
@@ -327,6 +346,6 @@ PopupMessage::AddMessage(const char* text, const char *data) noexcept
       strcat(msgcache, data);
     }
 
-    AddMessage(msg.delay, MSG_USERINTERFACE, msgcache);
+    AddMessage(msg.delay, MSG_USERINTERFACE, msgcache, msg.sound);
   }
 }

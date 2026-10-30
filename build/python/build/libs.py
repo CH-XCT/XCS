@@ -4,12 +4,34 @@ from os.path import abspath
 from build.zlib import ZlibProject
 from build.autotools import AutotoolsProject
 from build.meson import MesonProject
-from build.cmake import CmakeProject
+from build.cmake import CmakeProject, configure as configure_cmake
 from build.openssl import OpenSSLProject
+from build.angle import AngleProject
 from build.gcc import BinutilsProject, GccProject, GccBootstrapProject
 from build.linux import SabotageLinuxHeadersProject
 from build.lua import LuaProject
 from build.musl import MuslProject
+
+
+class LibPngProject(CmakeProject):
+    def configure(self, toolchain):
+        src = self.unpack(toolchain)
+        build = self.make_build_path(toolchain)
+
+        configure_args = list(self.configure_args)
+        if toolchain.is_windows:
+            configure_args += self.windows_configure_args
+        if toolchain.is_android:
+            configure_args += self.android_configure_args
+            if toolchain.is_aarch64:
+                # libpng 1.6.43 enables arm/filter_neon.S for aarch64, but that
+                # source is ARM32 assembly and fails with the Android arm64 toolchain.
+                configure_args.append("-DPNG_ARM_NEON=off")
+        if toolchain.is_darwin:
+            configure_args += self.darwin_configure_args
+
+        configure_cmake(toolchain, src, build, configure_args, self.env)
+        return build
 
 binutils = BinutilsProject(
     (
@@ -140,8 +162,8 @@ openssh = AutotoolsProject(
 )
 
 libfmt = CmakeProject(
-    "https://github.com/fmtlib/fmt/archive/11.1.4.tar.gz",
-    "ac366b7b4c2e9f0dde63a59b3feb5ee59b67974b14ee5dc9ea8ad78aa2c1ee1e",
+    "https://github.com/fmtlib/fmt/archive/11.2.0.tar.gz",
+    "bc23066d87ab3168f27cef3e97d545fa63314f5c79df5ea444d41d56f962c6af",
     "lib/libfmt.a",
     [
         "-DBUILD_SHARED_LIBS=OFF",
@@ -149,8 +171,42 @@ libfmt = CmakeProject(
         "-DFMT_TEST=OFF",
     ],
     name="fmt",
-    version="11.1.4",
-    base="fmt-11.1.4",
+    version="11.2.0",
+    base="fmt-11.2.0",
+)
+
+zxing_cpp = CmakeProject(
+    "https://github.com/zxing-cpp/zxing-cpp/archive/v3.1.1.tar.gz",
+    "7286b1e6ade66fe82b7c8208b4595deeb55d6486b410834fdc65702f46650542",
+    "lib/libZXing.a",
+    [
+        "-DBUILD_SHARED_LIBS=OFF",
+        # QR only.  OLD is zxing's own writer (a module grid),
+        # without the bundled Zint encoder.
+        "-DZXING_READERS=ON",
+        "-DZXING_WRITERS=OLD",
+        "-DZXING_ENABLE_1D=OFF",
+        "-DZXING_ENABLE_AZTEC=OFF",
+        "-DZXING_ENABLE_DATAMATRIX=OFF",
+        "-DZXING_ENABLE_MAXICODE=OFF",
+        "-DZXING_ENABLE_PDF417=OFF",
+        "-DZXING_ENABLE_QRCODE=ON",
+        "-DZXING_C_API=OFF",
+        "-DZXING_EXAMPLES=OFF",
+        "-DZXING_UNIT_TESTS=OFF",
+        "-DZXING_BLACKBOX_TESTS=OFF",
+        # never fetch anything from the network during the build
+        "-DZXING_DEPENDENCIES=LOCAL",
+        # Android's libc++ falls back to __bsd_locale_fallbacks.h below
+        # API 24, and precompiling that header with NDK r26d fails with
+        # a va_list mismatch.  GTIN.cpp compiles fine without the PCH.
+        "-DZXING_DISABLE_PCH=ON",
+    ],
+    # CreateBarcode.cpp calls the deprecated MultiFormatWriter.
+    extra_cxxflags="-Wno-deprecated-declarations",
+    name="zxing-cpp",
+    version="3.1.1",
+    base="zxing-cpp-3.1.1",
 )
 
 libsodium = AutotoolsProject(
@@ -197,11 +253,12 @@ freetype = MesonProject(
         "-Dpng=disabled",
         "-Dzlib=enabled",
     ],
+    patches=abspath("lib/freetype/patches"),
 )
 
 cares = CmakeProject(
-    "https://github.com/c-ares/c-ares/releases/download/cares-1_24_0/c-ares-1.24.0.tar.gz",
-    "c517de6d5ac9cd55a9b72c1541c3e25b84588421817b5f092850ac09a8df5103",
+    "https://github.com/c-ares/c-ares/releases/download/v1.34.8/c-ares-1.34.8.tar.gz",
+    "c222b6d681096f9444d2c4863d2c1174019e27cacca0a4a5c114d36dd7d7bf78",
     "lib/libcares.a",
     [
         "-DCARES_STATIC=ON",
@@ -210,15 +267,14 @@ cares = CmakeProject(
         "-DCARES_BUILD_TOOLS=OFF",
         "-DCARES_THREADS=OFF",
     ],
-    patches=abspath("lib/c-ares/patches"),
 )
 
 curl = CmakeProject(
     (
-        "https://curl.se/download/curl-8.5.0.tar.xz",
-        "https://github.com/curl/curl/releases/download/curl-8_5_0/curl-8.5.0.tar.xz",
+        "https://curl.se/download/curl-8.14.1.tar.xz",
+        "https://github.com/curl/curl/releases/download/curl-8_14_1/curl-8.14.1.tar.xz",
     ),
-    "42ab8db9e20d8290a3b633e7fbb3cec15db34df65fd1015ef8ac1e4723750eeb",
+    "f4619a1e2474c4bbfedc88a7c2191209c8334b48fa1f4e53fd584cc12e9120dd",
     "lib/libcurl.a",
     [
         "-DBUILD_CURL_EXE=OFF",
@@ -237,8 +293,7 @@ curl = CmakeProject(
         "-DCURL_DISABLE_SMTP=ON",
         "-DCURL_DISABLE_GOPHER=ON",
         "-DCURL_DISABLE_COOKIES=ON",
-        "-DCURL_DISABLE_CRYPTO_AUTH=ON",
-        "-DCMAKE_USE_LIBSSH2=OFF",
+        "-DCURL_USE_LIBPSL=OFF",
         "-DBUILD_TESTING=OFF",
         "-DHAVE_FSEEKO=0",
     ],
@@ -247,13 +302,15 @@ curl = CmakeProject(
     ],
     android_configure_args=[
         "-DENABLE_ARES=OFF",  # Disable c-ares on Android - use system getaddrinfo() instead
+        "-DCURL_DISABLE_NETRC=ON",
     ],
     # Darwin/iOS: use SecureTransport for SSL
     darwin_configure_args=[
         "-DCURL_USE_OPENSSL=OFF",
         "-DCURL_USE_SECTRANSP=ON",
+        # CMake may find the host's pipe2() while cross-compiling for iOS.
+        "-DHAVE_PIPE2=0",
     ],
-    patches=abspath("lib/curl/patches"),
 )
 
 # Needed by proj
@@ -304,7 +361,7 @@ proj = CmakeProject(
     patches=abspath("lib/proj/patches"),
 )
 
-libpng = CmakeProject(
+libpng = LibPngProject(
     (
         "https://pub.sortix.org/mirror/libpng/libpng-1.6.43.tar.xz",
         "http://downloads.sourceforge.net/project/libpng/libpng16/1.6.43/libpng-1.6.43.tar.xz",
@@ -323,11 +380,8 @@ libpng = CmakeProject(
 )
 
 libjpeg = CmakeProject(
-    (
-        "http://downloads.sourceforge.net/project/libjpeg-turbo/3.0.1/libjpeg-turbo-3.0.1.tar.gz",
-        "https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.0.1/libjpeg-turbo-3.0.1.tar.gz",
-    ),
-    "22429507714ae147b3acacd299e82099fce5d9f456882fc28e252e4579ba2a75",
+    "https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.2.0/libjpeg-turbo-3.2.0.tar.gz",
+    "6f30092cef9fb839779646608f4ee14ae3cbac989c47fa05e841b0841f09878e",
     "lib/libjpeg.a",
     [
         "-DENABLE_STATIC=ON",
@@ -421,6 +475,32 @@ libgeotiff = CmakeProject(
     patches=abspath("lib/libgeotiff/patches"),
 )
 
+netcdf = CmakeProject(
+    "https://github.com/Unidata/netcdf-c/archive/refs/tags/v4.10.0.tar.gz",
+    "ce160f9c1483b32d1ba8b7633d7984510259e4e439c48a218b95a023dc02fd4c",
+    "lib/pkgconfig/netcdf.pc",
+    [
+        "-DBUILD_SHARED_LIBS=OFF",
+        "-DNETCDF_ENABLE_HDF5=OFF",
+        "-DNETCDF_ENABLE_DAP=OFF",
+        "-DNETCDF_ENABLE_NCZARR=OFF",
+        "-DNETCDF_ENABLE_REMOTE_FUNCTIONALITY=OFF",
+        "-DNETCDF_ENABLE_BYTERANGE=OFF",
+        "-DNETCDF_BUILD_UTILITIES=OFF",
+        "-DNETCDF_ENABLE_TESTS=OFF",
+        "-DNETCDF_ENABLE_EXAMPLES=OFF",
+        "-DNETCDF_ENABLE_LIBXML2=OFF",
+        "-DNETCDF_ENABLE_PLUGINS=OFF",
+    ],
+    android_configure_args=[
+        "-DHAVE_LIBM=m",
+        "-DZLIB_LIBRARY=z",
+        "-DNETCDF_ENABLE_MMAP=OFF",
+    ],
+    base="netcdf-c-4.10.0",
+    patches=abspath("lib/netcdf/patches"),
+)
+
 sdl2 = CmakeProject(
     (
         "http://www.libsdl.org/release/SDL2-2.30.0.tar.gz",
@@ -461,8 +541,20 @@ sdl2 = CmakeProject(
         "-DSDL_LIBSAMPLERATE=OFF",
         "-DSDL_COCOA=OFF",
     ],
+    windows_configure_args=[
+        # Windows-specific SDL2 options for OpenGL ES via ANGLE
+        "-DSDL_DIRECTX=OFF",
+        "-DSDL_WASAPI=OFF",
+        "-DSDL_RENDER_D3D=OFF",
+        "-DSDL_LOADSO=ON",  # Required for SDL_VIDEO on Windows
+        # Disable joystick/xinput to avoid mingw-w64 header conflicts
+        "-DSDL_JOYSTICK=OFF",
+        "-DSDL_XINPUT=OFF",
+    ],
     patches=abspath("lib/sdl2/patches"),
 )
+
+angle = AngleProject()
 
 lua = LuaProject(
     (

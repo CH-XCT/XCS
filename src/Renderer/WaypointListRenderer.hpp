@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "Engine/Route/WaypointReachability.hpp"
+
 class Canvas;
 class TwoTextRowsRenderer;
 struct PixelRect;
@@ -16,17 +18,20 @@ namespace WaypointListRenderer
   void Draw(Canvas &canvas, const PixelRect rc, const Waypoint &waypoint,
             const TwoTextRowsRenderer &row_renderer,
             const WaypointLook &look,
-            const WaypointRendererSettings &renderer_settings);
+            const WaypointRendererSettings &renderer_settings,
+            WaypointReachability reachable=WaypointReachability::INVALID);
 
   void Draw(Canvas &canvas, const PixelRect rc, const Waypoint &waypoint,
             const GeoVector &vector,
             const TwoTextRowsRenderer &row_renderer,
             const WaypointLook &look,
-            const WaypointRendererSettings &settings);
+            const WaypointRendererSettings &settings,
+            WaypointReachability reachable=WaypointReachability::INVALID);
 
   void Draw(Canvas &canvas, const PixelRect rc, const Waypoint &waypoint,
             double distance, double arrival_altitude,
             const TwoTextRowsRenderer &row_renderer,
             const WaypointLook &look,
-            const WaypointRendererSettings &settings);
+            const WaypointRendererSettings &settings,
+            WaypointReachability reachable=WaypointReachability::INVALID);
 }

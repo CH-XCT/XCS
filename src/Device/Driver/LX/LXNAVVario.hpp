@@ -43,18 +43,31 @@ namespace LXNAVVario {
   /**
    * Set up the NMEA sentences sent by the vario:
    *
-   * - PLXVF at 2 Hz
+   * - PLXVF at 10 Hz (total-energy vario, IAS, pressure altitude; spec
+   *   recommends 20, 10, 5, 2, 1)
    * - PLXVS every 5 seconds
-   * - LXWP0 every second
+   * - LXWP0 every second (TAS, wind; altitude and six TE samples
+   *   ignored when PLXVF is active — LXWP0 altitude may include ALTOFF)
    * - LXWP1 every 60 seconds
    * - LXWP2 every 5 seconds (contains MC, ballast, bugs - more frequent for better sync)
-   * - LXWP3 disabled (we don't parse it)
+   * - LXWP3 every 5 seconds (variofil; changes rarely on the vario)
    * - LXWP5 disabled (we don't parse it)
    */
   static inline void
   SetupNMEA(Port &port, OperationEnvironment &env)
   {
-    PortWriteNMEA(port, "PLXV0,NMEARATE,W,2,5,1,60,5,0,0", env);
+    PortWriteNMEA(port, "PLXV0,NMEARATE,W,10,5,1,60,5,5,0", env);
+  }
+
+  /**
+   * Stop the periodic sentences configured by SetupNMEA().
+   * PLXVC request/response (flight download) still works.  Call
+   * SetupNMEA() afterwards to restore the normal rates.
+   */
+  static inline void
+  SilenceNMEA(Port &port, OperationEnvironment &env)
+  {
+    PortWriteNMEA(port, "PLXV0,NMEARATE,W,0,0,0,0,0,0,0", env);
   }
 
   /**
@@ -144,7 +157,11 @@ namespace LXNAVVario {
   }
 
   /**
-   * Set only the pilot weight in POLAR command, leaving all other fields empty
+   * Set only the pilot weight in POLAR command, leaving all other fields empty.
+   *
+   * Do not use on LXNAV S-series: empty a,b,c fields zero the device
+   * polar (#2397). Prefer a full POLAR write via PutCrewMass().
+   *
    * @param pilot_weight crew mass (kg)
    */
   static inline void
@@ -161,7 +178,11 @@ namespace LXNAVVario {
   }
 
   /**
-   * Set only the empty weight in POLAR command, leaving all other fields empty
+   * Set only the empty weight in POLAR command, leaving all other fields empty.
+   *
+   * Do not use on LXNAV S-series: empty a,b,c fields zero the device
+   * polar (#2397). Prefer a full POLAR write via PutEmptyMass().
+   *
    * @param empty_weight empty mass (kg)
    */
   static inline void

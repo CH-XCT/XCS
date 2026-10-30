@@ -19,22 +19,21 @@ LogoView::LogoView() noexcept try
   :logo(IDB_LOGO), big_logo(IDB_LOGO_HD), huge_logo(IDB_LOGO_UHD),
    title(IDB_TITLE), big_title(IDB_TITLE_HD), huge_title(IDB_TITLE_UHD)
 {
-#ifndef USE_WIN32_RESOURCES
-  /* Load RGBA logo variants for dark mode (transparent background) */
+  /* Load RGBA logo variants (transparent background) */
   logo_rgba.Load(IDB_LOGO_RGBA);
   big_logo_rgba.Load(IDB_LOGO_HD_RGBA);
   huge_logo_rgba.Load(IDB_LOGO_UHD_RGBA);
-  /* Load white title variants for dark mode */
+  /* Transparent title for light backgrounds; white for dark mode */
+  title_rgba.Load(IDB_TITLE_RGBA);
+  big_title_rgba.Load(IDB_TITLE_HD_RGBA);
+  huge_title_rgba.Load(IDB_TITLE_UHD_RGBA);
   white_title.Load(IDB_TITLE_HD_WHITE);
   huge_white_title.Load(IDB_TITLE_UHD_WHITE);
-#endif
-#ifndef USE_GDI
   font.Load(FontDescription(Layout::FontScale(10)));
 #ifndef NDEBUG
   FontDescription bold_desc(Layout::FontScale(16));
   bold_desc.SetBold(true);
   bold_font.Load(bold_desc);
-#endif
 #endif
 } catch (...) {
   /* ignore Bitmap/Font loader exceptions */
@@ -132,15 +131,15 @@ LogoView::draw(Canvas &canvas, const PixelRect &rc,
     bitmap_title = &title;
   }
 
-  /* In dark mode, use RGBA logos (transparent background) if available */
-  if (dark_mode) {
-    if (bitmap_logo == &huge_logo && huge_logo_rgba.IsDefined())
-      bitmap_logo = &huge_logo_rgba;
-    else if (bitmap_logo == &big_logo && big_logo_rgba.IsDefined())
-      bitmap_logo = &big_logo_rgba;
-    else if (bitmap_logo == &logo && logo_rgba.IsDefined())
-      bitmap_logo = &logo_rgba;
-  }
+  /* Prefer RGBA logos (transparent background).  Opaque BMP/PNG
+     variants have a white fill that shows as a rectangle on the
+     parchment dialog background and on dark themes. */
+  if (bitmap_logo == &huge_logo && huge_logo_rgba.IsDefined())
+    bitmap_logo = &huge_logo_rgba;
+  else if (bitmap_logo == &big_logo && big_logo_rgba.IsDefined())
+    bitmap_logo = &big_logo_rgba;
+  else if (bitmap_logo == &logo && logo_rgba.IsDefined())
+    bitmap_logo = &logo_rgba;
 
   // Determine logo size
   PixelSize logo_size = bitmap_logo->GetSize();
@@ -166,6 +165,7 @@ LogoView::draw(Canvas &canvas, const PixelRect &rc,
   }
 
   PixelPoint logo_position, title_position;
+  const PixelPoint origin = rc.GetTopLeft();
 
   // Determine logo and title positions
   switch (orientation) {
@@ -192,22 +192,30 @@ LogoView::draw(Canvas &canvas, const PixelRect &rc,
     gcc_unreachable();
   }
 
+  logo_position += origin;
+  title_position += origin;
+
   // Draw 'XCSoar N.N' title
   if (orientation != LogoViewOrientation::SQUARE) {
     const Bitmap *draw_title = bitmap_title;
-#ifdef ENABLE_OPENGL
-    /* On OpenGL, use white title variants for dark mode
-       (they have alpha and composite correctly).
-       On non-OpenGL, keep the standard (black) title since
-       the memory canvas composites alpha against white. */
+    /* Opaque title BMPs have a white fill.  Prefer matching-size RGBA
+       variants so the title composites over parchment / dark dialog
+       backgrounds (OpenGL and memory canvas). */
     if (dark_mode) {
       if (bitmap_title == &huge_title &&
           huge_white_title.IsDefined())
         draw_title = &huge_white_title;
       else if (white_title.IsDefined())
         draw_title = &white_title;
-    }
-
+    } else if (bitmap_title == &huge_title &&
+               huge_title_rgba.IsDefined())
+      draw_title = &huge_title_rgba;
+    else if (bitmap_title == &big_title &&
+             big_title_rgba.IsDefined())
+      draw_title = &big_title_rgba;
+    else if (bitmap_title == &title && title_rgba.IsDefined())
+      draw_title = &title_rgba;
+#ifdef ENABLE_OPENGL
     const ScopeAlphaBlend alpha_blend;
 #endif
     canvas.Stretch(title_position, title_size, *draw_title);
@@ -223,23 +231,19 @@ LogoView::draw(Canvas &canvas, const PixelRect &rc,
 
   // Draw full XCSoar version number
 
-#ifndef USE_GDI
   if (!font.IsDefined())
     return;
 
   canvas.Select(font);
-#endif
 
   canvas.SetTextColor(dark_mode ? COLOR_WHITE : COLOR_BLACK);
   canvas.SetBackgroundTransparent();
-  canvas.DrawText({2, 2}, XCSoar_ProductToken);
+  canvas.DrawText(origin + PixelPoint{2, 2}, XCSoar_ProductToken);
 
 #ifndef NDEBUG
   /* Draw debug build warning banner below logo (like "Remove before flight") */
-#ifndef USE_GDI
   if (bold_font.IsDefined())
     canvas.Select(bold_font);
-#endif
   
   const char *warning_text = "DEBUG BUILD - DO NOT FLY!";
   const auto text_size = canvas.CalcTextSize(warning_text);
@@ -249,7 +253,8 @@ LogoView::draw(Canvas &canvas, const PixelRect &rc,
   const int banner_height = text_size.height + padding * 2;
   const int banner_width = text_size.width + padding * 2;
   
-  /* Position banner below the logo/title with some spacing */
+  /* Position banner below the logo/title with some spacing.
+     logo_position and title_position already include origin. */
   int banner_y;
   if (orientation == LogoViewOrientation::PORTRAIT) {
     // Below title in portrait mode
@@ -264,11 +269,11 @@ LogoView::draw(Canvas &canvas, const PixelRect &rc,
   }
   
   /* Only draw if banner fits within the visible area */
-  if (banner_y + banner_height <= int(height)) {
+  if (banner_y + banner_height <= rc.bottom) {
     const PixelRect warning_rect{
-      Center(width, banner_width),
+      origin.x + Center(width, banner_width),
       banner_y,
-      Center(width, banner_width) + banner_width,
+      origin.x + Center(width, banner_width) + banner_width,
       banner_y + banner_height
     };
     

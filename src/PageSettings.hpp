@@ -3,12 +3,16 @@
 
 #pragma once
 
+#include "util/StaticString.hxx"
+
 #include <array>
 #include <cstdint>
 #include <span>
 #include <type_traits>
 
 struct InfoBoxSettings;
+
+class RaspStore;
 
 struct PageLayout
 {
@@ -50,6 +54,8 @@ struct PageLayout
 
     MAP_NORTH_UP,
 
+    EDL_MAP,
+
     /**
      * A dummy entry that is used for validating profile values.
      */
@@ -57,6 +63,20 @@ struct PageLayout
   } main;
 
   InfoBoxConfig infobox_config;
+
+  /**
+   * SkySight layer identifier for this page when overlay is SKYSIGHT.
+   */
+  StaticString<64> skysight_overlay;
+
+  /**
+   * Per-page SkySight forecast timestamp.  Zero follows the provider's
+   * automatic/default forecast; positive values select a fixed step.
+   * Live layers always use automatic time.
+   */
+  static constexpr int64_t SKYSIGHT_TIME_AUTO = 0;
+
+  int64_t skysight_time;
 
   /**
    * What to show below the main area (i.e. map)?
@@ -68,6 +88,8 @@ struct PageLayout
      * Show a cross section below the map.
      */
     CROSS_SECTION,
+
+    WEATHER_CONTROLS,
 
     /**
      * A custom #Widget is being displayed.  This is not a
@@ -81,17 +103,103 @@ struct PageLayout
     MAX
   } bottom;
 
+  /**
+   * Optional weather overlay drawn on map pages.
+   */
+  enum class Overlay : uint8_t {
+    NONE,
+    RASP,
+    EDL,
+    XCTHERM,
+    SKYSIGHT,
+    RADAR,
+    SATELLITE,
+
+    MAX
+  } overlay;
+
+  /**
+   * Selected RASP field when #overlay is Overlay::RASP.
+   */
+  int rasp_field;
+
+  /**
+   * Per-page RASP forecast time when #overlay is Overlay::RASP.
+   * #RASP_TIME_AUTO follows GPS local time; #RASP_TIME_NOW is manual
+   * "Now" (same as Auto for rendering, but auto-advance is off);
+   * otherwise minute-of-day (0..1439).
+   */
+  static constexpr int RASP_TIME_AUTO = -1;
+  static constexpr int RASP_TIME_NOW = 24 * 60;
+
+  int rasp_time;
+
+  /**
+   * Selected EDL isobar (Pascal) when #overlay is Overlay::EDL.
+   * 0 means Auto (sync from altitude on page enter).
+   */
+  static constexpr int EDL_TIME_AUTO = -1;
+  static constexpr int EDL_TIME_NOW = -2;
+
+  /**
+   * Per-page EDL forecast time.  Non-negative values are UTC hours
+   * since the Unix epoch.
+   */
+  int edl_time;
+
+  int edl_isobar;
+
+  static constexpr int XCTHERM_LAYER_AUTO = -1;
+  static constexpr int XCTHERM_TIME_AUTO = -1;
+
+  /**
+   * Per-page XCTherm cursor.  The layer is an index into the configured
+   * region; time is a UTC hour (0..23).
+   */
+  int xctherm_layer;
+  int xctherm_time;
+
+  /**
+   * Selected EUMETView layer when #overlay is Overlay::SATELLITE, as
+   * an index into EUMETView::GetLayers().  Kept as a plain int so
+   * that this header does not have to pull the layer table in;
+   * #SATELLITE_LAYER_DEFAULT mirrors EUMETView::DEFAULT_LAYER.
+   */
+  static constexpr int SATELLITE_LAYER_DEFAULT = 2;
+
+  int satellite_layer;
+
   PageLayout() = default;
 
   constexpr PageLayout(bool _valid, InfoBoxConfig _infobox_config)
     :valid(_valid), main(Main::MAP),
      infobox_config(_infobox_config),
-     bottom(Bottom::NOTHING) {}
+     skysight_overlay{},
+     skysight_time(SKYSIGHT_TIME_AUTO),
+     bottom(Bottom::NOTHING),
+     overlay(Overlay::NONE),
+     rasp_field(-1),
+     rasp_time(RASP_TIME_AUTO),
+     edl_time(EDL_TIME_AUTO),
+     edl_isobar(0),
+     xctherm_layer(XCTHERM_LAYER_AUTO),
+     xctherm_time(XCTHERM_TIME_AUTO),
+     satellite_layer(SATELLITE_LAYER_DEFAULT) {}
 
   constexpr PageLayout(InfoBoxConfig _infobox_config)
     :valid(true), main(Main::MAP),
      infobox_config(_infobox_config),
-     bottom(Bottom::NOTHING) {}
+     skysight_overlay{},
+     skysight_time(SKYSIGHT_TIME_AUTO),
+     bottom(Bottom::NOTHING),
+     overlay(Overlay::NONE),
+     rasp_field(-1),
+     rasp_time(RASP_TIME_AUTO),
+     edl_time(EDL_TIME_AUTO),
+     edl_isobar(0),
+     xctherm_layer(XCTHERM_LAYER_AUTO),
+     xctherm_time(XCTHERM_TIME_AUTO),
+     satellite_layer(SATELLITE_LAYER_DEFAULT) {}
 
   /**
    * Return an "undefined" page.  Its IsDefined() method will return
@@ -132,12 +240,165 @@ struct PageLayout
     valid = false;
   }
 
+  [[gnu::const]]
+  constexpr bool
+  IsMapMain() const noexcept
+  {
+    return main == Main::MAP || main == Main::MAP_NORTH_UP ||
+      main == Main::EDL_MAP;
+  }
+
+  [[gnu::const]]
+  constexpr bool
+  UsesEdlOverlay() const noexcept
+  {
+    return IsMapMain() && overlay == Overlay::EDL;
+  }
+
+  [[gnu::const]]
+  constexpr bool
+  UsesRaspOverlay() const noexcept
+  {
+    return IsMapMain() && overlay == Overlay::RASP;
+  }
+
+  [[gnu::const]]
+  constexpr bool
+  UsesXcthermOverlay() const noexcept
+  {
+    return IsMapMain() && overlay == Overlay::XCTHERM;
+  }
+
+  [[gnu::const]]
+  constexpr bool
+  UsesSkySightOverlay() const noexcept
+  {
+    return IsMapMain() && overlay == Overlay::SKYSIGHT &&
+      !skysight_overlay.empty();
+  }
+
+  [[gnu::const]]
+  constexpr bool
+  UsesRadarOverlay() const noexcept
+  {
+    return IsMapMain() && overlay == Overlay::RADAR;
+  }
+
+  [[gnu::const]]
+  constexpr bool
+  UsesSatelliteOverlay() const noexcept
+  {
+    return IsMapMain() && overlay == Overlay::SATELLITE;
+  }
+
+  [[gnu::const]]
+  constexpr bool
+  UsesWeatherOverlay() const noexcept
+  {
+    return IsMapMain() &&
+      (overlay == Overlay::EDL || overlay == Overlay::RASP ||
+       overlay == Overlay::XCTHERM || overlay == Overlay::SKYSIGHT);
+  }
+
+  /**
+   * Does this page carry an overlay that has to survive a pan?
+   *
+   * Panning shows the fullscreen map, whose layout carries no overlay
+   * at all, so without this the overlay would be torn down on the way
+   * in and fetched again on the way out.  This is deliberately not
+   * #UsesWeatherOverlay(): that one also gates the weather controls
+   * widget and the "weather" input mode, and an overlay with no
+   * forecast cursors would land the pilot in an empty control bar.
+   */
+  [[gnu::const]]
+  constexpr bool
+  UsesSuspendableOverlay() const noexcept
+  {
+    return UsesWeatherOverlay() || UsesRadarOverlay() ||
+      UsesSatelliteOverlay();
+  }
+
+  /**
+   * Convert legacy page layouts to the current representation.
+   */
+  constexpr void Normalise() noexcept
+  {
+    if (main == Main::EDL_MAP) {
+      main = Main::MAP;
+      skysight_overlay.clear();
+      skysight_time = SKYSIGHT_TIME_AUTO;
+      overlay = Overlay::EDL;
+      if (bottom == Bottom::NOTHING)
+        bottom = Bottom::WEATHER_CONTROLS;
+    }
+
+    if (unsigned(overlay) >= unsigned(Overlay::MAX))
+      overlay = Overlay::NONE;
+
+    if (!IsMapMain()) {
+      skysight_overlay.clear();
+      skysight_time = SKYSIGHT_TIME_AUTO;
+      overlay = Overlay::NONE;
+      if (bottom == Bottom::WEATHER_CONTROLS)
+        bottom = Bottom::NOTHING;
+    } else if (overlay == Overlay::SKYSIGHT) {
+      if (skysight_overlay.empty()) {
+        skysight_time = SKYSIGHT_TIME_AUTO;
+        overlay = Overlay::NONE;
+        if (bottom == Bottom::WEATHER_CONTROLS)
+          bottom = Bottom::NOTHING;
+      }
+    } else {
+      skysight_overlay.clear();
+      skysight_time = SKYSIGHT_TIME_AUTO;
+      if (!UsesWeatherOverlay() && bottom == Bottom::WEATHER_CONTROLS)
+        bottom = Bottom::NOTHING;
+    }
+
+    if (skysight_time < SKYSIGHT_TIME_AUTO)
+      skysight_time = SKYSIGHT_TIME_AUTO;
+
+    if (overlay != Overlay::RASP) {
+      rasp_field = -1;
+      rasp_time = RASP_TIME_AUTO;
+    } else {
+      if (rasp_field < -1)
+        rasp_field = -1;
+
+      if (rasp_time != RASP_TIME_AUTO &&
+          rasp_time != RASP_TIME_NOW &&
+          (rasp_time < 0 || rasp_time >= RASP_TIME_NOW))
+        rasp_time = RASP_TIME_AUTO;
+    }
+
+    if (overlay != Overlay::EDL) {
+      edl_time = EDL_TIME_AUTO;
+      edl_isobar = 0;
+    } else {
+      if (edl_time < EDL_TIME_NOW)
+        edl_time = EDL_TIME_AUTO;
+      if (edl_isobar < 0)
+        edl_isobar = 0;
+    }
+
+    if (overlay != Overlay::XCTHERM) {
+      xctherm_layer = XCTHERM_LAYER_AUTO;
+      xctherm_time = XCTHERM_TIME_AUTO;
+    } else {
+      if (xctherm_layer < XCTHERM_LAYER_AUTO)
+        xctherm_layer = XCTHERM_LAYER_AUTO;
+      if (xctherm_time < XCTHERM_TIME_AUTO || xctherm_time >= 24)
+        xctherm_time = XCTHERM_TIME_AUTO;
+    }
+  }
+
   [[nodiscard]]
   const char *MakeTitle(const InfoBoxSettings &info_box_settings,
-                         std::span<char> buffer,
-                         const bool concise=false) const noexcept;
+                        std::span<char> buffer,
+                        const RaspStore *rasp=nullptr,
+                        const bool concise=false) const noexcept;
 
-  constexpr bool operator==(const PageLayout &other) const noexcept = default;
+  bool operator==(const PageLayout &other) const noexcept = default;
 };
 
 struct PageSettings {

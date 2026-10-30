@@ -12,12 +12,14 @@
 #include "util/StringAPI.hxx"
 #include "util/NumberParser.hpp"
 #include "Asset.hpp"
+#include "ProductName.hpp"
 #include "Version.hpp"
+#include "system/StandardVersion.hpp"
 
-#include <stdio.h>
-#include <stdlib.h>
+#include <cstdio>
+#include <cstdlib>
 #ifdef _WIN32
-#include <windows.h> /* for AllocConsole() */
+#include <windows.h> /* for AllocConsole() and AttachConsole() */
 #endif
 
 namespace CommandLine {
@@ -31,6 +33,94 @@ namespace CommandLine {
 #ifdef HAVE_CMDLINE_REPLAY
   const char *replay_path;
 #endif
+
+  /** Set by @c -profile=; applied in ApplyPendingProfile(). */
+  static AllocatedPath pending_profile;
+}
+
+/** Option list for Args::UsageError (stderr); leading newline continues Usage:. */
+static const char option_summary[] =
+  "\n"
+  "  -h, --help          display this help on standard output and exit\n"
+  "  -version, --version display version on standard output and exit\n"
+  "  -datapath=PATH      path to " PRODUCT_NAME_A " data files\n"
+#ifdef SIMULATOR_AVAILABLE
+  "  -simulator          bypass startup-screen, use simulator mode directly\n"
+  "  -fly                bypass startup-screen, use fly mode directly\n"
+#endif
+  "  -profile=FNAME      load profile from file FNAME\n"
+  "  -WIDTHxHEIGHT       use screen resolution WIDTH x HEIGHT\n"
+  "  -portrait           use a 480x640 screen resolution\n"
+  "  -square             use a 480x480 screen resolution\n"
+  "  -small              use a 320x240 screen resolution\n"
+#if !defined(ANDROID)
+  "  -dpi=DPI            force DPI for pixel density\n"
+  "  -dpi=XDPIxYDPI      force XDPI and YDPI for pixel density\n"
+  "  -touchscreen        use touch UI (larger controls); overrides detection\n"
+  "  -notouchscreen      use non-touch UI; overrides touch detection\n"
+#endif
+#ifdef HAVE_CMDLINE_FULLSCREEN
+  "  -fullscreen         full-screen mode\n"
+#endif
+#ifdef HAVE_CMDLINE_RESIZABLE
+  "  -resizable          resizable window\n"
+#endif
+#ifdef HAVE_CMDLINE_REPLAY
+  "  -replay=PATH        replay IGC or NMEA log at PATH (desktop Unix/macOS)\n"
+#endif
+#ifdef _WIN32
+  "  -console            open debug output console\n"
+#endif
+  ;
+
+const char *
+CommandLine::OptionSummary() noexcept
+{
+  return option_summary;
+}
+
+#ifndef _WIN32
+static void AttachOutputConsole() noexcept {}
+#else
+/**
+ * GUI builds have no console. Attach the parent one so --help and
+ * --version are visible. Leave redirected stdout (a file or pipe) alone.
+ */
+static void
+AttachOutputConsole() noexcept
+{
+  HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
+  if (handle != nullptr && handle != INVALID_HANDLE_VALUE) {
+    const DWORD type = GetFileType(handle);
+    DWORD mode;
+    if (type == FILE_TYPE_DISK || type == FILE_TYPE_PIPE ||
+        (type == FILE_TYPE_CHAR && GetConsoleMode(handle, &mode)))
+      return;
+  }
+
+  if (!AttachConsole(ATTACH_PARENT_PROCESS))
+    return;
+
+  if (std::freopen("CONOUT$", "w", stdout) == nullptr)
+    return;
+
+  std::setvbuf(stdout, nullptr, _IONBF, 0);
+}
+#endif
+
+void
+CommandLine::PrintHelp() noexcept
+{
+  AttachOutputConsole();
+
+  std::printf("Usage: %s [OPTION]...\n\n"
+              "Options:\n",
+              PRODUCT_NAME_LC);
+  /* skip leading newline from option_summary */
+  std::fputs(option_summary + 1, stdout);
+  std::printf("\nReport bugs to: <%s>\n"
+              "%s home page: <%s>\n",
+              PRODUCT_BUGS_URL, PRODUCT_NAME, PRODUCT_WEB_SITE_URL);
 }
 
 void
@@ -51,8 +141,14 @@ CommandLine::Parse(Args &args)
     if (s[1] == '-')
       s++;
 
+    if (StringIsEqual(s, "-h") || StringIsEqual(s, "-help")) {
+      PrintHelp();
+      exit(EXIT_SUCCESS);
+    }
+
     if (StringIsEqual(s, "-version")) {
-      printf("%s\n", XCSoar_ProductToken);
+      AttachOutputConsole();
+      PrintStandardVersion(PRODUCT_NAME_LC, XCSoar_VersionString);
       exit(EXIT_SUCCESS);
     } else if (StringIsEqual(s, "-profile=", 9)) {
       s += 9;
@@ -60,8 +156,11 @@ CommandLine::Parse(Args &args)
       if (StringIsEmpty(s))
         args.UsageError();
 
+      /* Defer Profile::SetFiles() until ApplyPendingProfile() so a
+         basename is joined to -datapath= even when -profile= appears
+         first on the command line (#848). */
       PathName convert(s);
-      Profile::SetFiles(convert);
+      pending_profile = AllocatedPath(Path(convert));
     } else if (StringIsEqual(s, "-datapath=", 10)) {
       s += 10;
       PathName convert(s);
@@ -96,6 +195,10 @@ CommandLine::Parse(Args &args)
     } else if (StringIsEqual(s, "-small")) {
       width = 320;
       height = 240;
+    } else if (StringIsEqual(s, "-touchscreen")) {
+      touch_input = TouchInput::Force;
+    } else if (StringIsEqual(s, "-notouchscreen")) {
+      touch_input = TouchInput::Disable;
 #ifdef HAVE_CMDLINE_FULLSCREEN
     } else if (StringIsEqual(s, "-fullscreen")) {
       full_screen = true;
@@ -139,4 +242,14 @@ CommandLine::Parse(Args &args)
   if (width < 240 || width > 4096 ||
       height < 240 || height > 4096)
     args.UsageError();
+}
+
+void
+CommandLine::ApplyPendingProfile() noexcept
+{
+  if (pending_profile == nullptr)
+    return;
+
+  Profile::SetFiles(pending_profile);
+  pending_profile = nullptr;
 }

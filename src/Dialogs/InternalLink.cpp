@@ -17,34 +17,61 @@
 #include "Dialogs/Settings/Panels/InfoBoxesConfigPanel.hpp"
 #include "Dialogs/Settings/Panels/PagesConfigPanel.hpp"
 #include "Dialogs/Settings/Panels/WeGlideConfigPanel.hpp"
+#include "Dialogs/Settings/Panels/NetworkConfigPanel.hpp"
 #include "Dialogs/Settings/Panels/WeatherConfigPanel.hpp"
 #include "Dialogs/Settings/Panels/SafetyFactorsConfigPanel.hpp"
-#include "Dialogs/Settings/Panels/TrackingConfigPanel.hpp"
+#include "Tracking/Features.hpp"
+#ifdef HAVE_SKYLINES_TRACKING
+#include "Dialogs/Settings/Panels/SkyLinesConfigPanel.hpp"
+#endif
+#ifdef HAVE_LIVETRACK24
+#include "Dialogs/Settings/Panels/LiveTrack24ConfigPanel.hpp"
+#endif
+#ifdef HAVE_TRACKING
+#include "Dialogs/Settings/Panels/CloudConfigPanel.hpp"
+#endif
 #include "Dialogs/Settings/Panels/TerrainDisplayConfigPanel.hpp"
+#include "Dialogs/DataManagement/BackupRestorePanel.hpp"
 #include "Widget/Widget.hpp"
 #include "Look/DialogLook.hpp"
 #include "UIGlobals.hpp"
 #include "Interface.hpp"
 #include "MainWindow.hpp"
 #include "Profile/Profile.hpp"
+#include "UtilsSettings.hpp"
+#include "Computer/Settings.hpp"
 #include "Components.hpp"
 #include "BackendComponents.hpp"
 #include "DataComponents.hpp"
 #include "Language/Language.hpp"
+#include "Monitor/TrafficMonitor.hpp"
 
 void
 ShowConfigPanel(const char *title,
                 std::unique_ptr<Widget> (*create_panel)())
 {
-  const DialogLook &look = UIGlobals::GetDialogLook();
-  WidgetDialog dialog(WidgetDialog::Full{}, UIGlobals::GetMainWindow(),
-                      look, title);
-  auto panel = create_panel();
-  dialog.FinishPreliminary(std::move(panel));
-  dialog.AddButton(_("Close"), mrOK);
-  dialog.ShowModal();
-  if (dialog.GetChanged())
-    Profile::Save();
+  const UISettings old_ui_settings = CommonInterface::GetUISettings();
+  SettingsEnter();
+
+  try {
+    const DialogLook &look = UIGlobals::GetDialogLook();
+    WidgetDialog dialog(WidgetDialog::Full{}, UIGlobals::GetMainWindow(),
+                        look, title);
+    auto panel = create_panel();
+    dialog.FinishPreliminary(std::move(panel));
+    dialog.AddButton(_("Close"), mrOK);
+    dialog.ShowModal();
+    if (dialog.GetChanged())
+      Profile::Save();
+  } catch (...) {
+    SettingsLeave(old_ui_settings);
+    throw;
+  }
+
+  /* Always run leave: resumes threads suspended in SettingsEnter() and
+     applies any change flags set by the panel Save() (same as
+     SystemConfiguration after dlgConfigurationShowModal). */
+  SettingsLeave(old_ui_settings);
 }
 
 /**
@@ -60,13 +87,26 @@ struct ConfigPanelLink {
 static constexpr ConfigPanelLink config_panel_links[] = {
   {"config/site-files", N_("Site Files"), CreateSiteConfigPanel},
   {"config/logger",     N_("Logger"),     CreateLoggerConfigPanel},
-  {"config/time",       N_("Time"),       CreateTimeConfigPanel},
+  {"config/time",       NC_("Setting", "Time"), CreateTimeConfigPanel},
   {"config/infoboxes",  N_("InfoBox Sets"), CreateInfoBoxesConfigPanel},
   {"config/pages",      N_("Pages"),      CreatePagesConfigPanel},
   {"config/weglide",    N_("WeGlide"),    CreateWeGlideConfigPanel},
+  {"config/network",    N_("Network"),    CreateNetworkConfigPanel},
   {"config/weather",    N_("Weather"),    CreateWeatherConfigPanel},
   {"config/safety",     N_("Safety Factors"), CreateSafetyFactorsConfigPanel},
-  {"config/tracking",   N_("Tracking"),   CreateTrackingConfigPanel},
+#ifdef HAVE_SKYLINES_TRACKING
+  {"config/tracking",   "SkyLines",     CreateSkyLinesConfigPanel},
+  {"config/skylines",   "SkyLines",     CreateSkyLinesConfigPanel},
+#endif
+#ifdef HAVE_LIVETRACK24
+  {"config/livetrack24", "LiveTrack24", CreateLiveTrack24ConfigPanel},
+#ifndef HAVE_SKYLINES_TRACKING
+  {"config/tracking",   "LiveTrack24",  CreateLiveTrack24ConfigPanel},
+#endif
+#endif
+#ifdef HAVE_TRACKING
+  {"config/cloud",      N_("XCSoar Cloud"), CreateCloudConfigPanel},
+#endif
   {"config/terrain",    N_("Terrain Display"), CreateTerrainDisplayConfigPanel},
 };
 
@@ -83,6 +123,7 @@ static constexpr SimpleDialogLink simple_dialog_links[] = {
   {"dialog/flight",    dlgBasicSettingsShowModal},
   {"dialog/wind",      ShowWindSettingsDialog},
   {"dialog/task",      dlgTaskManagerShowModal},
+  {"dialog/backup",    ShowBackupManagerDialog},
   {"dialog/gestures",  dlgGestureHelpShowModal},
 };
 
@@ -116,11 +157,8 @@ HandleInternalLink(const char *url)
   /* ---- Special-case config dialogs ---- */
 
   if (StringIsEqual(path, "config/devices")) {
-    if (backend_components != nullptr &&
-        backend_components->device_blackboard != nullptr) {
-      ShowDeviceList(*backend_components->device_blackboard,
-                     backend_components->devices.get());
-    }
+    if (backend_components != nullptr)
+      ShowDeviceList(backend_components->devices.get());
     return true;
   }
 
@@ -152,6 +190,11 @@ HandleInternalLink(const char *url)
 
   if (StringIsEqual(path, "dialog/credits")) {
     dlgCreditsShowModal(*CommonInterface::main_window);
+    return true;
+  }
+
+  if (StringIsEqual(path, "sound/test")) {
+    PlaySpokenAlertExample();
     return true;
   }
 

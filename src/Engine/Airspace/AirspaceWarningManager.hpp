@@ -6,10 +6,14 @@
 #include "AirspaceWarning.hpp"
 #include "AirspaceWarningConfig.hpp"
 #include "Util/AircraftStateFilter.hpp"
+#include "Geo/GeoPoint.hpp"
 #include "time/FloatDuration.hxx"
 #include "util/Serial.hpp"
 
 #include <list>
+#include <string>
+#include <string_view>
+#include <unordered_set>
 
 class TaskStats;
 class GlidePolar;
@@ -41,7 +45,47 @@ class AirspaceWarningManager {
 
   using AirspaceWarningList = std::list<AirspaceWarning>;
 
+  struct TransparentStringHash {
+    using is_transparent = void;
+
+    std::size_t operator()(std::string_view s) const noexcept {
+      return std::hash<std::string_view>{}(s);
+    }
+  };
+
+  struct TransparentStringEqual {
+    using is_transparent = void;
+
+    bool operator()(std::string_view a, std::string_view b) const noexcept {
+      return a == b;
+    }
+  };
+
   AirspaceWarningList warnings;
+
+  /** Aircraft position from the last Update(). */
+  GeoPoint last_location = GeoPoint::Invalid();
+  double last_altitude = 0;
+  double last_altitude_agl = 0;
+  /** Climb rate (m/s) from the last Update(). Positive is up. */
+  double last_vario = 0;
+
+  /**
+   * NOTAM areas are removed and re-created when the NOTAM list is refreshed,
+   * so #warnings cannot match the new #AbstractAirspace by pointer.  "Ack
+   * day" and "cleared" for NOTAM are also keyed by NOTAM number
+   * (#GetStationName()) so they survive updates.
+   */
+  std::unordered_set<std::string, TransparentStringHash,
+                     TransparentStringEqual> notam_day_ack_by_station;
+
+  /**
+   * Airspaces acknowledged for the day. Survives warning deletion
+   * and a replay time jump. Cleared when the airspace database is.
+   */
+  std::unordered_set<const AbstractAirspace *> ack_day_airspaces;
+  std::unordered_set<std::string, TransparentStringHash,
+                     TransparentStringEqual> notam_day_cleared_by_station;
 
   /**
    * This number is incremented each time this object is modified.
@@ -51,7 +95,7 @@ class AirspaceWarningManager {
 public:
   using const_iterator = AirspaceWarningList::const_iterator;
 
-  /** 
+  /**
    * Default constructor
    * 
    * @param airspaces Store of airspaces
@@ -102,7 +146,7 @@ public:
    */
   bool Update(const AircraftState &state, const GlidePolar &glide_polar,
               const TaskStats &task_stats,
-              bool circling, std::chrono::duration<unsigned> dt) noexcept;
+              bool circling, std::chrono::duration<unsigned> dt);
 
   /**
    * Adjust time of glide predictor
@@ -125,7 +169,7 @@ public:
    *
    * @return Reference to airspace warning item
    */
-  AirspaceWarning &GetWarning(ConstAirspacePtr airspace) noexcept;
+  AirspaceWarning &GetWarning(ConstAirspacePtr airspace);
 
   /**
    * Find corresponding airspace warning item in store by airspace
@@ -143,7 +187,7 @@ public:
    *
    * @return Pointer to airspace warning item (or nullptr if not found)
    */
-  AirspaceWarning *GetNewWarningPtr(ConstAirspacePtr airspace) noexcept;
+  AirspaceWarning *GetNewWarningPtr(ConstAirspacePtr airspace);
 
   const AirspaceWarning *GetWarningPtr(const AbstractAirspace &airspace) const noexcept {
     return const_cast<AirspaceWarningManager *>(this)
@@ -166,6 +210,9 @@ public:
   void clear() {
     ++serial;
     warnings.clear();
+    notam_day_ack_by_station.clear();
+    notam_day_cleared_by_station.clear();
+    ack_day_airspaces.clear();
   }
 
   /**
@@ -205,7 +252,7 @@ public:
    * @param set Whether to set or cancel acknowledgement
    */
   void AcknowledgeWarning(ConstAirspacePtr airspace,
-                          const bool set = true) noexcept;
+                          const bool set = true);
 
   /**
    * Acknowledge an airspace inside
@@ -214,7 +261,7 @@ public:
    * @param set Whether to set or cancel acknowledgement
    */
   void AcknowledgeInside(ConstAirspacePtr airspace,
-                         const bool set = true) noexcept;
+                         const bool set = true);
 
   /**
    * Acknowledge all warnings for airspace for whole day
@@ -223,7 +270,7 @@ public:
    * @param set Whether to set or cancel acknowledgement
    */
   void AcknowledgeDay(ConstAirspacePtr airspace,
-                      const bool set = true) noexcept;
+                      const bool set = true);
 
   /**
    * Returns whether the given airspace is acknowledged for the whole day
@@ -232,6 +279,23 @@ public:
    */
   [[gnu::pure]]
   bool GetAckDay(const AbstractAirspace &airspace) const noexcept;
+
+  /**
+   * Set or revoke clearance for an airspace for the whole day
+   *
+   * @param airspace The airspace subject
+   * @param set Whether to set or revoke clearance
+   */
+  void SetCleared(ConstAirspacePtr airspace,
+                  bool set = true);
+
+  /**
+   * Returns whether the given airspace has clearance for the day
+   *
+   * @param airspace The airspace subject
+   */
+  [[gnu::pure]]
+  bool GetCleared(const AbstractAirspace &airspace) const noexcept;
 
   /**
    * Returns true if this airspace would be warned about,
@@ -245,15 +309,90 @@ public:
   bool IsActive(const AbstractAirspace &airspace) const noexcept;
 
 private:
+  void ApplyNotamDayState(AirspaceWarning &warning) noexcept;
+
+  /** Keep the most severe active warning at the front. */
+  void Resort() noexcept;
+
+  /**
+   * While the aircraft is inside a cleared airspace, silence a
+   * surrounding airspace whose warning has no horizontal distance.
+   * A boundary still ahead is the exit from the clearance and keeps
+   * alerting, including a climb that reaches the top within the
+   * warning time. Leaving the cleared airspace lets the outside
+   * warning return.
+   *
+   * @return true if a warning was newly covered
+   */
+  bool CoverOutsideAirspaces() noexcept;
+
+  /**
+   * Ack Day on a surrounding airspace the aircraft is already
+   * under. A boundary still ahead keeps alerting.
+   *
+   * @return true if a warning was newly acknowledged
+   */
+  bool AckOutsideAirspaces(const AbstractAirspace &acked) noexcept;
+
+  void ApplyRememberedDayState(AirspaceWarning &warning) noexcept;
+
+  AirspaceWarning *FindWarningByNotamDayAckKey(std::string_view key) noexcept;
+  const AirspaceWarning *
+  FindWarningByNotamDayAckKey(std::string_view key) const noexcept;
+
   bool UpdateTask(const AircraftState &state, const GlidePolar &glide_polar,
                   const TaskStats &task_stats);
   bool UpdateFilter(const AircraftState& state, const bool circling);
   bool UpdateGlide(const AircraftState& state, const GlidePolar &glide_polar);
   bool UpdateInside(const AircraftState& state, const GlidePolar &glide_polar);
 
-  bool UpdatePredicted(const AircraftState& state, 
+  bool UpdatePredicted(const AircraftState& state,
                        const GeoPoint &location_predicted,
+                       double altitude_predicted,
                        const AirspaceAircraftPerformance &perf,
                        const AirspaceWarning::State warning_state,
                        FloatDuration max_time) noexcept;
+
+  /**
+   * Check whether a warning interval is a thin corridor hugging a
+   * cleared airspace: its entry point lies within @p tolerance of
+   * the offending airspace's own boundary, and every sample along
+   * the interval (entry, end of the warning-relevant part, and
+   * steps of @p tolerance in between) is inside or within
+   * @p tolerance of a cleared airspace whose vertical band contains
+   * the current altitude.  Samples not genuinely inside the
+   * offending airspace (exact geometry) are disregarded -- interval
+   * endpoints from the integer projection can overshoot the real
+   * boundary by up to a grid cell.  Such corridors are digitisation /
+   * projection artifacts of near-coincident boundaries, not real
+   * geometry; warnings on them are suppressed.
+   */
+  [[gnu::pure]]
+  bool IsThinClearanceCorridor(const AirspaceWarningInterval &iv,
+                               const AbstractAirspace &offending,
+                               const AircraftState &state,
+                               double tolerance) const noexcept;
+
+  /**
+   * Apply clearance suppression to the warning list.
+   *
+   * Two passes:
+   * 1. For WARNING_INSIDE warnings of non-cleared airspaces,
+   *    subtract the coverage of cleared airspaces the aircraft
+   *    is physically inside from each warning interval, and drop
+   *    residuals that are thin clearance corridors.
+   *    Fully covered warnings keep WARNING_INSIDE state but
+   *    are marked SetCoveredByClearance(true). Partially
+   *    covered warnings with (time-to-arrival <= warning_time)
+   *    become "near" warnings and set to the corresponding
+   *    state
+   * 2. For non-INSIDE warnings, subtract cleared intervals
+   *    from approach intervals; suppress fully-covered
+   *    warnings.
+   */
+  void ProcessClearanceIntervals(
+      const AircraftState &state,
+      const GlidePolar &glide_polar,
+      bool circling,
+      const TaskStats &task_stats) noexcept;
 };

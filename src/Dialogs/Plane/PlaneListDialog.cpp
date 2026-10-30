@@ -14,24 +14,23 @@
 #include "system/FileUtil.hpp"
 #include "system/Path.hpp"
 #include "LocalPath.hpp"
+#include "Repository/FileType.hpp"
 #include "Profile/Profile.hpp"
 #include "Task/ProtectedTaskManager.hpp"
 #include "UIGlobals.hpp"
 #include "Look/DialogLook.hpp"
 #include "Interface.hpp"
+#include "ActionInterface.hpp"
 #include "Language/Language.hpp"
 #include "util/StringAPI.hxx"
 #include "util/StringCompare.hxx"
 #include "Components.hpp"
 #include "BackendComponents.hpp"
+#include "Device/MultipleDevices.hpp"
+#include "Operation/MessageOperationEnvironment.hpp"
 
 #include <vector>
 #include <cassert>
-
-/* this macro exists in the WIN32 API */
-#ifdef DELETE
-#undef DELETE
-#endif
 
 class PlaneListWidget final
   : public ListWidget {
@@ -63,7 +62,7 @@ class PlaneListWidget final
     }
   };
 
-  WndForm *form;
+  WidgetDialog *form;
   Button *edit_button, *copy_button, *delete_button, *load_button;
 
   std::vector<ListItem> list;
@@ -75,7 +74,7 @@ public:
 
 private:
   void UpdateList() noexcept;
-  bool Load(unsigned i) noexcept;
+  bool Load(unsigned i, bool edited_active) noexcept;
   bool LoadWithDialog(unsigned i) noexcept;
 
   void LoadClicked() noexcept;
@@ -106,7 +105,7 @@ PlaneListWidget::UpdateList() noexcept
   list.clear();
 
   PlaneFileVisitor pfv(list);
-  VisitDataFiles("*.xcp", pfv);
+  VisitDataFiles(GetFileTypePatterns(FileType::PLANE), pfv);
 
   unsigned len = list.size();
 
@@ -122,6 +121,9 @@ PlaneListWidget::UpdateList() noexcept
   edit_button->SetEnabled(!empty);
   copy_button->SetEnabled(!empty);
   delete_button->SetEnabled(!empty);
+
+  if (form != nullptr)
+    form->ResyncButtonPanelSelection();
 }
 
 void
@@ -132,7 +134,7 @@ PlaneListWidget::CreateButtons(WidgetDialog &dialog) noexcept
   dialog.AddButton(_("New"), [this](){ NewClicked(); });
   edit_button = dialog.AddButton(_("Edit"), [this](){ EditClicked(false); });
   copy_button = dialog.AddButton(_("Copy"), [this](){ EditClicked(true); });
-  delete_button = dialog.AddButton(_("Delete"), [this](){ DeleteClicked(); });
+  delete_button = dialog.AddButton(C_("Button", "Delete"), [this](){ DeleteClicked(); });
   load_button = dialog.AddButton(_("Activate"), [this](){ LoadClicked(); });
 }
 
@@ -166,35 +168,86 @@ PlaneListWidget::OnPaintItem(Canvas &canvas, const PixelRect rc,
   row_renderer.DrawSecondRow(canvas, rc, path.c_str());
 }
 
+/**
+ * Push the glide polar just loaded.  PutPolar sends only when polar
+ * sync is Send, and it sends this plane's coefficients rather than
+ * the curve cached from the vario.
+ */
+static void
+SendLoadedPolar(const GlidePolar &polar) noexcept
+{
+  if (backend_components == nullptr ||
+      backend_components->devices == nullptr)
+    return;
+
+  /* The fallback stands in for a missing or broken plane profile. */
+  if (!polar.IsValid() || polar.IsFallback())
+    return;
+
+  MessageOperationEnvironment env;
+  backend_components->devices->PutPolar(polar, env);
+}
+
 static bool
-LoadFile(Path path) noexcept
+LoadFile(Path path, bool edited_active) noexcept
 {
   ComputerSettings &settings = CommonInterface::SetComputerSettings();
+
+  const bool same_plane = Profile::GetPathIsEqual("PlanePath", path);
+  const double previous_empty =
+    settings.polar.glide_polar_task.GetEmptyMass();
+  const double previous_mtow = settings.plane.max_takeoff_mass;
 
   if (!PlaneGlue::ReadFile(settings.plane, path))
     return false;
 
+  const double new_empty = settings.plane.empty_mass;
+  const bool empty_changed = previous_empty > new_empty + 0.1 ||
+                             previous_empty < new_empty - 0.1;
+  const double new_mtow = settings.plane.max_takeoff_mass;
+  const bool mtow_changed = previous_mtow > new_mtow + 0.1 ||
+                            previous_mtow < new_mtow - 0.1;
+
   Profile::SetPath("PlanePath", path);
+
+  /* Before Synchronize, so SetEmptyMass still sees the previous mass
+     and resends ballast only for a real change.  PutEmptyMass keeps
+     the vario's curve and replaces the empty mass, which is right
+     for an edit of this plane and wrong for a different glider. */
+  if (edited_active && empty_changed)
+    ActionInterface::SetEmptyMass(new_empty);
+
+  /* After the empty mass, so this polar sentence keeps that change.
+     Zero is not a weight the device should store. */
+  if (new_mtow > 0 &&
+      ((edited_active && mtow_changed) ||
+       (!edited_active && !same_plane)))
+    ActionInterface::SetMaxTakeoffMass(new_mtow);
+
   PlaneGlue::Synchronize(settings.plane, settings,
                          settings.polar.glide_polar_task);
   backend_components->SetTaskPolar(settings.polar);
+
+  if (!edited_active && !same_plane)
+    SendLoadedPolar(settings.polar.glide_polar_task);
+
   Profile::Save();
 
   return true;
 }
 
 bool
-PlaneListWidget::Load(unsigned i) noexcept
+PlaneListWidget::Load(unsigned i, bool edited_active) noexcept
 {
   assert(i < list.size());
 
-  return LoadFile(list[i].path);
+  return LoadFile(list[i].path, edited_active);
 }
 
 bool
 PlaneListWidget::LoadWithDialog(unsigned i) noexcept
 {
-  bool result = Load(i);
+  bool result = Load(i, false);
   if (!result) {
     const char *title = _("Error");
     StaticString<256> text;
@@ -228,7 +281,8 @@ PlaneListWidget::NewClicked() noexcept
     StaticString<42> filename(plane.registration);
     filename += ".xcp";
 
-    const auto path = LocalPath(filename);
+    const auto path = LocalPath(AllocatedPath::Build(
+      GetFileTypeDefaultDir(FileType::PLANE), filename));
 
     if (File::Exists(path)) {
       StaticString<256> tmp;
@@ -299,7 +353,7 @@ PlaneListWidget::EditClicked(bool copy) noexcept
       if (!copy && Profile::GetPathIsEqual("PlanePath", old_path)) {
         list[index].path = Path(path);
         list[index].name = filename;
-        Load(index);
+        Load(index, true);
       }
     } else {
       try {
@@ -310,7 +364,7 @@ PlaneListWidget::EditClicked(bool copy) noexcept
       }
 
       if (Profile::GetPathIsEqual("PlanePath", old_path))
-        Load(index);
+        Load(index, true);
     }
 
     UpdateList();
@@ -330,7 +384,7 @@ PlaneListWidget::DeleteClicked() noexcept
 
   tmp.Format(_("Delete plane \"%s\"?"),
              tmp_name.c_str());
-  if (ShowMessageBox(tmp, _("Delete"), MB_YESNO) != IDYES)
+  if (ShowMessageBox(tmp, C_("Button", "Delete"), MB_YESNO) != IDYES)
     return;
 
   File::Delete(list[GetList().GetCursorIndex()].path);
@@ -360,6 +414,8 @@ dlgPlanesShowModal() noexcept
   dialog.SetWidget();
   dialog.GetWidget().CreateButtons(dialog);
   dialog.AddButton(_("Close"), mrOK);
+  /* Like Alternates: list cursor picks the plane; Left/Right arm an
+     action (New/Edit/…); Enter runs it. */
   dialog.EnableCursorSelection();
 
   dialog.ShowModal();

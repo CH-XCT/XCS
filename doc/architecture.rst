@@ -18,16 +18,28 @@ section tries to give a rough overview where you can find what.
 
 -  :file:`Geo/`: geographic data structures and formulas
 
+-  :file:`time/`: clocks, civil time, and :file:`Validity` (last-changed
+   timestamps)
+
+-  :file:`Atmosphere/`: ICAO ISA pressure, density, and indicated
+   airspeed from pitot
+
+-  :file:`Radio/`: VHF frequency and transponder code/mode values
+
+-  :file:`Units/`: SI conversion factors and user-unit tables
+
+-  :file:`Operation/`: cancel/progress for long-running work
+
 -  :file:`Formatter/`: code that formats internal values to strings
 
 -  :file:`Units/`: conversion from SI units (“System” units) to configured
    user units
 
--  :FILE:`NMEA/`: data structures for values parsed from NMEA
+-  :file:`NMEA/`: data structures for values parsed from NMEA
 
 -  :file:`Profile/`: user profiles, loading from and saving to
 
--  :FILE:`IGC/`: support for the IGC file format
+-  :file:`IGC/`: support for the IGC file format
 
 -  :file:`Logger/`: all loggers (NMEA, IGC, flights)
 
@@ -51,7 +63,7 @@ section tries to give a rough overview where you can find what.
    operations
 
 -  :file:`Android/`: code specific to Android (the native part only; Java
-   code is in :file:`android/src/`
+   code is in :file:`android/src/`)
 
 -  :file:`Engine/PathSolvers/`: an implementation of Dijkstra’s path finding
    algorithm, for task and contest optimisation
@@ -60,6 +72,8 @@ section tries to give a rough overview where you can find what.
 
 -  :file:`Engine/Waypoint/`: waypoint data structures
 
+-  :file:`Engine/Observation/`: thermal and wave marks, tagged by feed
+
 -  :file:`Engine/GlideSolvers/`: a MacCready implementation
 
 -  :file:`Engine/Task/`: task data structures and calculations
@@ -67,6 +81,44 @@ section tries to give a rough overview where you can find what.
 -  :file:`Engine/Contest/`: contest optimisation
 
 -  :file:`Engine/Route/`: the route planner (airspace and terrain)
+
+-  :file:`io/`: stream and file I/O (readers, writers, archives). Keep this
+   layer free of UI and backend singletons; device-specific listing belongs
+   in :file:`Storage/`
+
+-  :file:`Repository/`: filename patterns and typed data directories
+   (:file:`FileType`); see :doc:`data_directory` for the on-disk layout
+
+-  :file:`Storage/`: removable storage enumeration, hotplug monitors, and
+   the :file:`StorageDevice` abstraction (platform code in
+   :file:`Storage/linux/`, :file:`Storage/win/`, :file:`Storage/android/`)
+
+-  :file:`Device/`, :file:`Computer/`, :file:`Blackboard/`: sensor drivers,
+   glide computer, and thread-specific data copies
+
+-  :file:`Dialogs/DataManagement/`: data management UI (import, export,
+   backup, file explorer)
+
+Layer dependencies
+~~~~~~~~~~~~~~~~~~
+
+Rough dependency direction (see also project rules in
+:file:`.cursor/rules/xcsoar-project-rules.mdc`):
+
+- **Foundation** (:file:`util/`, :file:`Math/`, :file:`Geo/`, :file:`io/`,
+  :file:`system/`, :file:`time/`, :file:`Atmosphere/`, :file:`Radio/`,
+  :file:`Units/`, :file:`Operation/`) must not include Engine, Backend,
+  or UI headers.
+
+- **Engine** uses Foundation only.
+
+- **Backend** (:file:`Device/`, :file:`Computer/`, :file:`Storage/`,
+  :file:`NOTAM/`, …) uses Foundation and Engine. Access UI only through
+  event queues (:file:`InputEvents`, :file:`UI::Notify`), not dialogs.
+
+- **UI** (:file:`Dialogs/`, :file:`Form/`, :file:`Interface.hpp`) may use all
+  layers below it. Helpers such as :file:`Storage/StorageUtil.cpp` that read
+  :file:`BackendComponents` are backend/UI glue, not Foundation.
 
 Threads and Locking
 -------------------
@@ -79,19 +131,19 @@ allow expensive background calculations.
 
 This is how it looks like on Windows and Linux/SDL (software rendering):
 
-.. blockdiag::
+.. graphviz::
 
-    blockdiag threads {
-      Devices [stacked];
-      Devices -> MergeThread [label = "sensors", fontsize=8];
-      MergeThread -> CalcThread [label = "sensors", fontsize=8];
+   digraph threads {
+     graph [fontsize=10];
+     node [fontsize=10];
+     edge [fontsize=8];
 
-      CalcThread -> UIThread [folded, label = "results", fontsize=8];
-
-      IOThread -> UIThread [label = "data", fontsize=8];
-
-      UIThread <-> DrawThread [label = "redraw", fontsize=8];
-    }
+     Devices -> MergeThread [label="sensors"];
+     MergeThread -> CalcThread [label="sensors"];
+     CalcThread -> UIThread [label="results"];
+     IOThread -> UIThread [label="data"];
+     UIThread -> DrawThread [dir=both, label="redraw"];
+   }
 
 The UI thread is the main thread.  It starts the other threads and is
 responsible for the UI event loop.  No other thread is allowed to
@@ -104,10 +156,9 @@ background.  It gets data from the devices (through :file:`MergeThread`) and
 forwards it together with calculation results to the drawing thread and
 the main thread.
 
-Each device has its own thread (:file:`SerialPort.cpp`).  This is
-needed because Windows CE does not support asynchronous COMM port
-I/O. The thread is stopped during task declaration (which happens in
-the UI thread).
+Each device has its own thread (:file:`SerialPort.cpp`).  Blocking
+serial I/O is isolated from the UI thread.  The thread is stopped
+during task declaration (which happens in the UI thread).
 
 When new data arrives on the serial port, the :file:`MergeThread` gets
 notified, which will merge all sensor values into one data structure. It
@@ -124,6 +175,217 @@ for events which the Java part drops into the event queue
 thread, it is implemented with Java callbacks. For Bluetooth I/O, there
 are two threads implemented in Java (:file:`InputThread.java` and
 :file:`OutputThread.java`, managed by :file:`BluetoothHelper.java`).
+
+Network thread and background HTTP
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+In addition to the sensor and UI threads above, XCSoar runs a dedicated
+**asio event-loop thread** (:file:`io/async/GlobalAsioThread.cpp`,
+started from :file:`XCSoar.cpp`). It hosts :file:`CurlGlobal` and runs
+coroutines injected with :file:`Co::InjectTask` / :file:`Net::AsyncTask`.
+
+Typical uses:
+
+- NOTAM fetches (:file:`NOTAM/NOTAMGlue.cpp`)
+- EDL tile downloads (:file:`Weather/EDL/DownloadGlue.cpp`)
+- TIM thermal index, LiveTrack24, SkyLines, and similar clients in
+  :file:`NetComponents.hpp`
+
+The **UI thread** (main event loop) must not perform blocking network
+I/O during flight. Long-lived background work belongs on the network
+thread; **modal** downloads tied to one dialog may still use
+:file:`ShowCoDialog` on the UI thread.
+
+Thread rules (same as for :file:`Interface.hpp` elsewhere):
+
+- **Do not** call :file:`CommonInterface`, :file:`ActionInterface`, or
+  other UI-only APIs from the network thread. ``InMainThread()`` checks
+  will fail.
+- **Do** read any UI state needed for a download on the **main thread**
+  before starting the coroutine (for example forecast time and isobar
+  for EDL tiles), and pass snapshots into the network work.
+- **Do** report completion to the UI with :file:`UI::Notify`
+  (:file:`ui/event/Notify.cpp`), which queues a callback on the main
+  event loop. Apply overlays, update status labels, and call
+  :file:`ActionInterface::SendUIState` only from that callback.
+
+**NetComponents** (:file:`NetComponents.hpp`) owns long-lived network
+clients. Each client that uses :file:`Net::AsyncTask` should implement
+``BeginShutdown()`` and be stopped from
+``NetComponents::BeginShutdown()`` before the map and other UI are
+torn down. The global pointer is cleared later in :file:`Startup.cpp`
+(``DestroyNetComponents``).
+
+**Shutdown order** (see :file:`Startup.cpp`; simplified):
+
+1. ``NetComponents::BeginShutdown()`` — cancel coroutines and queued
+   downloads; clear the network clients' pointer to the observation
+   store
+2. ``MainWindow::BeginShutdown()``; stop merge and calculation threads;
+   join them; deinitialise map and devices
+3. ``MainWindow::DeinitialiseStorage()`` — unregister storage UI listeners
+4. ``StorageManager::StopMonitoring()`` — stop hotplug; destructor joins
+   the enumeration worker when ``delete backend_components`` runs
+5. ``delete backend_components``; clear the map's observation pointer
+   and ``delete data_components``
+6. ``DestroyNetComponents()``; destroy :file:`MainWindow`
+7. On process exit, :file:`Net::Deinitialise` destroys :file:`CurlGlobal` on
+   the **asio** thread (:file:`DrainCurl` in :file:`net/http/Init.cpp`)
+
+**Deferred UI refresh:** callbacks such as async terrain load or
+blackboard updates must not call :file:`PageActions::Update` or
+:file:`ActionInterface::SendUIState` synchronously if that can re-enter
+layout while InfoBoxes are being created. Use
+:file:`MainWindow::SchedulePageActionsUpdate` and
+:file:`ScheduleRefreshInfoBoxes` instead (next event-loop iteration).
+:file:`InfoBoxManager` skips work until ``Create()`` has finished
+(``infoboxes_ready``).
+
+**Weather overlays:** map overlays may combine a **blackboard listener**
+(ongoing GPS/time sync, for example :file:`Weather/EDL/Glue.cpp`) with a
+**download glue** in :file:`NetComponents` (HTTP fetch and cache, for
+example :file:`Weather/EDL/DownloadGlue.cpp`). New providers (such as
+XCTherm) should follow the same split: listener on the UI thread,
+network I/O on the asio thread, UI updates via :file:`UI::Notify`.
+
+Origin stores
+~~~~~~~~~~~~~
+
+Waypoints, airspaces, thermals, and waves each live in one list.  Every
+row is tagged with the feed that produced it: a waypoint file, the
+Thermal Information Map, Cloud, SkyLines, or XCSoar's own calculation.
+Replacing a feed deletes only that feed's rows.  A live packet appends
+or updates one row and leaves the other feeds in place.
+
+The engine types (:file:`Engine/Waypoint/Waypoints`,
+:file:`Engine/Airspace/Airspaces`, :file:`Engine/Observation/Store`)
+have no lock and no thread.  Waypoint and airspace reloads run on the
+UI thread while the other threads are suspended
+(:file:`ScopeSuspendAllThreads`).  Thermals and waves are published
+while the map is drawing, so :file:`Observation/Database` holds the
+mutex.  :file:`DataComponents` owns that database.  The network thread
+may call ``ReplaceThermals``, ``AppendThermal``, and the wave
+equivalents directly.  :file:`ReceiveCalculated` publishes own-ship rows
+from the UI thread through the same mutex.  The draw thread and the
+map click list copy a snapshot with ``CopyThermals`` / ``CopyWaves``
+and then work on the copy.
+
+:file:`UI::Notify` is for windows, status text, and
+:file:`ActionInterface`.  A new thermal or wave appears on the next map
+draw.
+
+Traffic (:file:`FLARM/List`) is a different store.  One slot per
+aircraft id is updated and expired in place.  Replacing a whole feed
+does not fit a single traffic sentence.
+
+Shutdown clears each network client's store pointer in its
+``BeginShutdown()`` before that client's work is cancelled, and clears
+the map pointer before ``delete data_components``.
+
+.. _loading-configured-files:
+
+Loading configured files
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+A file on disk is not the in-memory object.  Three kinds of source
+feed the lists in `Origin stores`_.
+
+**Map zip.**  The configured ``.xcm`` supplies ``terrain.jp2`` and
+``topology.tpl``.  It may also contain ``waypoints.cup`` or
+``waypoints.xcw``, ``airspace.txt``, and ``airfields.txt``.  Those
+members are still read: map waypoints only when no primary or watched
+waypoint file produced a row; ``airspace.txt`` is merged with the
+configured OpenAir files; ``airfields.txt`` is applied as waypoint
+details.  :file:`SettingsLeave` therefore treats ``MapFileChanged`` as
+a waypoint, airspace, airfield, terrain, and topography change.
+
+**Profile path.**  A Site files entry is one source: the map file, a
+waypoint or airspace list, FLARMNet, RASP, the checklist, or the input
+file.  Reloading one origin deletes only that origin's rows.
+
+**Live feed.**  NOTAM, traffic, Cloud, and SkyLines are not files.
+NOTAM replaces ``AirspaceOrigin::NOTAM`` and leaves file airspace in
+place.  Traffic (:file:`FLARM/List`) keeps one slot per aircraft id,
+updated and expired in place.
+
+The reload runs on the UI thread.  A download callback queues the
+path and :file:`UI::Notify` delivers it.  Waypoint and airspace edits
+suspend the other threads (:file:`ScopeSuspendAllThreads`, or
+:file:`SuspendAllThreads` inside :file:`SettingsLeave`) and bump
+``Serial`` on the list.
+
+**Map zip finished loading.**  :file:`MainWindow::LoadTerrain` reads
+the zip on a worker.  :file:`OnTerrainLoaded` then installs the
+terrain, fills waypoint elevations that were missing, updates home,
+and sets airspace ground levels.  Topography and the waypoint and
+airspace files stay as they were.
+
+**File Manager, or startup auto-update.**
+:file:`ApplyConfiguredDataFiles` compares each downloaded path with
+the Site files profile keys.  A path that is not selected is left on
+disk.  A match sets the same flags Setup uses and calls
+:file:`SettingsEnter` / :file:`SettingsLeave`.  An updated ``.xcm``
+still reloads the zip's waypoint, airspace, and airfield members.  An
+OpenAir update drops file and map airspace rows, rereads them, and
+clears airspace warnings; NOTAM rows stay.  Startup auto-update skips
+that reload while flying: the new file stays on disk until the next
+start.
+
+Background file jobs
+~~~~~~~~~~~~~~~~~~~~
+
+Not all background work uses the network thread. **Local file jobs**
+(tar backup/restore, import/export copies, device enumeration) use other
+mechanisms:
+
+- **Modal progress on the UI thread:** :file:`JobDialog` runs a
+  :file:`Job` subclass on a short-lived worker thread
+  (:file:`Job/Thread.cpp`) while showing :file:`ProgressDialog`. The UI
+  thread stays responsive; progress is reported through
+  :file:`OperationEnvironment`.
+
+- **Modal network work:** :file:`ShowCoDialog` runs a coroutine on the
+  asio thread (see above). Do not use :file:`JobDialog` for HTTP.
+
+- **Fire-and-forget helpers:** some UI actions start a detached
+  :file:`std::thread` for a single task (for example deleting a file on
+  removable media). Keep captured state alive (for example
+  :file:`std::shared_ptr<StorageDevice>`) and avoid UI calls from that
+  thread.
+
+When modifying shared backend data (waypoints, airspaces) during such
+jobs, use :file:`ScopeSuspendAllThreads` from :file:`Protection.hpp` where
+appropriate.
+
+Storage and removable media
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**BackendComponents** (:file:`BackendComponents.hpp`) owns backend
+singletons including :file:`storage_manager` (:file:`StorageManager`).
+:file:`NetComponents` is separate and holds long-lived HTTP clients only.
+
+:file:`StorageManager` (:file:`Storage/StorageManager.cpp`):
+
+- Owns the platform hotplug monitor and storage enumerator.
+- Receives topology events (from a platform worker or the UI event loop,
+  depending on the backend).
+- Runs device re-enumeration on a **dedicated worker thread** so sysfs,
+  Win32, or SAF walks do not block the UI.
+- Invokes a constructor-supplied ``NotifyCallback`` (wired in
+  :file:`Startup.cpp` to :file:`MainWindow::SendStorageNotification`) so
+  the UI thread calls :file:`ProcessPendingChanges()` and dispatches
+  :file:`StorageEvent` notifications to listeners.
+
+UI code registers :file:`StorageEventListener` instances on the main
+thread (for example :file:`StorageLocationPickerDialog`). Use
+:file:`StorageUtil` (:file:`FindDeviceByName`, :file:`FormatStorageCaption`,
+:file:`EnumerateTarFiles`) from UI or backend glue — not from Foundation
+:file:`io/` (stream-only tar create/restore lives in :file:`io/TarBackup`).
+
+**Thread lifetime:** when starting a new storage worker, join any
+**finished** previous :file:`std::thread` before move-assigning a new one;
+otherwise the C++ runtime calls ``std::terminate()``. The destructor
+joins the worker after :file:`StopMonitoring()`.
 
 Locking
 ~~~~~~~
@@ -165,21 +427,24 @@ of various data structures just for the main thread.
 
 This is how sensor data moves inside XCSoar:
 
-.. blockdiag::
+.. graphviz::
 
-    blockdiag threads {
-      Devices [stacked];
-      MergeThread [label="MergeThread\nBasicComputer\nDeviceBlackboard"];
-      CalcThread [label="CalcThread\nGlideComputer\nGlideComputerBlackboard"];
-      UIThread [label="UIThread\nInterfaceBlackboard\nBlackboardListener"];
-      DrawThread [label="DrawThread\nMapWindow\nMapWindowBlackboard"];
+   digraph threads {
+     graph [fontsize=10];
+     node [fontsize=10];
+     edge [fontsize=8];
 
-      Devices -> MergeThread [folded, label = "NMEAInfo", fontsize=8];
-      MergeThread -> CalcThread [folded, label = "MoreData", fontsize=8];
+     Devices [label="Devices"];
+     MergeThread [label="MergeThread\nBasicComputer\nDeviceBlackboard"];
+     CalcThread [label="CalcThread\nGlideComputer\nGlideComputerBlackboard"];
+     UIThread [label="UIThread\nInterfaceBlackboard\nBlackboardListener"];
+     DrawThread [label="DrawThread\nMapWindow\nMapWindowBlackboard"];
 
-      CalcThread -> UIThread [folded, label = "DerivedInfo", fontsize=8];
-      UIThread -> DrawThread [folded, label = "DerivedInfo", fontsize=8];
-    }
+     Devices -> MergeThread [label="NMEAInfo"];
+     MergeThread -> CalcThread [label="MoreData"];
+     CalcThread -> UIThread [label="DerivedInfo"];
+     UIThread -> DrawThread [label="DerivedInfo"];
+   }
 
 The device driver parses input received from its device into its own
 ``NMEAInfo`` instance inside ``DeviceBlackboard`` (i.e.
@@ -223,10 +488,12 @@ on who you are:
   it while using its data.
 
 Developing
-==========
+----------
 
 Debugging XCSoar
-----------------
+~~~~~~~~~~~~~~~~
+
+See also :doc:`debugging` for replay, simulator, and utility workflows.
 
 The XCSoar source repository contains a module for the GNU debugger
 (``gdb``). It contains pretty-printers for various XCSoar types,
@@ -252,10 +519,10 @@ radian angles to degrees and more. You can now do fancy stuff like::
   $5 = GeoVector(267.899420345 107957.109724)
 
 User interface guidelines
-=========================
+-------------------------
 
 General
--------
+~~~~~~~
 
 -  Minimise the number of colours, and re-use colour groups already
    defined.
@@ -290,12 +557,9 @@ where possible, in particular:
 -  ICAO Internation Standards and Recommended Practices, Annex 4 to the
    Convention on International Civil Aviation (Aeronautical Charts).
 
-- `NASA Colour Usage recommendations and design guidelines
-   <http://colorusage.arc.nasa.gov/>`__
+- `NASA Colour Usage recommendations and design guidelines <http://colorusage.arc.nasa.gov/>`__
 
-- `DOT/FAA/AR-03/67 Human Factors Considerations in the Design and
-   Evaluation of Electronic Flight Bags (EFBs)
-   <http://www.volpe.dot.gov/hf/aviation/efb/docs/efb_version2.pdf>`__
+- `DOT/FAA/AR-03/67 Human Factors Considerations in the Design and Evaluation of Electronic Flight Bags (EFBs) <http://www.volpe.dot.gov/hf/aviation/efb/docs/efb_version2.pdf>`__
 
 -  `FAA Human Factors Design Standards <http://hf.tc.faa.gov/hfds/>`__
 
@@ -314,7 +578,7 @@ require the user to stare at the screen continuously.**
 of producing unsafe results if misconfigured by the pilot.**
 
 General colour conventions
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Colour conventions generally in use throughout the program:
 
@@ -327,7 +591,7 @@ Colour conventions generally in use throughout the program:
 -  Blue for neutral indicator of safety
 
 Displayed data
-~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^
 
 -  Where data is invalid, indicate this by not presenting the data or
    showing dashes.
@@ -339,10 +603,10 @@ Displayed data
    whichever is lower.
 
 Dialogs and menu buttons
-------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~
 
 Colors
-~~~~~~
+^^^^^^
 
 Colour conventions in use are:
 
@@ -361,7 +625,7 @@ Colour conventions in use are:
 -  Text is greyed out (but still visible) if the item is disabled
 
 dialogue types and navigation buttons
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 There are four types of dialogs in XCSoar, and the navigation buttons
 for each are different. Navigation buttons are the Close, OK, Cancel and
@@ -389,7 +653,7 @@ Select buttons.
    These shall have a Close button
 
 dialogue button placement and size
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 -  The Close and Cancel buttons will never appear in the same dialogue
    and are always located in the same place. This location will be:
@@ -426,7 +690,7 @@ dialogue button placement and size
    to implementing and possibly documenting in the developers guide.
 
 Usability
-~~~~~~~~~
+^^^^^^^^^
 
 -  Minimum size of buttons should be X by Y mm
 
@@ -436,11 +700,155 @@ Usability
    widget on the canvas may be drawn using the ``fill_focus`` method of
    ``Canvas``.
 
+Screen rectangles
+~~~~~~~~~~~~~~~~~
+
+Full screen draws the map to the edge of the glass.  Several
+rectangles are smaller than that window, and they are not the same
+rectangle.  Use the one that matches the element.
+
+A rectangle from ``MainWindow`` is in main-window coordinates.
+``MapWindow::GetHudRect()`` is in map-window coordinates.  Intersect
+``map->GetPosition()`` with a main-window rectangle before placing a
+child of the main window on the map.
+
+``GetClientRect()``
+  The whole window.  On Android in full screen this includes the
+  status bar, the display cutout, the home indicator and the rounded
+  corners.  On iOS it is that full screen only while full screen mode
+  is on; otherwise it is already the safe area.  Use it for pixels
+  that are allowed to run under system UI: the map itself, a
+  screen-filling backdrop (the Fly/Simulator background, the dimming
+  behind the InfoBox arrange cards).
+
+``GetSafeAreaRect()``
+  The window minus the status bar, the navigation bar, the display
+  cutout and the rounded corners.  On a rectangular display with no
+  system bars it equals ``GetClientRect()``.  Android reports these
+  insets only while full screen is on, because outside full screen
+  the surface is already laid out inside them.  The reserved bar size
+  is kept even while full screen hides the bars.  Use it for anything
+  the pilot must be able to read or press that is not allowed to
+  slide under system UI: dialogue windows (title and buttons
+  included) and the Fly/Simulator controls.  Do not inset a dialogue
+  by the shade band as well; it is already below the status bar.
+
+``MainWindow::GetInfoBoxAreaRect()``
+  Per edge, the screen border where *Stretch InfoBox area* is on, and
+  the safe edge where it is off.  A visible status bar clears the top
+  stretch, because nothing can be drawn behind that bar.  Use it for
+  the InfoBoxes, the menu, and gauge positions that do not avoid the
+  InfoBoxes.  Positions that do avoid them, and a page that replaces
+  the map, use the HUD rectangle below.
+
+``MainWindow::GetAreaStackRect()``
+  The hole the InfoBoxes leave inside the InfoBox area.  When the
+  InfoBoxes are hidden, or before the first layout, it is the InfoBox
+  area.  The top and bottom areas (cross section, airspace and NOTAM
+  warnings) are placed in this rectangle.  Callers rarely need it
+  directly; it is the input to the HUD rectangle.
+
+``MainWindow::GetHudRect()``
+  The area stack minus the top and bottom areas.  This is where
+  in-flight map chrome belongs: the compass, the map scale and the
+  title beside it (Simulator, PAN, replay, the page name), the final
+  glide bar, the vario bar, the thermal profile, the GPS status, the
+  flight mode icon, the gesture label, the page indicator, the pan
+  elevation and coordinates, the overlay buttons (menu, QuickMenu,
+  zoom), status messages, and a widget that replaces the map.
+  ``LayoutMapArea()`` then stores the same hole on the map as
+  ``MapWindow::GetHudRect()``.  Draw map overlays with that function,
+  not with the map's ``GetClientRect()``: the map is larger than the
+  hole and runs under the InfoBoxes and the system UI.
+
+  Two extra margins sit inside the map HUD and are not part of the
+  rectangle itself.  ``top_right_margin`` is the overlay-button
+  column; the north arrow and the pan readout move left by it, and
+  the margin goes to zero when those buttons are hidden.  ``bottom_margin``
+  is the portrait pan menu (and the InfoBox access dialogue).
+
+  Edge chrome is laid out once in ``MapHudLayout`` (via
+  ``GlueMapWindow::GetHudLayout()``): HUD, text-padding inset (the
+  same gap the overlay buttons leave), optional top-right and bottom
+  clearances, the compass slot height, and the scale/title clearance
+  for the GPS status.  Draw code reads those slots; it does not
+  recompose the insets.  The compass slot comes from
+  ``CompassRenderer``, and the GPS clearance from
+  ``GetMapScaleAndTitleClearance()``.  The gesture label and the page
+  indicator keep their own optical offset from the HUD edge.
+  Projection-space items (crosshair, aircraft, wind at the aircraft)
+  stay off this layout.
+
+``Android::ContentRectBelowTopGesture()``
+  The notification-shade swipe band.  It is not the safe area: it can
+  extend below the status bar, and it remains when full screen hides
+  the bars.  The value is how far the top of the XCSoar view still
+  lies inside that band, or zero when the surface already starts
+  below it.  Use it only for content the pilot drags in that band.
+
+  The InfoBox arrange overlay fills the client rectangle, so the
+  backdrop still covers the band.  Its cards, text and buttons use
+  the safe area, then the one-argument helper: a stretched outer
+  column must not sit in the edge-gesture strip, and only the part
+  of the shade band that still covers the safe area moves the cards.
+  The Sets editor is a dialogue already placed in the safe area;
+  pass the two-argument helper the dialogue's Y in the view, so a
+  band that ends at the status bar does not move the cards.
+
+Touch interaction
+~~~~~~~~~~~~~~~~~
+
+Adopt DOT/FAA/AR-03/67 (EFB) and FAA flight-deck HF (Cardosi and
+Murphy; NASA 9.3.3.4.7).  Do not invent a parallel gesture language.
+
+-  Acknowledge a press within 100 ms (pressed look, and haptic if the
+   user setting allows).  That is “touch received”, not a hold.
+
+-  Prefer **lift-off** (last contact).  The action commits when the
+   finger leaves the target.  Sliding off cancels.  Do not fire a hold
+   action while the finger is still down; the timer only arms the hold.
+
+-  One press has one winner: tap (lift before the hold is armed),
+   drag (movement past slop before the hold is armed), or hold then
+   lift.  After a drag has started, a further hold does nothing.
+
+-  Show a busy indicator if input cannot be processed for more than
+   0.5 s (SAE ARP 4791).  That 0.5 s is “the system is occupied”, not
+   a gesture timeout.  XCSoar’s hold-to-arm time
+   (``InfoBoxArrange::LONG_PRESS``, 500 ms) is a deliberate hold, not
+   that busy limit.
+
+-  Hold progress is a one-way fill that follows the control’s shape.
+   Do not pulse, flash, or use warning colours for a normal hold.
+   Progress must be truthful; pilots ignore misleading bars
+   (AR-03/67).
+
+-  Size hit targets with ``Layout::`` for touch and turbulence.  Leave
+   a dead band: movement of about ``Layout::Scale(20)`` on a touch
+   screen, or ``Layout::Scale(10)`` with a mouse, before the hold
+   is armed is a drag or a cancel, not a tap.
+
+-  Cursor keys and a remote stick must reach the same actions as
+   touch.  On a selected InfoBox, the arrow keys move to the InfoBox
+   in that screen direction (``InfoBoxArrange::FindNeighbour``): left
+   is left, right is right, and they do not follow the slot number.
+   Enter does what a short press does.  Holding Enter until the hold
+   is armed, then releasing, opens arrange, the same as a long press.
+   In arrange mode that hold opens the InfoBox list.  A short Enter
+   there takes or puts down the selected card, and does not also
+   open the list.
+   Escape on the map, with no
+   dialogue, menu, or special page open, selects the first InfoBox.
+   Escape on a selected InfoBox returns to the map.  A long press,
+   and the arrange screen, are the same action.  E-paper skips hold
+   animation
+   (``HasEPaper()`` / ``IsSlowCPU()``).
+
 Main graphics
--------------
+~~~~~~~~~~~~~
 
 Colors
-~~~~~~
+^^^^^^
 
 Colour conventions in use, in order of priority, are:
 
@@ -466,7 +874,7 @@ Nevertheless, the colour conventions are useful to adopt as they are
 likely to be intuitive and are designed for aviation use.
 
 Pen styles
-~~~~~~~~~~
+^^^^^^^^^^
 
 -  Map culture should be rendered with a thin pen
 
@@ -476,7 +884,7 @@ Pen styles
 -  Dashed lines are used to increase perceptual priority
 
 Map overlays
-~~~~~~~~~~~~
+^^^^^^^^^^^^
 
 Elements on the map that are not part of the map layer, such as
 additional informational widgets (final glide bar, wind, north arrow)
@@ -502,10 +910,10 @@ order of priority, particularly with alert warning items above caution
 items above non-alert items.
 
 Terminology
------------
+~~~~~~~~~~~
 
 Glide Ratio
-~~~~~~~~~~~
+^^^^^^^^^^^
 
 ’Glide ratio’ is a non-specific term which can refer to the ratio of
 horizontal to vertical motion with reference to either the surrounding

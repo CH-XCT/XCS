@@ -47,14 +47,6 @@ public:
 
 public:
   /**
-   * Calculates the checksum of the provided NMEA string and
-   * compares it to the provided checksum
-   * @param String NMEA string
-   * @return True if checksum correct
-   */
-  static bool NMEAChecksum(const char *string);
-
-  /**
    * Checks whether time has advanced since last call and
    * updates the last_time reference if necessary
    * @return True if time has advanced since last call
@@ -141,6 +133,16 @@ private:
    * @return Parsing success
    */
   static bool PTAS1(NMEAInputLine &line, NMEAInfo &info);
+
+  /**
+   * Parses an LK8EX1 sentence (LK8000 External Instrument Series 1).
+   *
+   * Handled in the central NMEA parser so any port/driver combination
+   * accepts the sentence (same approach as #PTAS1 / FLARM).
+   *
+   * @see https://github.com/LK8000/LK8000/blob/master/Docs/LK8EX1.txt
+   */
+  static bool LK8EX1(NMEAInputLine &line, NMEAInfo &info);
 
   /**
    * Parses a MWV sentence (NMEA Wind information).

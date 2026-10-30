@@ -9,6 +9,7 @@
 #include "ui/canvas/Icon.hpp"
 #include "ui/canvas/Canvas.hpp"
 #include "Screen/Layout.hpp"
+#include "Form/Button.hpp"
 #include "util/StaticString.hxx"
 #include "Asset.hpp"
 
@@ -233,15 +234,15 @@ TabDisplay::OnPaint(Canvas &canvas) noexcept
                ? DarkColor(look.background_color)
                : COLOR_BLACK);
 
+  const bool is_focused = !HasCursorKeys() || HasFocus();
+
   for (unsigned i = 0; i < buttons.size(); i++) {
     const auto &button = *buttons[i];
 
     const bool is_down = dragging && i == down_index && !drag_off_button;
     const bool is_selected = i == current_index;
 
-    /* don't pass focus state to button drawing; the colored indicator
-       line below marks the selected tab independently */
-    button.Draw(canvas, look, false, is_down, is_selected);
+    button.Draw(canvas, look, is_focused, is_down, is_selected);
   }
 
   if (!buttons.empty()) {
@@ -378,6 +379,10 @@ TabDisplay::OnMouseDown(PixelPoint p) noexcept
 
   int i = GetButtonIndexAt(p);
   if (i >= 0) {
+#ifdef HAVE_VIBRATOR
+    PlayHapticFeedback(HapticFeedbackType::PRESS);
+#endif
+
     dragging = true;
     drag_off_button = false;
     down_index = i;

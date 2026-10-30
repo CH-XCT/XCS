@@ -71,7 +71,8 @@ public:
 		/**
 		 * Create a new file, or replace an existing file.
 		 * File contents may not be visible until Commit() has
-		 * been called.
+		 * been called.  Throws if a temporary file cannot be
+		 * created; the existing file is left unchanged.
 		 */
 		CREATE,
 
@@ -145,7 +146,7 @@ public:
 	 *
 	 * Throws on error.
 	 */
-	void Commit();
+	void Commit() override;
 
 	/**
 	 * Attempt to roll back all changes.

@@ -2,10 +2,12 @@
 // Copyright The XCSoar Project
 
 #include "PagesConfigPanel.hpp"
+#include "Dialogs/Message.hpp"
 #include "Look/DialogLook.hpp"
 #include "Renderer/TextRowRenderer.hpp"
 #include "Form/Button.hpp"
 #include "Form/ButtonPanel.hpp"
+#include "Form/CheckBox.hpp"
 #include "Form/DataField/Enum.hpp"
 #include "Form/DataField/Listener.hpp"
 #include "PageActions.hpp"
@@ -13,15 +15,32 @@
 #include "Profile/PageProfile.hpp"
 #include "Profile/Current.hpp"
 #include "Interface.hpp"
+#include "DataGlobals.hpp"
+#include "Weather/Features.hpp"
+#ifdef HAVE_WEATHER_OVERLAY
+#include "Weather/EUMETView/Satellite.hpp"
+#endif
+#include "Weather/Rasp/FieldControls.hpp"
+#include "Weather/Rasp/RaspStore.hpp"
+#ifdef HAVE_EDL
+#include "Formatter/UserUnits.hpp"
+#include "Weather/EDL/Levels.hpp"
+#include "Weather/EDL/StateController.hpp"
+#endif
 #include "Widget/RowFormWidget.hpp"
 #include "Widget/ListWidget.hpp"
 #include "Widget/TwoWidgets.hpp"
 #include "Widget/ButtonPanelWidget.hpp"
+#include "Widget/VScrollWidget.hpp"
 #include "UIGlobals.hpp"
+#include "ConfigPanel.hpp"
+#include "Screen/Layout.hpp"
+#include "ui/event/KeyCode.hpp"
+#include "ui/window/ContainerWindow.hpp"
+#include "util/StaticString.hxx"
 
-/* this macro exists in the WIN32 API */
-#ifdef DELETE
-#undef DELETE
+#ifdef HAVE_HTTP
+#include "Weather/SkySight/SkySightClient.hpp"
 #endif
 
 class PageLayoutEditWidget final
@@ -37,6 +56,8 @@ private:
     MAIN,
     INFO_BOX_PANEL,
     BOTTOM,
+    OVERLAY,
+    OVERLAY_DETAIL,
   };
 
   static constexpr unsigned IBP_NONE = 0x7000;
@@ -46,9 +67,14 @@ private:
 
   Listener &listener;
 
+  void UpdateOverlayControls() noexcept;
+  void FillOverlayDetailControl() noexcept;
+  void ApplyValueToForm() noexcept;
+
 public:
   PageLayoutEditWidget(const DialogLook &_look, Listener &_listener)
-    :RowFormWidget(_look), listener(_listener) {}
+    :RowFormWidget(_look), value(PageLayout::Default()),
+     listener(_listener) {}
 
   void SetValue(const PageLayout &_value);
 
@@ -74,6 +100,18 @@ class PageListWidget
   Button *add_button, *delete_button;
   Button *move_up_button, *move_down_button;
 
+  /* Landscape copies. Index 1 is the bottom of the stack. */
+  Button *chrome_add = nullptr, *chrome_delete = nullptr;
+  Button *chrome_up = nullptr, *chrome_down = nullptr;
+
+  void SyncChromeButtons() noexcept;
+  void ReleaseChromeButtons() noexcept;
+
+  /** 0 Add, 1 Delete, 2 move up, 3 move down. Expert is 4. */
+  Button *ActionButton(unsigned i) const noexcept;
+  int ActionIndex() const noexcept;
+  bool FocusAction(int from, bool down) noexcept;
+
 public:
   ~PageListWidget() {
     if (IsDefined())
@@ -89,7 +127,7 @@ public:
   }
 
   void CreateButtons(ButtonPanel &buttons) {
-    add_button = buttons.Add(_("Add"), [this](){
+    add_button = buttons.Add(C_("Button", "Add"), [this](){
       const unsigned n = GetList().GetLength();
       if (n < PageSettings::MAX_PAGES) {
         auto &page = settings.pages[n];
@@ -99,7 +137,7 @@ public:
       }
     });
 
-    delete_button = buttons.Add(_("Delete"), [this](){
+    delete_button = buttons.Add(C_("Button", "Delete"), [this](){
       const unsigned n = GetList().GetLength();
       const unsigned cursor = GetList().GetCursorIndex();
       if (n >= 2 && GetList().GetCursorIndex() < n) {
@@ -141,13 +179,24 @@ public:
     delete_button->SetEnabled(length >= 2);
     move_up_button->SetEnabled(cursor > 0);
     move_down_button->SetEnabled(cursor + 1 < length);
+
+    if (chrome_add == nullptr)
+      return;
+
+    chrome_add->SetEnabled(add_button->IsEnabled());
+    chrome_delete->SetEnabled(delete_button->IsEnabled());
+    chrome_up->SetEnabled(move_up_button->IsEnabled());
+    chrome_down->SetEnabled(move_down_button->IsEnabled());
   }
 
   /* virtual methods from class Widget */
   void Initialise(ContainerWindow &parent,
                   const PixelRect &rc) noexcept override;
   void Show(const PixelRect &rc) noexcept override;
+  void Hide() noexcept override;
+  void Move(const PixelRect &rc) noexcept override;
   bool Save(bool &changed) noexcept override;
+  bool KeyPress(unsigned key_code) noexcept override;
 
   /* virtual methods from class ListItemRenderer */
   void OnPaintItem(Canvas &canvas, const PixelRect rc,
@@ -165,6 +214,214 @@ public:
 };
 
 void
+PageLayoutEditWidget::FillOverlayDetailControl() noexcept
+{
+  auto &control = GetControl(OVERLAY_DETAIL);
+  auto &df = (DataFieldEnum &)*control.GetDataField();
+
+  df.ClearChoices();
+
+  switch (value.overlay) {
+  case PageLayout::Overlay::RASP: {
+    control.SetCaption(_("RASP Layer"));
+    control.SetHelpText(
+      _("RASP weather layer to display on this map page."));
+
+    const auto rasp = DataGlobals::GetRasp();
+    if (rasp == nullptr || rasp->GetItemCount() == 0) {
+      df.AddChoice(-1, _("No RASP file loaded"));
+      df.SetValue(-1);
+      break;
+    }
+
+    Rasp::FillFieldChoices(df, rasp.get());
+
+    if (value.rasp_field >= 0 &&
+        unsigned(value.rasp_field) < rasp->GetItemCount())
+      df.SetValue(value.rasp_field);
+    else
+      df.SetValue(0U);
+    break;
+  }
+
+#ifdef HAVE_EDL
+  case PageLayout::Overlay::EDL:
+    control.SetCaption(_("EDL Level"));
+    control.SetHelpText(
+      _("EDL pressure level / altitude band for this map page. "
+        "Auto follows aircraft altitude when the page is opened."));
+
+    df.AddChoice(0, C_("Weather control", "Auto"),
+                 _("Follow altitude on page enter (auto level)."));
+
+    for (unsigned i = 0; i < EDL::NUM_ISOBARS; ++i) {
+      const unsigned isobar = EDL::ISOBARS[i];
+      char alt[32];
+      FormatUserAltitude(EDL::GetAltitudeForIsobar(isobar), alt);
+
+      StaticString<64> label;
+      if (alt[0] != '\0')
+        label.Format("%u hPa (%s)", isobar / 100, alt);
+      else
+        label.Format("%u hPa", isobar / 100);
+
+      df.AddChoice(int(isobar), label.c_str());
+    }
+
+    if (value.edl_isobar > 0 &&
+        EDL::IsSupportedIsobar(unsigned(value.edl_isobar)))
+      df.SetValue(unsigned(value.edl_isobar));
+    else
+      df.SetValue(0U);
+    break;
+#endif
+
+  case PageLayout::Overlay::SKYSIGHT: {
+    control.SetCaption(C_("Setting", "SkySight layer"));
+    control.SetHelpText(
+      _("SkySight layer used when this page overlay is SkySight."));
+
+#ifdef HAVE_HTTP
+    const auto skysight = DataGlobals::GetSkySight();
+    if (skysight != nullptr) {
+      unsigned selected_value = 1;
+      bool has_choices = false;
+      bool stored_layer_is_selected = false;
+
+      for (std::size_t i = 0; i < skysight->NumSelectedLayers(); ++i)
+        if (const auto *layer = skysight->GetSelectedLayer(i);
+            layer != nullptr &&
+            layer->id == value.skysight_overlay.c_str()) {
+          stored_layer_is_selected = true;
+          selected_value = unsigned(i + 1);
+          break;
+        }
+
+      if (!value.skysight_overlay.empty() && !stored_layer_is_selected) {
+        df.AddChoice(0, value.skysight_overlay.c_str(),
+                     value.skysight_overlay.c_str());
+        has_choices = true;
+        selected_value = 0;
+      }
+
+      for (std::size_t i = 0; i < skysight->NumSelectedLayers(); ++i) {
+        const auto *layer = skysight->GetSelectedLayer(i);
+        if (layer == nullptr)
+          continue;
+
+        df.AddChoice(unsigned(i + 1), layer->name.c_str());
+        has_choices = true;
+      }
+
+      if (has_choices) {
+        df.SetValue(selected_value);
+        break;
+      }
+    }
+#endif
+
+    df.AddChoice(0, _("No SkySight layers selected"));
+    df.SetValue(0U);
+    break;
+  }
+
+#ifdef HAVE_WEATHER_OVERLAY
+  case PageLayout::Overlay::SATELLITE: {
+    control.SetCaption(C_("Setting", "Satellite layer"));
+    control.SetHelpText(
+      _("Which EUMETView satellite product this page draws under the "
+        "map."));
+
+    const auto layers = EUMETView::GetLayers();
+    for (std::size_t i = 0; i < layers.size(); ++i)
+      df.AddChoice(int(i), gettext(layers[i].label));
+
+    if (value.satellite_layer >= 0 &&
+        std::size_t(value.satellite_layer) < layers.size())
+      df.SetValue(unsigned(value.satellite_layer));
+    else
+      df.SetValue(unsigned(PageLayout::SATELLITE_LAYER_DEFAULT));
+    break;
+  }
+#endif
+
+  case PageLayout::Overlay::NONE:
+  case PageLayout::Overlay::XCTHERM:
+  case PageLayout::Overlay::RADAR:
+#ifndef HAVE_WEATHER_OVERLAY
+  case PageLayout::Overlay::SATELLITE:
+#endif
+#ifndef HAVE_EDL
+  case PageLayout::Overlay::EDL:
+#endif
+  case PageLayout::Overlay::MAX:
+    control.SetCaption(C_("Setting", "Layer / Level"));
+    control.SetHelpText(
+      _("Select a RASP or EDL map overlay to configure its "
+        "layer or level for this page."));
+    df.AddChoice(-1, _("N/A"));
+    df.SetValue(-1);
+    break;
+  }
+
+  control.RefreshDisplay();
+}
+
+void
+PageLayoutEditWidget::UpdateOverlayControls() noexcept
+{
+  const bool map_page = value.IsMapMain();
+  bool detail_enabled = false;
+
+  if (map_page) {
+    switch (value.overlay) {
+    case PageLayout::Overlay::RASP: {
+      const auto rasp = DataGlobals::GetRasp();
+      detail_enabled = rasp != nullptr && rasp->GetItemCount() > 0;
+      break;
+    }
+#ifdef HAVE_EDL
+    case PageLayout::Overlay::EDL:
+      detail_enabled = true;
+      break;
+#endif
+    case PageLayout::Overlay::SKYSIGHT:
+#ifdef HAVE_HTTP
+      detail_enabled = DataGlobals::GetSkySight() != nullptr;
+#endif
+      break;
+    case PageLayout::Overlay::SATELLITE:
+#ifdef HAVE_WEATHER_OVERLAY
+      detail_enabled = true;
+#endif
+      break;
+    case PageLayout::Overlay::NONE:
+    case PageLayout::Overlay::XCTHERM:
+    case PageLayout::Overlay::RADAR:
+#ifndef HAVE_EDL
+    case PageLayout::Overlay::EDL:
+#endif
+    case PageLayout::Overlay::MAX:
+      break;
+    }
+  }
+
+  SetRowEnabled(OVERLAY, map_page);
+  SetRowEnabled(OVERLAY_DETAIL, detail_enabled);
+}
+
+void
+PageLayoutEditWidget::ApplyValueToForm() noexcept
+{
+  LoadValueEnum(BOTTOM, value.bottom);
+  GetControl(BOTTOM).RefreshDisplay();
+  LoadValueEnum(OVERLAY, value.overlay);
+  GetControl(OVERLAY).RefreshDisplay();
+  FillOverlayDetailControl();
+  UpdateOverlayControls();
+}
+
+void
 PageLayoutEditWidget::Prepare([[maybe_unused]] ContainerWindow &parent, [[maybe_unused]] const PixelRect &rc) noexcept
 {
   const InfoBoxSettings &info_box_settings =
@@ -173,8 +430,8 @@ PageLayoutEditWidget::Prepare([[maybe_unused]] ContainerWindow &parent, [[maybe_
   static constexpr StaticEnumChoice main_list[] = {
     { PageLayout::Main::MAP, N_("Map") },
     { PageLayout::Main::MAP_NORTH_UP, N_("Map (north-up)") },
-    { PageLayout::Main::FLARM_RADAR, N_("FLARM radar") },
-    { PageLayout::Main::THERMAL_ASSISTANT, N_("Thermal assistant") },
+    { PageLayout::Main::FLARM_RADAR, N_("FLARM Radar") },
+    { PageLayout::Main::THERMAL_ASSISTANT, N_("Thermal Assistant") },
     { PageLayout::Main::HORIZON, N_("Horizon") },
     nullptr
   };
@@ -184,7 +441,7 @@ PageLayoutEditWidget::Prepare([[maybe_unused]] ContainerWindow &parent, [[maybe_
           (unsigned)PageLayout::Main::MAP, this);
 
   static constexpr StaticEnumChoice ib_list[] = {
-    { IBP_AUTO, N_("Auto"), N_("Displays either the Circling, Cruise, or Final glide InfoBoxes.") },
+    { IBP_AUTO, NC_("Setting", "Auto"), N_("Displays either the Circling, Cruise, or Final glide InfoBoxes.") },
     { IBP_NONE, N_("None"), N_("Show fullscreen (no InfoBoxes)") },
     nullptr
   };
@@ -218,21 +475,58 @@ PageLayoutEditWidget::Prepare([[maybe_unused]] ContainerWindow &parent, [[maybe_
   static constexpr StaticEnumChoice bottom_list[] = {
     { PageLayout::Bottom::NOTHING, N_("Nothing") },
     { PageLayout::Bottom::CROSS_SECTION, N_("Cross section") },
+    /* Always available: RASP does not require OpenGL, and the shared
+       weather cursor bar works for RASP on memory canvas / Kobo. */
+    { PageLayout::Bottom::WEATHER_CONTROLS, NC_("Setting", "Weather controls") },
     nullptr
   };
   AddEnum(_("Bottom area"),
-          _("Specifies what should be displayed below the main area."),
+          _("Specifies what should be displayed below the main area. "
+            "Weather controls require a weather map "
+            "overlay."),
           bottom_list,
           (unsigned)PageLayout::Bottom::NOTHING, this);
+
+  static constexpr StaticEnumChoice overlay_list[] = {
+    { PageLayout::Overlay::NONE, N_("None") },
+    { PageLayout::Overlay::RASP, NC_("Abbreviation", "RASP") },
+#ifdef HAVE_EDL
+    { PageLayout::Overlay::EDL, NC_("Abbreviation", "EDL") },
+#endif
+#ifdef HAVE_HTTP
+    { PageLayout::Overlay::XCTHERM, "XC Therm" },
+    { PageLayout::Overlay::SKYSIGHT, "SkySight" },
+#endif
+#ifdef HAVE_WEATHER_OVERLAY
+    { PageLayout::Overlay::RADAR, N_("Rain radar") },
+    { PageLayout::Overlay::SATELLITE, N_("Satellite") },
+#endif
+    nullptr
+  };
+  AddEnum(C_("Setting", "Map overlay"),
+          _("Optional weather overlay on map pages. "
+            "Use with Weather controls in the bottom area for in-flight adjustment."),
+          overlay_list,
+          (unsigned)PageLayout::Overlay::NONE, this);
+
+  AddEnum(C_("Setting", "Layer / Level"),
+          _("Select a weather map overlay to configure its "
+            "layer or level for this page."),
+          this);
+  GetControl(OVERLAY_DETAIL).GetDataField()->EnableItemHelp(true);
+  FillOverlayDetailControl();
+  UpdateOverlayControls();
 }
 
 void
 PageLayoutEditWidget::SetValue(const PageLayout &_value)
 {
   value = _value;
+  value.Normalise();
 
   LoadValueEnum(MAIN, value.main);
   LoadValueEnum(BOTTOM, value.bottom);
+  LoadValueEnum(OVERLAY, value.overlay);
 
   unsigned ib = IBP_NONE;
   if (value.infobox_config.enabled) {
@@ -246,6 +540,9 @@ PageLayoutEditWidget::SetValue(const PageLayout &_value)
   }
 
   LoadValueEnum(INFO_BOX_PANEL, ib);
+
+  FillOverlayDetailControl();
+  UpdateOverlayControls();
 }
 
 void
@@ -254,6 +551,8 @@ PageLayoutEditWidget::OnModified(DataField &df) noexcept
   if (&df == &GetDataField(MAIN)) {
     const DataFieldEnum &dfe = (const DataFieldEnum &)df;
     value.main = (PageLayout::Main)dfe.GetValue();
+    if (!value.IsMapMain())
+      value.overlay = PageLayout::Overlay::NONE;
   } else if (&df == &GetDataField(INFO_BOX_PANEL)) {
     const DataFieldEnum &dfe = (const DataFieldEnum &)df;
     const unsigned ibp = dfe.GetValue();
@@ -271,11 +570,252 @@ PageLayoutEditWidget::OnModified(DataField &df) noexcept
   } else if (&df == &GetDataField(BOTTOM)) {
     const DataFieldEnum &dfe = (const DataFieldEnum &)df;
     value.bottom = (PageLayout::Bottom)dfe.GetValue();
+
+    if (value.bottom == PageLayout::Bottom::WEATHER_CONTROLS &&
+        value.IsMapMain() &&
+        !value.UsesWeatherOverlay()) {
+#ifdef HAVE_EDL
+      value.overlay = PageLayout::Overlay::EDL;
+#else
+      const auto rasp = DataGlobals::GetRasp();
+      if (rasp != nullptr && rasp->GetItemCount() > 0)
+        value.overlay = PageLayout::Overlay::RASP;
+      else
+        value.bottom = PageLayout::Bottom::NOTHING;
+#endif
+    }
+  } else if (&df == &GetDataField(OVERLAY)) {
+    const DataFieldEnum &dfe = (const DataFieldEnum &)df;
+    const auto overlay = (PageLayout::Overlay)dfe.GetValue();
+    if (overlay == PageLayout::Overlay::SKYSIGHT) {
+#ifdef HAVE_HTTP
+      const auto skysight = DataGlobals::GetSkySight();
+      const SkySight::Layer *layer = nullptr;
+      if (skysight != nullptr) {
+        if (!value.skysight_overlay.empty() &&
+            skysight->IsSelectedLayer(value.skysight_overlay.c_str()))
+          layer = skysight->GetSelectedLayer(value.skysight_overlay.c_str());
+
+        for (std::size_t i = 0; layer == nullptr &&
+             i < skysight->NumSelectedLayers(); ++i)
+          layer = skysight->GetSelectedLayer(i);
+      }
+
+      if (layer != nullptr) {
+        value.skysight_overlay = layer->id;
+      } else if (value.skysight_overlay.empty()) {
+        const char *message;
+        if (skysight == nullptr)
+          message = _("SkySight is unavailable.");
+        else if (skysight->IsThrottled())
+          message = _("SkySight API rate-limited. Retrying shortly.");
+        else if (!skysight->HasForecastLayers())
+          message = _("Loading SkySight catalog...");
+        else
+          message = _("No SkySight layers selected");
+
+        ShowMessageBox(message, "SkySight", MB_OK | MB_ICONINFORMATION);
+        ApplyValueToForm();
+        return;
+      }
+
+      if (layer == nullptr)
+        value.skysight_overlay.clear();
+#else
+      value.skysight_overlay.clear();
+#endif
+    }
+    value.overlay = overlay;
+  } else if (&df == &GetDataField(OVERLAY_DETAIL)) {
+    const DataFieldEnum &dfe = (const DataFieldEnum &)df;
+    if (value.overlay == PageLayout::Overlay::RASP)
+      value.rasp_field = dfe.GetValue();
+#ifdef HAVE_EDL
+    else if (value.overlay == PageLayout::Overlay::EDL)
+      value.edl_isobar = dfe.GetValue();
+#endif
+#ifdef HAVE_WEATHER_OVERLAY
+    else if (value.overlay == PageLayout::Overlay::SATELLITE)
+      value.satellite_layer = dfe.GetValue();
+#endif
+    else if (value.overlay == PageLayout::Overlay::SKYSIGHT) {
+#ifdef HAVE_HTTP
+      if (auto skysight = DataGlobals::GetSkySight(); skysight != nullptr) {
+        const unsigned selected = dfe.GetValue();
+
+        bool stored_layer_is_selected = false;
+        for (std::size_t i = 0; i < skysight->NumSelectedLayers(); ++i)
+          if (const auto *layer = skysight->GetSelectedLayer(i);
+              layer != nullptr &&
+              layer->id == value.skysight_overlay.c_str()) {
+            stored_layer_is_selected = true;
+            break;
+          }
+
+        if (selected == 0 && !stored_layer_is_selected)
+          return;
+
+        if (selected > 0)
+          if (const auto *layer =
+                skysight->GetSelectedLayer(selected - 1);
+              layer != nullptr &&
+              value.skysight_overlay != layer->id.c_str()) {
+            value.skysight_overlay = layer->id;
+            value.skysight_time = PageLayout::SKYSIGHT_TIME_AUTO;
+          }
+      }
+#endif
+    }
   } else {
     gcc_unreachable();
   }
 
+  value.Normalise();
+  ApplyValueToForm();
   listener.OnModified(value);
+}
+
+void
+PageListWidget::SyncChromeButtons() noexcept
+{
+  /* Weather → Pages setup and xcsoar://config/pages have no
+     Configuration button column. Keep Add and Delete on this panel. */
+  if (!Layout::landscape || !ConfigPanel::HasExtraButtons()) {
+    ReleaseChromeButtons();
+    return;
+  }
+
+  if (chrome_add != nullptr)
+    return;
+
+  /* Index 1 is the bottom of the stack: down, up, Delete, Add. */
+  chrome_down = &ConfigPanel::BorrowExtraButton(1, "v", [this](){
+    move_down_button->Click();
+  });
+  chrome_up = &ConfigPanel::BorrowExtraButton(2, "^", [this](){
+    move_up_button->Click();
+  });
+  chrome_delete = &ConfigPanel::BorrowExtraButton(3, C_("Button", "Delete"),
+                                                  [this](){
+    delete_button->Click();
+  });
+  chrome_add = &ConfigPanel::BorrowExtraButton(4, C_("Button", "Add"),
+                                               [this](){
+    add_button->Click();
+  });
+  UpdateButtons();
+}
+
+void
+PageListWidget::ReleaseChromeButtons() noexcept
+{
+  if (chrome_add == nullptr)
+    return;
+
+  for (unsigned i = 1; i <= 4; ++i)
+    ConfigPanel::ReturnExtraButton(i);
+  chrome_add = chrome_delete = nullptr;
+  chrome_up = chrome_down = nullptr;
+}
+
+Button *
+PageListWidget::ActionButton(unsigned i) const noexcept
+{
+  switch (i) {
+  case 0:
+    return chrome_add != nullptr ? chrome_add : add_button;
+  case 1:
+    return chrome_delete != nullptr ? chrome_delete : delete_button;
+  case 2:
+    return chrome_up != nullptr ? chrome_up : move_up_button;
+  case 3:
+    return chrome_down != nullptr ? chrome_down : move_down_button;
+  default:
+    return nullptr;
+  }
+}
+
+int
+PageListWidget::ActionIndex() const noexcept
+{
+  for (unsigned i = 0; i < 4; ++i) {
+    const Button *b = ActionButton(i);
+    if (b != nullptr && b->HasFocus())
+      return i;
+  }
+
+  if (ConfigPanel::HasExtraButtons() &&
+      ConfigPanel::GetExpertCheckbox().HasFocus())
+    return 4;
+
+  return -1;
+}
+
+bool
+PageListWidget::FocusAction(int from, bool down) noexcept
+{
+  const int last = ConfigPanel::HasExtraButtons() ? 4 : 3;
+  const int step = down ? 1 : -1;
+  for (int i = from + step; i >= 0 && i <= last; i += step) {
+    if (i == 4) {
+      ConfigPanel::GetExpertCheckbox().SetFocus();
+      return true;
+    }
+
+    Button *b = ActionButton(i);
+    if (b != nullptr && b->IsVisible() && b->IsEnabled()) {
+      b->SetFocus();
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool
+PageListWidget::KeyPress(unsigned key_code) noexcept
+{
+  /* First level: Up/Down stay on the page list. Left/Right are the
+     pager's. Enter activates the row and focuses the editor. */
+  if (IsDefined() && GetList().HasFocus()) {
+    if (key_code == KEY_UP || key_code == KEY_DOWN) {
+      ListWidget::KeyPress(key_code);
+      return true;
+    }
+    return false;
+  }
+
+  const bool in_editor = editor->HasFocus();
+  const int action = ActionIndex();
+  if (key_code == KEY_ESCAPE) {
+    if (in_editor || action >= 0) {
+      GetList().SetFocus();
+      return true;
+    }
+    return false;
+  }
+
+  if (key_code != KEY_UP && key_code != KEY_DOWN)
+    return false;
+
+  if (in_editor) {
+    const bool down = key_code == KEY_DOWN;
+    if (editor->FocusAdjacent(down))
+      return true;
+
+    /* Past the last field: Add, Delete, move up, move down, Expert. */
+    if (down)
+      FocusAction(-1, true);
+    return true;
+  }
+
+  if (action < 0)
+    return false;
+
+  const bool down = key_code == KEY_DOWN;
+  if (!FocusAction(action, down) && !down)
+    ((ContainerWindow &)editor->GetWindow()).FocusLastControl();
+  return true;
 }
 
 void
@@ -297,9 +837,24 @@ PageListWidget::Initialise(ContainerWindow &parent,
 void
 PageListWidget::Show(const PixelRect &rc) noexcept
 {
+  SyncChromeButtons();
   editor->SetValue(settings.pages[GetList().GetCursorIndex()]);
 
   ListWidget::Show(rc);
+}
+
+void
+PageListWidget::Hide() noexcept
+{
+  ReleaseChromeButtons();
+  ListWidget::Hide();
+}
+
+void
+PageListWidget::Move(const PixelRect &rc) noexcept
+{
+  SyncChromeButtons();
+  ListWidget::Move(rc);
 }
 
 bool
@@ -311,6 +866,9 @@ PageListWidget::Save(bool &_changed) noexcept
   std::fill(settings.pages.begin() + settings.n_pages,
             settings.pages.end(),
             PageLayout::Undefined());
+
+  for (unsigned i = 0; i < settings.n_pages; ++i)
+    settings.pages[i].Normalise();
 
   PageSettings &_settings = CommonInterface::SetUISettings().pages;
   for (unsigned int i = 0; i < PageSettings::MAX_PAGES; ++i) {
@@ -342,57 +900,10 @@ PageListWidget::OnPaintItem(Canvas &canvas, const PixelRect rc,
   const auto &value = settings.pages[idx];
 
   StaticString<64> buffer;
-
-  switch (value.main) {
-  case PageLayout::Main::MAP:
-    buffer = _("Map");
-    break;
-
-  case PageLayout::Main::MAP_NORTH_UP:
-    buffer = _("Map (north-up)");
-    break;
-
-  case PageLayout::Main::FLARM_RADAR:
-    buffer = _("FLARM radar");
-    break;
-
-  case PageLayout::Main::THERMAL_ASSISTANT:
-    buffer = _("Thermal assistant");
-    break;
-
-  case PageLayout::Main::HORIZON:
-    buffer = _("Horizon");
-    break;
-
-  case PageLayout::Main::MAX:
-    gcc_unreachable();
-  }
-
-  if (value.infobox_config.enabled) {
-    buffer.AppendFormat(", %s", _("InfoBoxes"));
-
-    if (!value.infobox_config.auto_switch &&
-        value.infobox_config.panel < InfoBoxSettings::MAX_PANELS)
-      buffer.AppendFormat(" (%s)",
-                          gettext(info_box_settings.panels[value.infobox_config.panel].name));
-    else
-      buffer.AppendFormat(" (%s)", _("Auto"));
-  }
-
-  switch (value.bottom) {
-  case PageLayout::Bottom::NOTHING:
-  case PageLayout::Bottom::CUSTOM:
-    break;
-
-  case PageLayout::Bottom::CROSS_SECTION:
-    buffer.AppendFormat(", %s", _("Cross section"));
-    break;
-
-  case PageLayout::Bottom::MAX:
-    gcc_unreachable();
-  }
-
-  row_renderer.DrawTextRow(canvas, rc, buffer);
+  row_renderer.DrawTextRow(canvas, rc,
+                           value.MakeTitle(info_box_settings,
+                                           std::span{buffer.data(), buffer.capacity()},
+                                           DataGlobals::GetRasp().get()));
 }
 
 void
@@ -428,19 +939,25 @@ PageListWidget::OnModified(const PageLayout &new_value) noexcept
 std::unique_ptr<Widget>
 CreatePagesConfigPanel()
 {
-  auto _list = std::make_unique<PageListWidget>();
-  auto _editor = std::make_unique<PageLayoutEditWidget>(UIGlobals::GetDialogLook(),
-                                                        *_list);
+  const DialogLook &look = UIGlobals::GetDialogLook();
 
-  auto two = std::make_unique<TwoWidgets>(std::move(_list),
-                                          std::move(_editor));
-  auto &list = (PageListWidget &)two->GetFirst();
-  auto &editor = (PageLayoutEditWidget &)two->GetSecond();
-  list.SetEditor(editor);
+  auto list = std::make_unique<PageListWidget>();
+  auto editor = std::make_unique<PageLayoutEditWidget>(look, *list);
+  list->SetEditor(*editor);
+
+  /* Scroll the editor when the landscape pane is shorter than its rows. */
+  auto two = std::make_unique<TwoWidgets>(
+    std::move(list),
+    std::make_unique<VScrollWidget>(std::move(editor), look));
+  auto &list_widget = (PageListWidget &)two->GetFirst();
 
   auto buttons = std::make_unique<ButtonPanelWidget>(std::move(two),
                                                      ButtonPanelWidget::Alignment::BOTTOM);
-  list.SetButtonPanel(*buttons);
+  /* Inside Configuration these actions move into the button column.
+     A standalone dialog has no column, so the row stays. */
+  if (ConfigPanel::HasExtraButtons())
+    buttons->HideInLandscape();
+  list_widget.SetButtonPanel(*buttons);
 
   return buttons;
 }

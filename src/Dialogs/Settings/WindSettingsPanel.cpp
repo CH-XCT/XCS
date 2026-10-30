@@ -52,13 +52,17 @@ WindSettingsPanel::Prepare(ContainerWindow &parent,
   if (edit_trail_drift)
     AddBoolean(_("Trail drift"),
                _("Determines whether the snail trail is drifted with the wind "
-                 "when displayed in circling mode. Switched Off, "
-                 "the snail trail stays uncompensated for wind drift."),
+                 "when displayed in circling mode at near map scales. Switched "
+                 "Off, the snail trail stays uncompensated for wind drift. "
+                 "In circling this also applies to the projected track curve: "
+                 "On keeps it relative to the air mass; Off includes wind."),
                map_settings.trail.wind_drift_enabled);
-  else
+  else if (edit_manual_wind)
     AddDummy();
 
   if (edit_manual_wind) {
+    AddSpacer();
+
     SpeedVector manual_wind = CommonInterface::Calculated().GetWindOrZero();
 
     AddReadOnly(C_("Wind source", "Source"));
@@ -173,7 +177,7 @@ WindSettingsPanel::UpdateVector() noexcept
     break;
 
   case DerivedInfo::WindSource::MANUAL:
-    source = _("Manual");
+    source = C_("Status", "Manual");
     break;
 
   case DerivedInfo::WindSource::CIRCLING:

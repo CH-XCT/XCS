@@ -5,7 +5,9 @@
 #include "Computer/GlideComputer.hpp"
 #include "Protection.hpp"
 #include "Blackboard/DeviceBlackboard.hpp"
+#include "Asset.hpp"
 #include "Hardware/CPU.hpp"
+#include "LogFile.hpp"
 
 /**
  * Constructor of the CalculationThread class
@@ -14,13 +16,7 @@
 CalculationThread::CalculationThread(DeviceBlackboard &_device_blackboard,
                                      GlideComputer &_glide_computer) noexcept
   :WorkerThread("CalcThread",
-#ifdef KOBO
-                /* throttle more on the Kobo, because the EPaper
-                   screen cannot be updated that often */
-                std::chrono::milliseconds{900},
-#else
                 std::chrono::milliseconds{450},
-#endif
                 std::chrono::milliseconds{100},
                 std::chrono::milliseconds{50}),
    force(false),
@@ -69,6 +65,7 @@ CalculationThread::Tick() noexcept
 
     // Copy data from DeviceBlackboard to GlideComputerBlackboard
     glide_computer.ReadBlackboard(device_blackboard.Basic());
+    replay_active = glide_computer.Basic().gps.replay;
   }
 
   bool force;
@@ -112,6 +109,42 @@ CalculationThread::Tick() noexcept
 }
 
 void
+CalculationThread::ProcessReplayFix() noexcept
+{
+#ifdef HAVE_CPU_FREQUENCY
+  const ScopeLockCPU cpu;
+#endif
+
+  {
+    const std::lock_guard lock{device_blackboard.mutex};
+    glide_computer.ReadBlackboard(device_blackboard.Basic());
+  }
+
+  {
+    const std::lock_guard lock{mutex};
+    glide_computer.ReadComputerSettings(settings_computer);
+  }
+
+  glide_computer.Expire();
+  glide_computer.ProcessGPS(true);
+
+  /* unconditionally, unlike Tick(): ProcessGPS() gates the idle pass
+     on half a second of wall-clock time, which is meaningless here.
+     ProcessIdle is needed to fill the snail trail, the flight statistics
+     and the contest etc. */
+  try {
+    glide_computer.ProcessIdle();
+  } catch (...) {
+    LogError(std::current_exception(), "ProcessIdle");
+  }
+
+  {
+    const std::lock_guard lock{device_blackboard.mutex};
+    device_blackboard.ReadBlackboard(glide_computer.Calculated());
+  }
+}
+
+void
 CalculationThread::ForceTrigger() noexcept
 {
   {
@@ -120,4 +153,21 @@ CalculationThread::ForceTrigger() noexcept
   }
 
   WorkerThread::Trigger();
+}
+
+CalculationThread::Duration
+CalculationThread::GetPeriodMin() const noexcept
+{
+  /* Fast LCD hosts: skip the 450 ms cap so 10x IGC replay still
+     feeds circling wind at ~1 Hz.  Idle stays 100 ms.  E-paper and
+     slow CPUs keep the limit; 1x replay already matches it. */
+  if (replay_active && !HasEPaper() && !IsSlowCPU())
+    return Duration{};
+
+  /* E-paper cannot usefully refresh faster than this.  Kobo defaults
+     to that display type, so it takes this path too. */
+  if (HasEPaper())
+    return std::chrono::milliseconds{900};
+
+  return WorkerThread::GetPeriodMin();
 }

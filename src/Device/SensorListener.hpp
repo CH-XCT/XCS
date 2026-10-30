@@ -42,6 +42,11 @@ public:
                                AtmosphericPressure pressure) noexcept = 0;
   virtual void OnVarioSensor(float vario) noexcept = 0;
   virtual void OnHeartRateSensor(unsigned bpm) noexcept = 0;
+
+  /**
+   * @param spo2 the blood oxygen saturation [percent]
+   */
+  virtual void OnBloodOxygenSensor(unsigned spo2) noexcept = 0;
   /**
    * @param[in] has_cht Is the Engine Cylinder Head Temperature sensor present?
    * @param[in] cht Engine Cylinder Head Temperature.
@@ -71,11 +76,15 @@ public:
 
   virtual void OnTemperature(Temperature temperature) noexcept = 0;
 
+  virtual void OnHumidity(double humidity_percent) noexcept = 0;
+
   virtual void OnBatteryPercent(double battery_percent) noexcept = 0;
 
   virtual void OnSensorStateChanged() noexcept = 0;
-  virtual void OnSensorError(const char *msg) noexcept = 0;
 #endif // ANDROID
+
+  virtual void OnSensorError(const char *msg) noexcept = 0;
+
   virtual void OnBarometricPressureSensor(float pressure,
                       float sensor_noise_variance) noexcept = 0;
 };

@@ -5,8 +5,8 @@
 #include "Look/DialogLook.hpp"
 #include "DataField/Base.hpp"
 #include "ui/canvas/Canvas.hpp"
-#include "ui/canvas/Features.hpp"
 #include "Screen/Layout.hpp"
+#include "Form/Button.hpp"
 #include "ui/event/KeyCode.hpp"
 #include "Dialogs/DataField.hpp"
 #include "Dialogs/WidgetDialog.hpp"
@@ -90,10 +90,6 @@ WndProperty::WndProperty(ContainerWindow &parent, const DialogLook &_look,
    edit_callback(EditDataFieldDialog)
 {
   Create(parent, rc, Caption, CaptionWidth, style);
-
-#if defined(USE_WINUSER) && !defined(NDEBUG)
-  ::SetWindowText(hWnd, Caption);
-#endif
 }
 
 WndProperty::WndProperty(const DialogLook &_look) noexcept
@@ -218,6 +214,10 @@ bool
 WndProperty::OnMouseDown([[maybe_unused]] PixelPoint p) noexcept
 {
   if (!IsReadOnly() || HasHelp()) {
+#ifdef HAVE_VIBRATOR
+    PlayHapticFeedback(HapticFeedbackType::PRESS);
+#endif
+
     dragging = true;
     pressed = true;
     Invalidate();
@@ -297,8 +297,34 @@ WndProperty::DecValue() noexcept
 }
 
 void
+WndProperty::SetValueWarning(bool warning) noexcept
+{
+  if (!HasColors())
+    warning = false;
+
+  if (value_warning == warning)
+    return;
+
+  value_warning = warning;
+  Invalidate();
+}
+
+void
 WndProperty::OnPaint(Canvas &canvas) noexcept
 {
+  PixelRect visible_edit_rc = edit_rc;
+  const int canvas_width = (int)canvas.GetWidth();
+  const int canvas_height = (int)canvas.GetHeight();
+
+  if (visible_edit_rc.left < 0)
+    visible_edit_rc.left = 0;
+  if (visible_edit_rc.top < 0)
+    visible_edit_rc.top = 0;
+  if (visible_edit_rc.right > canvas_width)
+    visible_edit_rc.right = canvas_width;
+  if (visible_edit_rc.bottom > canvas_height)
+    visible_edit_rc.bottom = canvas_height;
+
   const bool focused = HasCursorKeys() && HasFocus();
 
   /* background and selector */
@@ -306,10 +332,6 @@ WndProperty::OnPaint(Canvas &canvas) noexcept
     canvas.Clear(look.list.pressed.background_color);
   else if (focused)
     canvas.Clear(look.focused.background_color);
-  else if (HaveClipping())
-    /* with clipping, the parent's background does not extend into
-       child windows, so we must fill the background ourselves */
-    canvas.Clear(look.background_color);
 
   if (!caption.empty()) {
     canvas.SetTextColor(focused && !pressed
@@ -335,11 +357,8 @@ WndProperty::OnPaint(Canvas &canvas) noexcept
     if (org.x < 1)
       org.x = 1;
 
-    if (HaveClipping())
-      canvas.DrawText(org, caption.c_str());
-    else
-      canvas.DrawClippedText(org, clip_width - org.x,
-                             caption.c_str());
+    canvas.DrawClippedText(org, clip_width - org.x,
+                           caption.c_str());
   }
 
   Color background_color, text_color;
@@ -351,13 +370,12 @@ WndProperty::OnPaint(Canvas &canvas) noexcept
     text_color = look.list.focused.text_color;
   } else if (IsEnabled()) {
     if (IsReadOnly()) {
-      background_color = look.dark_mode
-        ? DarkColor(look.list.background_color)
-        : Color(0xf0, 0xf0, 0xf0);
+      background_color = look.ReadOnlyValueBackground();
+      text_color = look.list.text_color;
     } else {
       background_color = look.list.background_color;
+      text_color = look.list.text_color;
     }
-    text_color = look.list.text_color;
   } else {
     background_color = look.dark_mode
       ? DarkColor(look.list.background_color)
@@ -365,26 +383,31 @@ WndProperty::OnPaint(Canvas &canvas) noexcept
     text_color = look.dark_mode ? COLOR_GRAY : COLOR_DARK_GRAY;
   }
 
-  canvas.DrawFilledRectangle(edit_rc, background_color);
+  if (value_warning)
+    text_color = look.dark_mode ? COLOR_INVERSE_RED : COLOR_RED;
 
-  canvas.SelectHollowBrush();
-  canvas.Select(Pen(Layout::ScaleFinePenWidth(1),
-                    look.dark_mode ? COLOR_GRAY : COLOR_BLACK));
-  canvas.DrawRectangle(edit_rc);
+  if (!visible_edit_rc.IsEmpty()) {
+    canvas.DrawFilledRectangle(visible_edit_rc, background_color);
 
-  if (!value.empty()) {
+    canvas.SelectHollowBrush();
+    canvas.Select(Pen(Layout::ScaleFinePenWidth(1),
+                      look.ReadOnlyValueBorderColor()));
+    canvas.DrawRectangle(visible_edit_rc);
+  }
+
+  if (!value.empty() && !visible_edit_rc.IsEmpty()) {
     canvas.SetTextColor(text_color);
     canvas.SetBackgroundTransparent();
     canvas.Select(look.text_font);
 
-    const int x = edit_rc.left + Layout::GetTextPadding() * 2;
-    const int canvas_height = edit_rc.GetHeight();
+    const int x = visible_edit_rc.left + Layout::GetTextPadding() * 2;
+    const int control_height = visible_edit_rc.GetHeight();
     const int text_height = canvas.GetFontHeight();
-    const int y = edit_rc.top + (canvas_height - text_height) / 2;
+    const int y = visible_edit_rc.top + (control_height - text_height) / 2;
 
     // determine available pixel width for text inside edit rect
     const int avail = std::max(0,
-                  static_cast<int>(edit_rc.GetWidth()) -
+                  static_cast<int>(visible_edit_rc.GetWidth()) -
                   static_cast<int>(Layout::GetTextPadding()) * 4);
 
     // measure full text width

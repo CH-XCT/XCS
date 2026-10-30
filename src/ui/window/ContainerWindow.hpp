@@ -4,16 +4,9 @@
 #pragma once
 
 #include "PaintWindow.hpp"
-
-#ifndef USE_WINUSER
 #include "custom/WList.hpp"
-#endif
 
-#ifdef USE_WINUSER
-class Brush;
-#else
 class WindowReference;
-#endif
 
 /**
  * A container for more #Window objects.  It is also derived from
@@ -22,7 +15,6 @@ class WindowReference;
  */
 class ContainerWindow : public PaintWindow {
 protected:
-#ifndef USE_WINUSER
   friend class WindowList;
   WindowList children;
 
@@ -40,10 +32,8 @@ protected:
 
 public:
   ~ContainerWindow() noexcept override;
-#endif /* !USE_WINUSER */
 
 protected:
-#ifndef USE_WINUSER
   void OnDestroy() noexcept override;
   void OnCancelMode() noexcept override;
   bool OnMouseMove(PixelPoint p, unsigned keys) noexcept override;
@@ -54,16 +44,13 @@ protected:
 
 #ifdef HAVE_MULTI_TOUCH
   bool OnMultiTouchDown() noexcept override;
+  bool OnMultiTouchMove(PixelPoint a, PixelPoint b) noexcept override;
   bool OnMultiTouchUp() noexcept override;
 #endif
 
   void OnPaint(Canvas &canvas) noexcept override;
-#else /* USE_WINUSER */
-  virtual void OnPaint([[maybe_unused]] Canvas &canvas) noexcept {}
-#endif
 
 public:
-#ifndef USE_WINUSER
   void AddChild(Window &child) noexcept;
   void RemoveChild(Window &child) noexcept;
 
@@ -85,6 +72,11 @@ public:
 
   void BringChildToBottom(Window &child) noexcept {
     children.BringToBottom(child);
+    Invalidate();
+  }
+
+  void PlaceChildBelow(Window &child, Window &sibling) noexcept {
+    children.PlaceBelow(child, sibling);
     Invalidate();
   }
 
@@ -121,6 +113,26 @@ public:
   void ReleaseChildCapture(Window *window) noexcept;
   void ClearCapture() noexcept override;
 
+  /**
+   * A container drags nothing itself; defer to the child that is
+   * currently capturing the mouse, i.e. the one that owns the gesture
+   * in progress.
+   */
+  bool HandlesDragging() const noexcept override {
+    return capture_child != nullptr && capture_child->HandlesDragging();
+  }
+
+  /**
+   * Tell the child that currently captures the mouse that its press
+   * was cancelled, and forget it.
+   *
+   * Use this when this container consumes the rest of a gesture
+   * itself: the child never sees the matching mouse-up, so without
+   * this it stays pressed and keeps the capture, and the stale
+   * #capture_child misroutes every later press to it.
+   */
+  void CancelChildCapture() noexcept;
+
 protected:
   [[gnu::pure]]
   Window *FindNextControl(Window *reference) noexcept;
@@ -129,8 +141,6 @@ protected:
   Window *FindPreviousControl(Window *reference) noexcept;
 
 public:
-#endif /* !USE_WINUSER */
-
   /**
    * Sets the keyboard focus on the first descendant window which has
    * the WindowStyle::tab_stop() attribute.
@@ -138,6 +148,14 @@ public:
    * @return true if the focus has been moved
    */
   bool FocusFirstControl() noexcept;
+
+  /**
+   * Sets the keyboard focus on the last descendant window which has
+   * the WindowStyle::tab_stop() attribute.
+   *
+   * @return true if the focus has been moved
+   */
+  bool FocusLastControl() noexcept;
 
   /**
    * Sets the keyboard focus on the next descendant window which has
@@ -160,4 +178,10 @@ public:
    * rectangle visible in the view port.
    */
   virtual void ScrollTo(const PixelRect &rc) noexcept;
+
+  /**
+   * A child changed how much vertical space it needs, for example a
+   * form row was shown or hidden.  The default does nothing.
+   */
+  virtual void OnChildContentHeightChanged() noexcept {}
 };

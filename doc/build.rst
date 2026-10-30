@@ -55,7 +55,7 @@ To update third-party libraries used by XCSoar (such as `Boost
 
   git submodule update --init --recursive
 
-For more information, please read to the :program:`git` documentation.
+For more information, please read the :program:`git` documentation.
 
 Requirements
 ------------
@@ -81,13 +81,38 @@ The following is needed for all targets:
 
 -  `SoX <http://sox.sourceforge.net/>`__
 
-The following command installs these on Debian::
+On Debian and Ubuntu, install these with the ``BASE`` section of
+:file:`ide/provisioning/install-debian-packages.sh` (GCC/g++ is installed
+with ``LINUX``)::
 
-  sudo apt-get install make \
-      librsvg2-bin xsltproc \
-      imagemagick gettext sox \
-      git quilt zip \
-      m4 automake
+  cd ide/provisioning
+  sudo ./install-debian-packages.sh UPDATE BASE
+
+Package lists for all targets live in that script; pass one or more
+section names instead of running it with no arguments. Available
+sections:
+
+=========== ===========================================================
+``BASE``    tools common to all targets (make, gettext, git, ccache, …)
+``LINUX``   native Linux/UNIX build libraries and compiler
+``LIBINPUT_GBM`` libinput, GBM, DRM, GLES (Pi and similar embedded Linux)
+``WAYLAND`` Wayland protocols
+``DEBIAN``  building ``.deb`` packages
+``LLVM``    compiling with Clang
+``ARM``     ARM cross toolchain (Kobo bootstrap, generic ARM)
+``PI_HOST`` Pi cross-compile host tools (debootstrap, qemu, …)
+``WIN``     MinGW Windows cross compiler and NSIS
+``KOBO``    Kobo image packaging tools
+``ANDROID`` JDK and Android host tools (not SDK/NDK)
+``MANUAL``  TeXLive for ``make manual``
+=========== ===========================================================
+
+See also :doc:`devsetup` for a Linux development environment overview.
+
+On Debian and Ubuntu, the usual order is: **native build** on the host
+(recommended), then **Docker** if you avoid installing dependencies
+locally, then **Vagrant** for an optional preconfigured VM. See
+:ref:`docker-build` and “Using a build VM with Vagrant” below.
 
 Target-specific Build Instructions
 ----------------------------------
@@ -117,33 +142,19 @@ similar operating systems:
 
 -  `libjpeg <https://libjpeg.sourceforge.net/>`__
 
+-  `NetCDF <https://www.unidata.ucar.edu/software/netcdf/>`__
+  (native Linux builds)
+
 -  OpenGL (Mesa)
 
 -  to run XCSoar, you need one of the following fonts (Debian package):
    DejaVu (``fonts-dejavu``), Roboto (``fonts-roboto``), Droid
    (``fonts-droid``), Freefont (``fonts-freefont-ttf``)
 
-The following command installs these on Debian::
+Install host packages on Debian/Ubuntu::
 
-  sudo apt-get install make g++  zlib1g-dev \
-      libfmt-dev \
-      libdbus-1-dev \
-      libsodium-dev \
-      libfreetype-dev \
-      libpng-dev libjpeg-dev \
-      libtiff5-dev libgeotiff-dev \
-      libc-ares-dev \
-      libcurl4-openssl-dev \
-      libssl-dev \
-      libc-ares-dev \
-      liblua5.4-dev \
-      libxml-parser-perl \
-      libasound2-dev \
-      librsvg2-bin xsltproc \
-      imagemagick gettext \
-      mesa-common-dev libgl1-mesa-dev libegl1-mesa-dev \
-      libinput-dev \
-      fonts-dejavu
+  cd ide/provisioning
+  sudo ./install-debian-packages.sh UPDATE BASE LINUX LIBINPUT_GBM
 
 To compile, run::
 
@@ -158,12 +169,38 @@ You may specify one of the following targets with ``TARGET=x``:
 ``OPT``    alias for UNIX with optimisation and no debugging
 ========== =================================================
 
+Experimental Wayland build
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Install the ``WAYLAND`` provisioning section in addition to ``LINUX``::
+
+  cd ide/provisioning
+  sudo ./install-debian-packages.sh UPDATE BASE LINUX WAYLAND
+
+Compile::
+
+  make TARGET=WAYLAND
+
+Software rendering without OpenGL
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For headless builds (CI, no GPU), use the virtual framebuffer::
+
+  make TARGET=UNIX VFB=y
+
+For software rendering with SDL (same as Docker ``UNIX-SDL``), disable
+OpenGL and enable SDL2::
+
+  make TARGET=UNIX OPENGL=n ENABLE_SDL=y USE_SDL2=y
+
+``VFB`` and SDL are mutually exclusive with the default OpenGL/EGL path.
+
 Compiling for Android
 ~~~~~~~~~~~~~~~~~~~~~
 
 For Android, you need:
 
-- `Android SDK level 35 <http://developer.android.com/sdk/>`__
+- `Android SDK level 36 <http://developer.android.com/sdk/>`__
 
 - `Android NDK r26d <http://developer.android.com/sdk/ndk/>`__
 
@@ -171,23 +208,32 @@ For Android, you need:
 
 - Java JDK
 
-On Debian::
+- `bundletool <https://developer.android.com/tools/bundletool>`__
+  (``ide/provisioning/install-android-tools.sh`` installs it)
 
-  sudo apt-get install
-      default-jdk-headless \
-      vorbis-tools \
-      adb
+On Debian, install host packages and the SDK/NDK via the provisioning
+scripts::
+
+  cd ide/provisioning
+  sudo ./install-debian-packages.sh UPDATE BASE LINUX ANDROID
+  ./install-android-tools.sh
 
 The required Android SDK components are:
 
-- Android SDK Build-Tools 35.0.0
+- Android SDK Build-Tools 36.0.0
 
-- SDK Platform 35
+- SDK Platform 36
 
-These can be installed from the Android Studio SDK Manager, or using the
-SDK command line tools:
+These can be installed from the Android Studio SDK Manager. On Debian/Ubuntu,
+:file:`ide/provisioning/install-android-tools.sh` (run after the ``ANDROID``
+provisioning section) downloads the command-line tools and installs the
+required packages automatically.
 
-tools/bin/sdkmanager  "build-tools;35.0.0"  "platforms;android-35"
+To install the same components manually::
+
+  ~/opt/android-sdk-linux/cmdline-tools/bin/sdkmanager \
+      --sdk_root=~/opt/android-sdk-linux \
+      "build-tools;36.0.0" "platforms;android-36"
 
 The ``Makefile`` assumes that the Android SDK is installed in
 ``~/opt/android-sdk-linux`` and the NDK is installed in
@@ -201,6 +247,13 @@ Load/update the IOIO source code::
 To compile, run::
 
   make TARGET=ANDROID
+
+That writes ``XCSoar-debug.apk`` and ``XCSoar-debug.aab`` to
+``output/ANDROID/bin/``.  Both single-ABI and ``ANDROIDFAT`` builds use
+the same aapt2/bundletool pipeline: the APK is a universal package
+extracted from the App Bundle.  CI builds ``TARGET=ANDROIDFAT`` once for
+the sideload APK (``org.xcsoar.foss``), then ``PLAY=y`` in the same output
+tree to produce the Play Store AAB (``org.xcsoar.play``).
 
 Use one of the following targets:
 
@@ -229,20 +282,52 @@ Compiling for Windows
 To cross-compile to (desktop) Windows, you need
 `Mingw-w64 <http://mingw-w64.org>`__.
 
-The following command installs it on Debian::
+On Debian, install the cross compiler and NSIS (for the installer)::
 
-  sudo apt-get install g++-mingw-w64
+  cd ide/provisioning
+  sudo ./install-debian-packages.sh UPDATE BASE LINUX WIN
 
-To compile for 32 bit Windows, run::
+A minimal 64-bit OpenGL build::
 
-  make TARGET=PC
+  make TARGET=WIN64OPENGL
 
 Use one of the following targets:
 
-========= ============================
-``PC``    32 bit Windows (i686)
-``WIN64`` Windows x64 (amd64 / x86-64)
-========= ============================
+================ =================================================
+``WIN64OPENGL``  Windows x64 (amd64 / x86-64), OpenGL via ANGLE
+``WIN32OPENGL``  Windows 32-bit (i686), OpenGL via ANGLE
+================ =================================================
+
+Typical OpenGL build commands::
+
+  make -j$(nproc) TARGET=WIN64OPENGL USE_CCACHE=y everything
+  make -j$(nproc) TARGET=WIN32OPENGL USE_CCACHE=y everything
+
+To build the NSIS installer as well (64-bit or 32-bit)::
+
+  make -j$(nproc) TARGET=WIN64OPENGL USE_CCACHE=y everything installer
+
+OpenGL Windows builds use SDL2 and GLES2 via ANGLE (D3D11 backend). ANGLE
+libraries are fetched automatically on first build by
+:file:`windows/fetch-angle-from-github.sh` into the target output tree (see
+:file:`build/angle.mk`).
+
+Build outputs (64-bit example; 32-bit uses ``WIN32OPENGL`` and ``x86`` ANGLE
+arch instead):
+
+- ``output/WIN64OPENGL/bin/XCSoar.exe`` — main executable (Windows
+  version resource from :file:`VERSION.txt`, plus an application
+  manifest: asInvoker, Windows 10+ OS context, PerMonitorV2 DPI)
+- ``output/WIN64OPENGL/bin/XCSoar.zip`` — portable package (exe, ANGLE DLLs,
+  bundled fonts)
+- ``output/WIN64OPENGL/bin/XCSoar-<version>-WIN64OPENGL-Installer.exe`` —
+  NSIS installer (``installer`` target only; same version resource)
+- ``output/WIN64OPENGL/bin/libEGL.dll``,
+  ``output/WIN64OPENGL/bin/libGLESv2.dll`` — ANGLE runtime (also inside zip
+  and installer)
+
+Some features are compiled only when ``OPENGL=y`` (all current Windows
+targets), for example EDL weather and MbTiles map overlays.
 
 Compiling for iOS
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -268,8 +353,11 @@ To build and run simulator tests automatically, run::
   make check-ios-sim
 
 This target builds simulator artifacts (``TARGET=IOS64SIM``), installs
-``XCSoar.app`` into an available simulator (default: ``iPhone 16 Pro``), and
-executes selected test binaries in the simulator runtime.
+``XCSoar.app`` into an available iPhone simulator, and runs selected test
+binaries. There is no fixed default device name (``simctl`` depends on
+installed runtimes and Xcode). With ``SIM_DEVICE_NAME`` unset, the script
+picks an available iPhone from ``simctl list``; you can set ``SIM_DEVICE_NAME``
+to require a specific model.
 
 Implementation note: the runner uses a Python script
 (``darwin/check-ios-sim.py``) and discovers simulators via
@@ -279,7 +367,7 @@ Execution is delegated to the existing Perl TAP harness
 
 Optional environment variables::
 
-  SIM_DEVICE_NAME="iPhone 16"      # Choose simulator model
+  SIM_DEVICE_NAME="iPhone 16"      # Optional: require this model; else any iPhone
   SIM_TESTS_MODE=all               # Default mode: run all test_* / Test* binaries
   SIM_TESTS_MODE=smoke             # Run only smoke subset from SIM_SMOKE_TESTS
   SIM_SMOKE_TESTS="TestCRC8 ..."  # Override smoke test selection
@@ -294,68 +382,135 @@ Compiling for macOS (with Homebrew)
 
 Install the required Homebrew packages via the provisioning script::
 
-  ./ide/provisioning/install-darwin-packages.sh MACOS
+  ./ide/provisioning/install-darwin-packages.sh BASE MACOS
+
+Note that you always need to install the BASE packages and the specific IOS or MACOS packages.
 
 To compile for macOS / ARM64, run::
 
   make TARGET=MACOS dmg
 
-To compile for macOS / x86_64, run::
-
-  make TARGET=OSX64 dmg
-
 Debugging for iOS and macOS
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Debugging under iOS and macOS is possible using the LLDB debugger.
 To make this convenient, Xcode or Visual Studio can be used.
 An example Xcode project is provided in `darwin/XCSoar.xcodeproj`. 
-It includes one target for iOS and macOS and will automatically build 
+It includes one target for iOS and macOS and will automatically build
 the XCSoar binary for the selected device target, using the build
 helper script `darwin/build.sh`.
+That script reads optional settings from `darwin/.env` (see
+`darwin/.env.example`); for example ``TESTING=y`` builds the testing
+flavour with the red icon, which on iOS uses the separate bundle
+identifier ``XCSoar-testing`` and can therefore be installed next to the
+stable app. Likewise ``DEBUG_ALL_MAP_OVERLAYS=y`` forces all map overlays
+to be drawn (see :doc:`debugging`).
 For iOS debugging with Visual Studio Code, the `iOS Debug`
 extension (https://github.com/nisargjhaveri/vscode-ios-debug) can be used.
 Note that this also requires an Xcode installation.
 
-Compiling on the Raspberry Pi 4
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Compiling on the Raspberry Pi (4 / 5)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Install additional dependencies::
+On current Raspberry Pi boards, compile **natively on the device**. Pi 4 and
+Pi 5 are fast enough for practical development builds; cross-compiling from a
+desktop host is no longer the usual workflow.
 
-  sudo apt-get install libdrm-dev libgbm-dev \
-      libgles2-mesa-dev \
-      libinput-dev
+On the Pi, install the same embedded-Linux graphics packages as a desktop
+``UNIX`` build, plus ``LIBINPUT_GBM`` (DRM/GBM/GLES)::
 
-Compile::
+  cd ide/provisioning
+  sudo ./install-debian-packages.sh UPDATE BASE LINUX LIBINPUT_GBM
 
-  make
+Compile (``TARGET=UNIX`` is selected automatically on Raspberry Pi)::
 
-Compiling for the Raspberry Pi 1-3
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  make -j$(nproc) USE_CCACHE=y
 
-You need an ARM toolchain. For example, you can use the Debian package
-``g++-arm-linux-gnueabihf``::
+Cross-compiling for legacy Raspberry Pi 1–3
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-  make TARGET=PI
+``TARGET=PI`` and ``TARGET=PI2`` remain for cross-compiling **on a desktop
+host** for old ARMv6/ARMv7 boards (Pi 1–3). This path needs an armhf sysroot.
+The same steps work on a native Debian/Ubuntu host or inside the
+:ref:`docker-build` container (privileged, for ``setup-pi-sysroot.sh``).
+``setup-pi-sysroot.sh`` installs ``PI_HOST`` tools on the host by default::
 
-To optimize for the Raspberry Pi 2 (which has an ARMv7 with NEON instead
-of an ARMv6)::
+  cd ide/provisioning
+  sudo ./setup-pi-sysroot.sh
 
-  make TARGET=PI2
+Cross-compile (Pi 1 / ARMv6; binaries in ``output/PI/bin/``)::
 
-These targets are only used for cross-compiling on a (desktop) computer.
-If you compile on the Raspberry Pi, the default target will auto-detect
-the Pi.
+  make TARGET=PI SYSROOT=/opt/pi/root
+
+For Raspberry Pi 2/3 (ARMv7 with NEON; ``output/PI2/bin/``)::
+
+  make TARGET=PI2 SYSROOT=/opt/pi/root
+
+``TARGET=PI3`` is an alias of ``PI2`` and writes to ``output/PI3/``.
+
+Cross-compiling for Raspberry Pi 4 and 5
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Pi 4 and Pi 5 are aarch64. ``TARGET=PI4`` cross-compiles for both
+(``-march=armv8-a``). ``TARGET=PI5`` is an alias and writes to
+``output/PI5/``. This needs an arm64 sysroot, separate from the armhf
+tree used for Pi 1–3::
+
+  cd ide/provisioning
+  sudo ./setup-pi-sysroot.sh --arch arm64
+
+Cross-compile (binaries in ``output/PI4/bin/``)::
+
+  make TARGET=PI4 SYSROOT=/opt/pi64/root
+
+The default sysroot path is ``/opt/pi64/root``. Building on the Pi itself
+is still ``TARGET=UNIX`` with no sysroot; see above.
+
+Although ``TARGET=PI``, ``TARGET=PI2`` and ``TARGET=PI4`` compile as
+``UNIX`` internally, binaries are written to ``output/PI/``,
+``output/PI2/`` and ``output/PI4/`` respectively (the flavour name is
+preserved for the output directory).
 
 Compiling for the Cubieboard
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-To compile, run::
+``TARGET=CUBIE`` cross-compiles XCSoar for ARMv7 + NEON (Cubieboard-class
+boards) on a desktop host. You need an armhf sysroot and the cross
+toolchain; install the ``ARM`` provisioning section::
 
-  make TARGET=CUBIE
+  cd ide/provisioning
+  sudo ./install-debian-packages.sh UPDATE ARM
 
-This target is only used for cross-compiling on a (desktop) computer. If
-you compile on the Cubieboard, the default target will auto-detect the
-Cubieboard.
+Cross-compile (binaries in ``output/CUBIE/bin/``)::
+
+  make TARGET=CUBIE SYSROOT=/opt/cubie/root
+
+The default sysroot path is ``/opt/cubie/root``. Unlike the Raspberry Pi
+path, XCSoar does not ship an automated sysroot script for Cubie; the
+sysroot must provide ARMhf development libraries.
+
+On the sysroot, as well for native compilation on the Cubieboard,
+install the same embedded-Linux graphics packages as a desktop
+``UNIX`` build, plus ``LIBINPUT_GBM`` (DRM/GBM/GLES)::
+
+If you compile on the Cubieboard itself, the default ``UNIX`` target
+auto-detects the board.
+
+To create a working Cubieboard sysroot file system use the
+`meta-openvario <https://github.com/Openvario/meta-openvario>`__
+toolchain used by the `OpenVario <https://openvario.org>`__ project.
+Alternatively a working Ubuntu SD card image and root file system can be created
+from the `horOV <https://github.com/hor63/horOpenVario>`__ project.
+
+OpenVario flight computer images
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For **OpenVario** hardware (Cubieboard-based flight computers, CH-070
+and other displays), building the full OS image is handled outside this
+tree. Follow the current instructions in the
+`meta-openvario <https://github.com/Openvario/meta-openvario>`__
+repository (``MACHINE`` selection, Docker build container, ``bitbake``,
+and so on). See also `OpenVario <https://openvario.org>`__.
 
 Compiling for Kobo E-book Readers
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -366,14 +521,12 @@ To compile XCSoar, run::
 
   make TARGET=KOBO
 
-To build the kobo install file ``KoboRoot.tgz``, you need the following
-Debian packages::
+To build the kobo install file ``KoboRoot.tgz``, install the Kobo
+packaging section in addition to the Kobo build dependencies (the
+``KOBO`` target bootstraps its own ARM toolchain during the build)::
 
-  sudo apt-get install \
-      fakeroot \
-      python3-setuptools \
-      ttf-bitstream-vera \
-      fonts-roboto-unhinted
+  cd ide/provisioning
+  sudo ./install-debian-packages.sh UPDATE BASE LINUX ARM KOBO
 
 Then compile using this command::
 
@@ -448,44 +601,44 @@ Defaults shown are from the build system (they can be overridden with
  * - ``UNIX``
    - Linux/Unix (native)
    - no
-   - OpenGL
+   - OpenGL ES (EGL)
    - Default on Unix-like hosts; main desktop build.
  * - ``UNIX32``
    - Linux/Unix 32-bit
    - no
-   - OpenGL
+   - OpenGL ES (EGL)
    - ``UNIX`` with ``-m32``.
  * - ``UNIX64``
    - Linux/Unix 64-bit
    - no
-   - OpenGL
+   - OpenGL ES (EGL)
    - ``UNIX`` with ``-m64``.
  * - ``OPT``
    - Linux/Unix optimized
    - no
-   - OpenGL
+   - OpenGL ES (EGL)
    - Alias for ``UNIX`` with ``DEBUG=n`` (set ``TARGET_OUTPUT_DIR`` if
      you want a separate output tree).
  * - ``WAYLAND``
    - Linux/Unix (Wayland)
    - no
-   - OpenGL (EGL)
+   - OpenGL ES (EGL)
    - Experimental Wayland display server build.
  * - ``FUZZER``
    - Linux/Unix (libFuzzer)
    - no
    - Software (VFB)
    - Builds fuzz targets with clang + libFuzzer.
- * - ``PC``
-   - Windows 32-bit (i686)
-   - no
-   - GDI
-   - MinGW-w64 cross-compile target.
- * - ``WIN64``
+ * - ``WIN64OPENGL``
    - Windows 64-bit (x86_64)
-   - no
-   - GDI
-   - Flavor of ``PC`` with 64-bit toolchain.
+   - yes
+   - OpenGL ES (ANGLE)
+   - Recommended Windows 64-bit build with SDL and OpenGL ES.
+ * - ``WIN32OPENGL``
+   - Windows 32-bit (i686)
+   - yes
+   - OpenGL ES (ANGLE)
+   - Recommended Windows 32-bit build with SDL and OpenGL ES.
  * - ``ANDROID``
    - Android ARMv7
    - no
@@ -519,13 +672,8 @@ Defaults shown are from the build system (they can be overridden with
  * - ``MACOS``
    - macOS ARM64
    - yes
-   - OpenGL (ANGLE)
+   - OpenGL ES (ANGLE)
    - Apple Silicon (min macOS 12.0).
- * - ``OSX64``
-   - macOS x86_64
-   - yes
-   - OpenGL (ANGLE)
-   - Intel (min macOS 12.0).
  * - ``IOS32``
    - iOS armv7
    - yes
@@ -542,20 +690,26 @@ Defaults shown are from the build system (they can be overridden with
    - OpenGL ES
    - Simulator SDK (min iOS 11.0).
  * - ``PI``
-   - Raspberry Pi 1-3
+   - Raspberry Pi 1
    - no
    - OpenGL (EGL/KMS)
-   - ARMv6 cross-compile target.
+   - ARMv6 cross-compile target (Pi 1).
  * - ``PI2``
-   - Raspberry Pi 2
+   - Raspberry Pi 2/3
    - no
    - OpenGL (EGL/KMS)
-   - ARMv7 + NEON cross-compile target.
+   - ARMv7 + NEON cross-compile target (Pi 2 and 3).
+ * - ``PI3``
+   - Raspberry Pi 3
+   - no
+   - OpenGL (EGL/KMS)
+   - Alias of ``PI2``. Binaries go to ``output/PI3/``.
  * - ``CUBIE``
    - Cubieboard
    - no
    - OpenGL (EGL/KMS)
-   - Cross-compile target (ARMv7 + NEON).
+   - Cross-compile target (ARMv7 + NEON); OpenVario images: `meta-openvario
+     <https://github.com/Openvario/meta-openvario>`__.
  * - ``KOBO``
    - Kobo e-readers
    - no
@@ -569,12 +723,13 @@ Defaults shown are from the build system (they can be overridden with
 
 For a full list of build variables and their defaults, see the
 parameter list at the top of ``Makefile`` and the files in
-``build/*.mk``.
+``build/*.mk``. For ``Run*`` test/debug programs, see
+:doc:`test_debug_utilities`.
 
 Editing the Manuals
 ~~~~~~~~~~~~~~~~~~~
 
-The XCSoar documententation (except for the developer manual) is
+The XCSoar documentation (except for the developer manual) is
 written using the TeX markup language. You can edit the source files
 with any text editor, although a specific TeX editor (e.g. LateXila)
 makes it easier.
@@ -587,16 +742,10 @@ output/manual directory.
 To generate the PDF manuals, you need the TexLive package, plus some
 European languages.
 
-The following command installs these on Debian::
+Install the ``MANUAL`` section on Debian/Ubuntu::
 
-  sudo apt-get install texlive \
-      texlive-latex-extra \
-      texlive-luatex \
-      texlive-lang-french \
-      texlive-lang-polish \
-      texlive-lang-german \
-      texlive-lang-portuguese \
-      liblocale-po-perl
+  cd ide/provisioning
+  sudo ./install-debian-packages.sh UPDATE MANUAL
 
 The documentation is distributed as PDF files. Generating the PDFs from
 the TeX files is done by typing::
@@ -610,11 +759,19 @@ successful.
 Options
 -------
 
+.. _parallel-build:
+
 Parallel Build
 ~~~~~~~~~~~~~~
 
 Most contemporary computers have multiple CPU cores. To take advantage
-of these, use the ``make -j`` option::
+of these, use the ``make -j`` option. On Linux, ``-j$(nproc)`` matches
+the number of available CPU cores::
+
+  make -j$(nproc)
+
+A fixed job count works too (slightly above core count is a common rule
+of thumb)::
 
   make -j12
 
@@ -649,14 +806,275 @@ Compiling with ccache
 ~~~~~~~~~~~~~~~~~~~~~
 
 To speed up the compilation of XCSoar we can use ``ccache`` to cache the
-object files for us. All we have to do is install ccache and add
-``USE_CCACHE=y`` to the make command line::
+object files for us. ``ccache`` is installed by the ``BASE`` provisioning
+section; add ``USE_CCACHE=y`` to the make command line::
 
-  sudo apt-get install ccache
   make TARGET=UNIX USE_CCACHE=y
+
+.. _development-workflow:
+
+Development workflow
+~~~~~~~~~~~~~~~~~~~~
+
+Day-to-day development on ``UNIX`` typically uses debug builds
+(``DEBUG=y``, the default) with warnings as errors: ``WERROR`` defaults
+to ``DEBUG``, so a normal ``make`` already fails on compiler warnings.
+Use parallel builds (``-j$(nproc)``) and ``USE_CCACHE=y`` for faster
+turnaround; see :ref:`parallel-build` below for details.
+
+Incremental build::
+
+  make -j$(nproc) USE_CCACHE=y
+
+Before submitting a pull request, compile with ``everything``, not only
+the main binary. Plain ``make`` does not build debug tools
+(``RunMapWindow`` and other ``Run*`` programs); include-order bugs often
+show up only there. ``everything check`` also runs the unit tests::
+
+  make -j$(nproc) USE_CCACHE=y everything check
+
+Test and debug utilities
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+Standalone tools (``RunTask``, ``RunAnalysis``, ``FeedNMEA``, …) for
+component testing without the full app are described in
+:doc:`test_debug_utilities`. Build them with::
+
+  make -j$(nproc) debug
+
+or as part of ``everything`` (below). To build one program::
+
+  make -j$(nproc) output/UNIX/bin/RunTask
+
+The ``everything`` target adds optional outputs, those ``debug`` utilities,
+unit-test binaries, and the flight harness (``build-harness``). ``check``
+runs the TAP unit tests listed as ``TEST_NAMES`` in :file:`build/test.mk`.
+Build those first with ``everything`` or ``build-check``. ``check`` does
+not run ``testfast`` or ``testslow``.
+
+``debug`` lists all ``Run*`` tools in :file:`build/test.mk`. Utilities are
+built for the host platform (``UNIX``, Windows OpenGL, macOS), not for
+embedded targets such as Android or Kobo.
+
+.. _flight-harness:
+
+Flight harness
+^^^^^^^^^^^^^^
+
+``testfast`` and ``testslow`` build and run the flight-engine harness.
+The program lists are ``TESTFAST`` and ``TESTSLOW`` in
+:file:`build/test.mk`. ``build-harness`` only compiles them, and
+``everything`` includes that compile. Continuous integration runs
+``make check``, not these two targets.
+
+.. code-block:: bash
+
+   make -j$(nproc) TARGET=UNIX testfast
+   make -j$(nproc) TARGET=UNIX testslow
+
+``testfast`` finishes in a few seconds. ``testslow`` flies simulated
+tasks and takes a few minutes. ``test_replay_olc`` replays
+:file:`test/data/0asljd01.igc`. Android builds omit that replay because
+it needs Java.
+
+Both targets print TAP through :file:`test/src/testall.pl`. To build and
+run one program::
+
+   make -j$(nproc) TARGET=UNIX output/UNIX/bin/test_flight
+   ./output/UNIX/bin/test_flight --verbose=1
+
+``-v`` needs an argument, so use ``-v 1``. An unknown option aborts the
+program.
+
+Four ``testfast`` programs are already part of ``make check``:
+``test_fixed``, ``TestWaypoints``, ``test_pressure`` and ``test_task``.
+The other harness programs are not.
+
+The flight programs share :file:`test/src/harness_flight.cpp`. An
+autopilot flies a constructed task through the task engine. Wind is one
+of nine cases in :file:`test/src/harness_wind.hpp`: still air, then
+5 m/s and 10 m/s from north, east, south and west. Where a program
+checks the clock, elapsed time must stay within 2% of the planned
+time. The random seed is fixed at startup, so a run repeats.
+
+``testfast``:
+
+* ``test_fixed``, ``TestWaypoints``, ``test_pressure``, ``test_task``
+  — fixed-point maths, waypoints, pressure, and task construction.
+  These four also run under ``make check``.
+* ``test_mc`` — writes MacCready polar samples under
+  ``output/results/``. It does not compare them with an expected value.
+* ``test_modes`` — abort, goto, and an empty task.
+* ``test_automc`` — auto MacCready is not slower than a fixed setting,
+  once for each wind.
+* ``test_acfilter`` — one flight with heading noise through the
+  aircraft-state filter.
+* ``test_vopt`` — flying slower or faster than the optimum speed takes
+  longer.
+
+``testslow``:
+
+* ``test_flight`` — elapsed time matches the plan for each task type
+  and one wind.
+* ``test_randomtask`` — the same clock check on random tasks.
+* ``test_aat`` — assigned-area tasks finish within 1.5% of the minimum
+  time. The mixed task uses a four-hour minimum.
+* ``test_bestcruisetrack`` — crabbing is not slower than drifting.
+* ``test_effectivemc``, ``test_cruiseefficiency`` — a clean flight
+  scores higher than wandering, the wrong speed, extra sink, or a weak
+  climb.
+* ``test_airspace`` — flights through generated airspace, including
+  clearing a polygon.
+* ``test_highterrain`` — the clock check while spare waypoint
+  elevations are raised. The flown task still uses the flat fields.
+* ``test_replay_olc`` — replays :file:`test/data/0asljd01.igc` and
+  checks OLC, DMSt, the XContest triangle, Charron and SIS-AT. Classic,
+  FAI and Plus scores come from :file:`test/data/0asljd01.txt`. The
+  sprint trace is solved while the flight is read, because it only
+  keeps the latest two hours.
+
+Glide and reach checks live in the ``make check`` programs
+``TestMacCready`` and ``TestTerrainReach``. ``TestMacCready`` includes
+a crosswind. ``TestTerrainReach`` builds a small terrain tile and
+checks ridge clearance and the reach fan.
+
+CI uses a headless software renderer and optional sanitizers (clean the
+output tree when switching ``SANITIZE=``)::
+
+  make -j$(nproc) TARGET=UNIX VFB=y USE_CCACHE=y everything check
+  make -j$(nproc) TARGET=UNIX VFB=y SANITIZE=y DEBUG_GLIBCXX=y everything check
+
+To force warnings-as-errors on an optimised build (``DEBUG=n`` disables
+``WERROR`` by default), pass ``WERROR=y`` explicitly.
+
+.. _complexity-report:
+
+Complexity report
+^^^^^^^^^^^^^^^^^
+
+`lizard <https://github.com/terryyin/lizard>`__ points out functions
+which branch a lot (cyclomatic complexity, CCN), run long or take many
+parameters.  The check is advisory: it never fails a build or blocks a
+commit, and existing code does not have to be changed to pass it.  It
+helps to keep new and changed functions small, and shows reviewers
+the ones that are not.
+
+The workflow :file:`.github/workflows/complexity.yml` runs it on every
+pull request that changes :file:`src/`, over the C/C++ files the pull
+request changes.  It shows each warning as an annotation on the pull
+request and lists them all in the job summary.  Started by hand
+(``workflow_dispatch``), it checks all of :file:`src/`.
+
+Locally, run it through :program:`pre-commit` (see
+:file:`.pre-commit-config.yaml`), on the staged files or on all of
+:file:`src/`::
+
+  pre-commit run lizard --hook-stage manual
+  pre-commit run lizard --hook-stage manual --all-files
+
+It warns about a function with a CCN above 25, more than 120 lines or
+more than 7 parameters, and leaves out the bundled third-party code in
+:file:`src/Topography/shapelib/`, :file:`src/zzip/` and
+:file:`src/Terrain/jasper/`.  Without :program:`pre-commit`, run
+:program:`lizard` directly (it skips :file:`*.hxx` when scanning a
+directory)::
+
+  pip install lizard
+  lizard -C 25 -L 120 -a 7 -w \
+    -x "src/Topography/shapelib/*" -x "src/zzip/*" \
+    -x "src/Terrain/jasper/*" src
+
+For a closer look, e.g. before refactoring, lower the thresholds to
+``-C 15 -L 100 -a 6``, or leave out ``-w`` and the thresholds for a
+table of every function and a summary.
+
+.. _docker-build:
+
+Using Docker
+------------
+
+Use Docker when you prefer not to install XCSoar build dependencies on
+the host. Native builds (provisioning scripts + ``make`` on Debian/Ubuntu)
+are simpler and recommended when that is acceptable.
+
+The Docker image in :file:`ide/docker/` provides a Debian-based build
+environment with the same provisioning scripts as a native host. Bind-mount
+the XCSoar source tree; build products appear in ``output/`` on the host.
+
+Pull the published image (or build locally — see :file:`ide/docker/README.md`)::
+
+  docker pull ghcr.io/xcsoar/xcsoar/xcsoar-build:latest
+
+Interactive shell (compile with ``make`` or ``xcsoar-compile``)::
+
+  docker run \
+      --mount type=bind,source="$(pwd)",target=/opt/xcsoar \
+      -it ghcr.io/xcsoar/xcsoar/xcsoar-build:latest /bin/bash
+
+One-shot build via the wrapper script (``ANDROID``, ``DOCS``, ``KOBO``,
+``UNIX``, ``UNIX-SDL``, ``WAYLAND``, ``WIN64OPENGL``, ``WIN32OPENGL``)::
+
+  docker run \
+      --mount type=bind,source="$(pwd)",target=/opt/xcsoar \
+      ghcr.io/xcsoar/xcsoar/xcsoar-build:latest \
+      xcsoar-compile UNIX USE_CCACHE=y
+
+Windows OpenGL cross-compile example::
+
+  docker run \
+      --mount type=bind,source="$(pwd)",target=/opt/xcsoar \
+      ghcr.io/xcsoar/xcsoar/xcsoar-build:latest \
+      xcsoar-compile WIN64OPENGL USE_CCACHE=y everything
+
+Add ``USE_CCACHE=y`` as needed; ccache data is stored in ``./.ccache/`` on
+the host. For GUI testing with software rendering and X11 forwarding, see
+:file:`ide/docker/README.md`.
+
+**Raspberry Pi:** Pi 4 and 5 should be built **natively on the device**
+(see above). The container runs on x86_64 and does not replace that
+workflow.
+
+For **legacy Pi 1–3 cross-compiles**, start a **privileged** container
+(debootstrap and ``qemu-user-static`` need it), create the sysroot, then
+build::
+
+  docker run --privileged \
+      --mount type=bind,source="$(pwd)",target=/opt/xcsoar \
+      -it ghcr.io/xcsoar/xcsoar/xcsoar-build:latest /bin/bash
+
+  sudo ./ide/provisioning/setup-pi-sysroot.sh
+  make -j$(nproc) TARGET=PI2 SYSROOT=/opt/pi/root USE_CCACHE=y
+
+For Pi 4/5, create the arm64 sysroot and cross-compile with
+``TARGET=PI4`` (``TARGET=PI5`` is an alias, output in ``output/PI5/``)::
+
+  sudo ./ide/provisioning/setup-pi-sysroot.sh --arch arm64
+  make -j$(nproc) TARGET=PI4 SYSROOT=/opt/pi64/root USE_CCACHE=y
+
+**Android and iOS:** The image ships with the Android SDK and NDK. On
+**Linux x86_64**, ``xcsoar-compile ANDROID`` is the usual Docker workflow
+(see :file:`ide/docker/README.md`). Clone with ``--recurse-submodules``
+(see *Getting the source* above) before mounting the tree into the
+container.
+
+**iOS** is not built inside Docker. Use a **Mac** with Xcode and the
+native steps in *Compiling for iOS* above
+(``ide/provisioning/install-darwin-packages.sh BASE IOS``, then
+``make TARGET=IOS64 ipa``).
+
+On **macOS** hosts, Docker-based Android builds have been reported to
+hang during third-party downloads or fail under ``linux/amd64`` emulation
+on Apple Silicon (`#892 <https://github.com/XCSoar/XCSoar/issues/892>`__).
+Prefer a **native** Android build on the Mac (Android Studio SDK/NDK,
+``make TARGET=ANDROID`` — see *Compiling for Android* above) or run the
+Docker image on a Linux x86_64 machine.
 
 Using a build VM with Vagrant
 -----------------------------
+
+Vagrant is an optional third choice: a VirtualBox VM with dependencies
+for several targets. Prefer a native host install or Docker unless you
+specifically want this workflow.
 
 An easy way to install a virtual machine with all build dependencies
 required for various targets (e.g. Linux, Windows, Android and Kobo), is
@@ -679,8 +1097,8 @@ The XCSoar source directory on the host is automatically mounted as a
 shared folder at ``/xcsoar-host-src`` in the VM. For performance
 reasons, it is not recommended to compile directly in this folder. A git
 clone of this directory is automatically created in the home directory
-(`` /xcsoar-src``), which should be used instead. In this git clone, the
-XSoar source directory on the host is preconfigured as a git remote
+(``~/xcsoar-src``), which should be used instead. In this git clone, the
+XCSoar source directory on the host is preconfigured as a git remote
 named “host”, and the XCSoar master directory is preconfigured as a
 remote named “master”.
 

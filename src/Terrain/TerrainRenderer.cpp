@@ -3,13 +3,15 @@
 
 #include "Terrain/TerrainRenderer.hpp"
 #include "Terrain/RasterTerrain.hpp"
+#include "Screen/Layout.hpp"
 #include "ui/canvas/Ramp.hpp"
 #include "Projection/WindowProjection.hpp"
 #include "util/Macros.hpp"
+#include "ui/event/Idle.hpp"
 
 #include <cassert>
 
-static constexpr ColorRamp terrain_colors[][NUM_COLOR_RAMP_LEVELS] = {
+static constexpr ColorRampEntry terrain_colors[][NUM_COLOR_RAMP_LEVELS] = {
   {
     {0, { 0x70, 0xc0, 0xa7 }},
     {250, { 0xca, 0xe7, 0xb9 }},
@@ -288,6 +290,29 @@ static constexpr ColorRamp terrain_colors[][NUM_COLOR_RAMP_LEVELS] = {
 static_assert(ARRAY_SIZE(terrain_colors) == TerrainRendererSettings::NUM_RAMPS,
               "mismatched size");
 
+static constexpr ColorRamp terrain_ramps[] = {
+  { false, NUM_COLOR_RAMP_LEVELS, terrain_colors[0], nullptr },
+  { false, NUM_COLOR_RAMP_LEVELS, terrain_colors[1], nullptr },
+  { false, NUM_COLOR_RAMP_LEVELS, terrain_colors[2], nullptr },
+  { false, NUM_COLOR_RAMP_LEVELS, terrain_colors[3], nullptr },
+  { false, NUM_COLOR_RAMP_LEVELS, terrain_colors[4], nullptr },
+  { false, NUM_COLOR_RAMP_LEVELS, terrain_colors[5], nullptr },
+  { false, NUM_COLOR_RAMP_LEVELS, terrain_colors[6], nullptr },
+  { false, NUM_COLOR_RAMP_LEVELS, terrain_colors[7], nullptr },
+  { false, NUM_COLOR_RAMP_LEVELS, terrain_colors[8], nullptr },
+  { false, NUM_COLOR_RAMP_LEVELS, terrain_colors[9], nullptr },
+  { false, NUM_COLOR_RAMP_LEVELS, terrain_colors[10], nullptr },
+  { false, NUM_COLOR_RAMP_LEVELS, terrain_colors[11], nullptr },
+  { false, NUM_COLOR_RAMP_LEVELS, terrain_colors[12], nullptr },
+  { false, NUM_COLOR_RAMP_LEVELS, terrain_colors[13], nullptr },
+  { false, NUM_COLOR_RAMP_LEVELS, terrain_colors[14], nullptr },
+  { false, NUM_COLOR_RAMP_LEVELS, terrain_colors[15], nullptr },
+  { false, NUM_COLOR_RAMP_LEVELS, terrain_colors[16], nullptr },
+  { false, NUM_COLOR_RAMP_LEVELS, terrain_colors[17], nullptr },
+};
+static_assert(ARRAY_SIZE(terrain_ramps) == TerrainRendererSettings::NUM_RAMPS,
+              "mismatched size");
+
 // map scale is approximately 2 points on the grid
 // therefore, want one to one mapping if mapscale is 0.5
 // there are approx 30 pixels in mapscale
@@ -327,6 +352,61 @@ TerrainRenderer::Generate(const WindowProjection &map_projection,
                           const Angle sunazimuth)
 {
 #ifdef ENABLE_OPENGL
+  /* Call once — the helper mutates quantisation_pixels. */
+  const bool quantisation_improved = raster_renderer.UpdateQuantisation();
+  raster_renderer.SetSunFromAzimuth(sunazimuth, settings.brightness,
+                                    settings.contrast);
+  const bool sun_ok = raster_renderer.IsShaderHillshade() ||
+    sunazimuth.CompareRoughly(last_sun_azimuth);
+#else
+  constexpr bool quantisation_improved = false;
+  const bool sun_ok = sunazimuth.CompareRoughly(last_sun_azimuth);
+#endif
+
+  const bool panning = !IsUserIdle(750);
+
+  const unsigned height_scale = 4;
+  const double screen_pixel_size =
+    1.0 / map_projection.GetScale();
+  const double dpi_factor =
+    Layout::ScalePenWidth(1024u) / 1024.0;
+  const double contour_pixel_size = screen_pixel_size * dpi_factor *
+    std::max(1u, raster_renderer.GetQuantisationPixels() / 2u);
+  last_contour_spacing = ContourSpacing(settings.contours, height_scale,
+                                        contour_pixel_size);
+#ifdef ENABLE_OPENGL
+  raster_renderer.SetContourSpacing(last_contour_spacing);
+#endif
+
+  /* Exact same view: reuse without consulting overscan bounds.
+     Near the map edge, overscan is clipped so old_bounds.IsInside()
+     can fail even when the projection is unchanged.  Use
+     CompareExact (not tolerant Compare) so a tiny pan cannot skip
+     the IsInside coverage check.
+     While a finger is down, ignore a newer tile serial.  Each
+     arrival would otherwise rescan the whole height matrix on the
+     UI thread, and a pan hitch repeats until the finger lifts. */
+#ifdef ENABLE_OPENGL
+  const bool tiles_current =
+    terrain_serial == terrain.GetSerial() || panning;
+#else
+  const bool tiles_current = terrain_serial == terrain.GetSerial();
+#endif
+  const bool image_current =
+    settings.contours == Contours::OFF ||
+#ifdef ENABLE_OPENGL
+    raster_renderer.IsShaderHillshade() ||
+    raster_renderer.GetQuantisationPixels() > 2 ||
+#endif
+    map_projection.GetScale() == last_projection_scale;
+  if (!quantisation_improved &&
+      compare_projection.CompareExact(map_projection) &&
+      tiles_current &&
+      sun_ok &&
+      image_current)
+    return true;
+
+#ifdef ENABLE_OPENGL
   const GeoBounds &old_bounds = raster_renderer.GetBounds();
   GeoBounds new_bounds = map_projection.GetScreenBounds();
   assert(new_bounds.IsValid());
@@ -338,38 +418,36 @@ TerrainRenderer::Generate(const WindowProjection &map_projection,
       return false;
   }
 
-  if (old_bounds.IsValid() && old_bounds.IsInside(new_bounds) &&
+  /* While the finger is down, ScanMap slides the picture and reads
+     only the strip that entered from the direction of the pan.
+     This reuse is for a still view whose samples are already
+     current. */
+  if (!panning &&
+      !quantisation_improved &&
+      old_bounds.IsValid() && old_bounds.IsInside(new_bounds) &&
       !IsLargeSizeDifference(old_bounds, new_bounds) &&
-      terrain_serial == terrain.GetSerial() &&
-      sunazimuth.CompareRoughly(last_sun_azimuth) &&
-      !raster_renderer.UpdateQuantisation())
-    /* no change since previous frame */
+      tiles_current &&
+      sun_ok &&
+      image_current) {
+    /* CPU contours need a rebuild when zoom changes the interval.
+       The shader updates contour_div as a uniform. */
+    compare_projection = CompareProjection(map_projection);
     return true;
+  }
 
-#else
-  if (compare_projection.Compare(map_projection) &&
-      terrain_serial == terrain.GetSerial() &&
-      sunazimuth.CompareRoughly(last_sun_azimuth))
-    /* no change since previous frame */
-    return true;
-
-  compare_projection = CompareProjection(map_projection);
 #endif
 
-  terrain_serial = terrain.GetSerial();
+  compare_projection = CompareProjection(map_projection);
 
   last_sun_azimuth = sunazimuth;
 
   const bool do_water = true;
-  const unsigned height_scale = 4;
   const int interp_levels = 2;
   const bool is_terrain = true;
   const bool do_shading = is_terrain &&
                           settings.slope_shading != SlopeShading::OFF;
-  const bool do_contour = is_terrain &&
-                          settings.contours != Contours::OFF;
 
-  const ColorRamp *const color_ramp = &terrain_colors[settings.ramp][0];
+  const ColorRamp *const color_ramp = &terrain_ramps[settings.ramp];
   if (color_ramp != last_color_ramp) {
     raster_renderer.PrepareColorTable(color_ramp, do_water,
                                       height_scale, interp_levels);
@@ -378,12 +456,28 @@ TerrainRenderer::Generate(const WindowProjection &map_projection,
 
   {
     RasterTerrain::Lease map(terrain);
-    raster_renderer.ScanMap(map, map_projection);
+    raster_renderer.ScanMap(map, map_projection, !tiles_current);
   }
+
+  /* A pan only reads the strip that entered the view.  A tile that
+     finishes loading during that pan still has to be scanned through
+     the middle once the map is still, so keep the old serial until
+     then. */
+  if (terrain_serial == terrain.GetSerial() || !panning)
+    terrain_serial = terrain.GetSerial();
+
+#ifdef ENABLE_OPENGL
+  if (raster_renderer.IsShaderHillshade() &&
+      !raster_renderer.IsHeightMatrixChanged())
+    return true;
+#endif
 
   raster_renderer.GenerateImage(do_shading, height_scale,
                                 settings.contrast, settings.brightness,
                                 sunazimuth,
-                                do_contour);
+                                last_contour_spacing);
+
+  last_projection_scale = map_projection.GetScale();
+
   return true;
 }

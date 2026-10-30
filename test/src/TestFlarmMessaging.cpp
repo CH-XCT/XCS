@@ -4,6 +4,10 @@
 #include "FLARM/MessagingFile.hpp"
 #include "FLARM/MessagingDatabase.hpp"
 #include "FLARM/MessagingRecord.hpp"
+#include "FLARM/Details.hpp"
+#include "FLARM/Glue.hpp"
+#include "FLARM/Global.hpp"
+#include "FLARM/TrafficDatabases.hpp"
 #include "FLARM/Id.hpp"
 #include "system/Path.hpp"
 #include "system/FileUtil.hpp"
@@ -19,6 +23,11 @@
 #include <utility>
 
 #include "thread/Thread.hpp"
+
+void
+SaveFlarmMessagingPeriodic() noexcept
+{
+}
 
 template<typename F>
 class LambdaThread : public Thread {
@@ -57,6 +66,20 @@ UpdateMessagingRecord(FlarmMessagingDatabase &db, const MessagingRecord &base,
   if (callsign != nullptr)
     record.callsign = callsign;
   db.Update(record);
+}
+
+static void
+InsertMessaging(FlarmMessagingDatabase &db, const char *hex,
+                const char *pilot, const char *plane_type,
+                const char *registration, const char *callsign)
+{
+  MessagingRecord r;
+  r.id = FlarmId::Parse(hex, nullptr);
+  r.pilot = pilot;
+  r.plane_type = plane_type;
+  r.registration = registration;
+  r.callsign = callsign;
+  db.Insert(r);
 }
 
 static void
@@ -203,6 +226,43 @@ TestFlarmMessagingCycle()
 }
 
 static void
+TestFlarmMessagingUndefinedValue()
+{
+  FlarmMessagingDatabase db;
+  MessagingRecord base;
+  base.id = FlarmId::Parse("F00BAA", nullptr);
+
+  UpdateMessagingRecord(db, base, nullptr, "Orville");
+
+  auto mr = db.FindRecordById(base.id);
+  if (!ok1(mr.has_value()))
+    return;
+
+  ok1(StringIsEqual(mr->pilot.c_str(), "Orville"));
+
+  MessagingRecord clear = base;
+  clear.pilot = " undefined ";
+  db.Update(clear);
+
+  mr = db.FindRecordById(base.id);
+  if (!ok1(mr.has_value()))
+    return;
+
+  ok1(mr->pilot.empty());
+
+  InsertMessaging(db, "F00BAB", "Undefined", "LS8", " undefined ", "N1");
+
+  auto inserted = FindMessagingRecord(db, "F00BAB");
+  if (!ok1(inserted.has_value()))
+    return;
+
+  ok1(inserted->pilot.empty());
+  ok1(inserted->registration.empty());
+  ok1(StringIsEqual(inserted->plane_type.c_str(), "LS8"));
+  ok1(StringIsEqual(inserted->callsign.c_str(), "N1"));
+}
+
+static void
 TestFlarmMessagingThreadSafety()
 {
   // Scenario 1: Concurrent reads and writes
@@ -304,14 +364,76 @@ TestFlarmMessagingThreadSafety()
   }
 }
 
+static void
+TestFlarmMessagingResolveInfo()
+{
+  TrafficDatabases dbs;
+  traffic_databases = &dbs;
+
+  InsertMessaging(dbs.flarm_messages, "AA0001",
+                  "Orville", "ASW 28", "D-1111", "AA");
+  InsertMessaging(dbs.flarm_messages, "BB0002",
+                  "Wilbur", "Discus 2", "D-2222", "BB");
+
+  const ResolvedInfo info1 = FlarmDetails::ResolveInfo(FlarmId::Parse("AA0001", nullptr));
+  const ResolvedInfo info2 = FlarmDetails::ResolveInfo(FlarmId::Parse("BB0002", nullptr));
+
+  /* info1 must still carry Orville's data, not Wilbur's */
+  ok1(info1.pilot == "Orville");
+  ok1(info1.plane_type == "ASW 28");
+  ok1(info1.registration == "D-1111");
+  ok1(info1.callsign == "AA");
+  ok1(info1.source == ResolvedSource::MESSAGING);
+
+  ok1(info2.pilot == "Wilbur");
+  ok1(info2.plane_type == "Discus 2");
+  ok1(info2.registration == "D-2222");
+  ok1(info2.callsign == "BB");
+
+  /* unknown ID returns empty */
+  const ResolvedInfo empty = FlarmDetails::ResolveInfo(FlarmId::Parse("999999", nullptr));
+  ok1(empty.IsEmpty());
+
+  traffic_databases = nullptr;
+}
+
+static void
+TestFlarmClearUserCallsignFallback()
+{
+  TrafficDatabases dbs;
+  traffic_databases = &dbs;
+
+  const FlarmId id = FlarmId::Parse("DD0004", nullptr);
+  InsertMessaging(dbs.flarm_messages, "DD0004",
+                  "Pilot", "Ventus 3", "D-6529", "AB");
+
+  ok1(FlarmDetails::LookupCallsign(id) != nullptr);
+  ok1(StringIsEqual(FlarmDetails::LookupCallsign(id), "AB"));
+
+  ok1(FlarmDetails::AddSecondaryItem(id, ""));
+
+  const char *callsign = FlarmDetails::LookupCallsign(id);
+  ok1(callsign != nullptr);
+  ok1(StringIsEqual(callsign, "AB"));
+
+  const ResolvedInfo info = FlarmDetails::ResolveInfo(id);
+  ok1(info.callsign == "AB");
+  ok1(info.registration == "D-6529");
+
+  traffic_databases = nullptr;
+}
+
 int main()
 {
-  plan_tests(31);
+  plan_tests(57);
 
   TestFlarmMessagingIO();
   TestFlarmMessagingFile();
   TestFlarmMessagingCycle();
+  TestFlarmMessagingUndefinedValue();
   TestFlarmMessagingThreadSafety();
+  TestFlarmMessagingResolveInfo();
+  TestFlarmClearUserCallsignFallback();
 
   return exit_status();
 }

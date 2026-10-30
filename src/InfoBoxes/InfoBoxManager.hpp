@@ -3,8 +3,11 @@
 
 #pragma once
 
+#include "InfoBoxSettings.hpp"
+
 struct InfoBoxLook;
 class ContainerWindow;
+class InfoBoxWindow;
 
 namespace InfoBoxLayout { struct Layout; }
 
@@ -15,6 +18,16 @@ extern InfoBoxLayout::Layout layout;
 
 void
 ProcessTimer() noexcept;
+
+[[nodiscard]] bool
+IsReady() noexcept;
+
+/**
+ * Returns the InfoBox window for the given slot, or nullptr if the
+ * manager was reinitialised and the window no longer exists.
+ */
+[[nodiscard]] InfoBoxWindow *
+GetWindow(unsigned id) noexcept;
 
 void
 SetDirty() noexcept;
@@ -44,13 +57,49 @@ void
 Hide() noexcept;
 
 /**
- * Opens a dialog to select the InfoBox contents for
- * the InfoBox indicated by id, or the focused InfoBox.
- * @param id The id of the InfoBox to configure.  If negative,
- * then it configures the focused InfoBox if there is one.
+ * Opens a dialog to select the content of one InfoBox of @p panel.
+ *
+ * @return true if the user has chosen a different InfoBox
+ */
+bool
+ShowInfoBoxPicker(InfoBoxSettings::Panel &panel, unsigned i) noexcept;
+
+/**
+ * Opens a dialog to select the InfoBox contents for the InfoBox
+ * indicated by id, and saves the change to the profile.
+ *
+ * @param id The id of the InfoBox to configure; nothing happens if it
+ * is negative.
  */
 void
-ShowInfoBoxPicker(const int id = -1) noexcept;
+ShowInfoBoxPicker(int id) noexcept;
+
+/**
+ * The InfoBox configuration of the page which is currently shown.
+ */
+[[gnu::pure]]
+InfoBoxSettings::Panel &
+GetCurrentPanel() noexcept;
+
+[[gnu::pure]]
+InfoBoxSettings::Panel &
+GetPanel(unsigned index) noexcept;
+
+/**
+ * Update the InfoBox windows after #GetCurrentPanel() was modified.
+ */
+void
+Refresh() noexcept;
+
+/**
+ * Save the configuration of the page which is currently shown to the
+ * profile.
+ */
+void
+SaveCurrentPanel() noexcept;
+
+void
+SavePanel(unsigned index) noexcept;
 
 /**
  * Clear focus from all InfoBoxes except the one with the specified ID.

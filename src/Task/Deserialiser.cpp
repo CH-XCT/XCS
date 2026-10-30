@@ -17,6 +17,11 @@
 
 #include <memory>
 
+/*
+ * The format read here is described in doc/task_file.rst; see the
+ * comment in Serialiser.cpp.
+ */
+
 static void
 Deserialise(GeoPoint &data, const ConstDataNode &node)
 {
@@ -70,7 +75,7 @@ DeserialiseWaypoint(const ConstDataNode &node, const Waypoints *waypoints)
     wp->comment = comment;
 
   if (node.GetAttribute("altitude", wp->elevation))
-    wp->has_elevation = true;
+    wp->elevation_source = Waypoint::ElevationSource::FILE;
 
   return WaypointPtr(wp);
 }
@@ -124,10 +129,17 @@ DeserialiseOZ(const Waypoint &wp, const ConstDataNode &node, bool is_turnpoint)
   } else if (StringIsEqual(type, "FAISector"))
     return SymmetricSectorZone::CreateFAISectorZone(wp.location, is_turnpoint);
   else if (StringIsEqual(type, "SymmetricQuadrant")) {
-    double radius = 10000;
+    /*
+    Note: Despite the name, this may not be a quadrant, it
+    can be a circular sector with any angle. Retaining the
+    name for backwards ompatibility in .tsk files.
+    */
+    double radius = 10000; // Default radius if not specified
+    Angle angle = Angle::QuarterCircle(); // Default angle if not specified
     node.GetAttribute("radius", radius);
+    node.GetAttribute("angle", angle);
 
-    return std::make_unique<SymmetricSectorZone>(wp.location, radius);
+    return SymmetricSectorZone::CreateSymmetricCircularSectorZone(wp.location, radius, angle);
   } else if (StringIsEqual(type, "Keyhole"))
     return KeyholeZone::CreateDAeCKeyholeZone(wp.location);
   else if (StringIsEqual(type, "CustomKeyhole")) {
@@ -206,7 +218,7 @@ DeserialiseTaskpoint(AbstractTaskFactory &fact, const ConstDataNode &node,
     pt = oz != nullptr
       ? fact.CreateFinish(std::move(oz), std::move(wp))
       : fact.CreateFinish(std::move(wp));
-  } 
+  }
 
   if (!pt)
     return;
@@ -241,6 +253,7 @@ static void
 Deserialise(OrderedTaskSettings &data, const ConstDataNode &node)
 {
   node.GetAttribute("aat_min_time", data.aat_min_time);
+  node.GetAttribute("navigate_nearest", data.navigate_nearest);
   node.GetAttribute("start_requires_arm",
                     data.start_constraints.require_arm);
   node.GetAttribute("start_score_exit",
@@ -313,4 +326,12 @@ LoadTask(OrderedTask &task, const ConstDataNode &node,
   for (const auto &i : children) {
     DeserialiseTaskpoint(fact, *i, waypoints);
   }
+
+  /*
+    Normalize deserialized taskpoint types to match the task factory type.
+    Some exporters (e.g., WeGlide) may serialize intermediate points with
+    generic types (e.g., "turn") even when the task is declared as AAT.
+  */
+  if (fact.MutateTPsToTaskType())
+    fact.UpdateGeometry();
 }

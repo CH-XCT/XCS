@@ -2,15 +2,19 @@
 // Copyright The XCSoar Project
 
 #include "PageSettings.hpp"
+#include "PageOverlayTitle.hpp"
 #include "InfoBoxes/InfoBoxSettings.hpp"
 #include "Language/Language.hpp"
 #include "util/StringBuilder.hxx"
+#include "util/UTF8.hpp"
 
 #include <algorithm>
+#include <cassert>
 
 const char *
 PageLayout::MakeTitle(const InfoBoxSettings &info_box_settings,
                       std::span<char> buffer,
+                      const RaspStore *rasp,
                       const bool concise) const noexcept
 {
   if (!valid)
@@ -19,13 +23,14 @@ PageLayout::MakeTitle(const InfoBoxSettings &info_box_settings,
   switch (main) {
   case PageLayout::Main::MAP:
   case PageLayout::Main::MAP_NORTH_UP:
+  case PageLayout::Main::EDL_MAP:
     break;
 
   case PageLayout::Main::FLARM_RADAR:
-    return _("FLARM radar");
+    return _("FLARM Radar");
 
   case PageLayout::Main::THERMAL_ASSISTANT:
-    return _("Thermal assistant");
+    return _("Thermal Assistant");
 
   case PageLayout::Main::HORIZON:
     return _("Horizon");
@@ -33,6 +38,12 @@ PageLayout::MakeTitle(const InfoBoxSettings &info_box_settings,
   case PageLayout::Main::MAX:
     gcc_unreachable();
   }
+
+  assert(!buffer.empty());
+  /* Callers often pass an uninitialized StaticString buffer.  Start
+     with an empty C string so Overflow before the first Append does
+     not return stack garbage to CalcTextSize. */
+  buffer.front() = '\0';
 
   BasicStringBuilder<char> builder{buffer};
 
@@ -48,10 +59,10 @@ PageLayout::MakeTitle(const InfoBoxSettings &info_box_settings,
       else {
         if (concise) {
           builder.Append(' ');
-          builder.Append(_("Auto"));
+          builder.Append(C_("Status", "Auto"));
         } else {
           builder.Append(" (");
-          builder.Append(_("Auto"));
+          builder.Append(C_("Status", "Auto"));
           builder.Append(')');
         }
       }
@@ -62,20 +73,25 @@ PageLayout::MakeTitle(const InfoBoxSettings &info_box_settings,
         builder.Append(_("Map (Full screen)"));
     }
 
+    AppendOverlayTitle(builder, *this, rasp);
+
     switch (bottom) {
     case Bottom::NOTHING:
     case Bottom::CUSTOM:
       break;
 
     case Bottom::CROSS_SECTION:
-      // TODO: better text and translate
       builder.Append(", XS");
+      break;
+
+    case Bottom::WEATHER_CONTROLS:
       break;
 
     case Bottom::MAX:
       gcc_unreachable();
     }
   } catch (BasicStringBuilder<char>::Overflow) {
+    CropIncompleteUTF8(buffer.data());
   }
 
   return buffer.data();

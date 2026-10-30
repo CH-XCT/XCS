@@ -19,10 +19,11 @@
 #
 #   ENABLE_SDL  If set to "y", the UI is drawn with libSDL.
 #
-#   ENABLE_MESA_KMS If set to "y", the program uses KMS to switch to graphics mode.
+#   ENABLE_MESA_KMS If set to "y", the program uses DRM/KMS to switch to
+#               graphics mode.
 #               Use this option when the program runs on a text-mode system
 #               without graphics and window system like X11 or Wayland.
-#               Default for Rasperry PI 4, optional for Cubieboard.
+#               Default for Raspberry PIs and Cubieboards.
 #
 #   OPENGL      "y" means render with OpenGL.
 #
@@ -62,9 +63,20 @@
 #
 #   USE_CCACHE  "y" to build with ccache
 #
+#   SYSROOT     Set to the root directory of the target file system when
+#               cross-compiling for targets CUBIE, PI, PI2, PI3, PI4 or PI5.
+#				When no set target dependend defaults are applied. See
+#               build/targets.mk for default values.
+#
 #   TARGET_DIR  "<path>" to build into output/<path> instead of output/<target>
 #
 #   TARGET_OUTPUT_DIR "<path>" to build into arbitrary directory
+#
+#   THIRDPARTY_PACKAGES
+#               "auto" for the target's default third-party package set,
+#               or a comma-separated list of packages to provision through
+#               the third-party build pipeline.
+#               Omitted packages are discovered on the system.
 
 .DEFAULT_GOAL := all
 
@@ -82,9 +94,10 @@ include $(topdir)/build/util.mk
 include $(topdir)/build/detect.mk
 include $(topdir)/build/targets.mk
 include $(topdir)/build/thirdparty.mk
-include $(topdir)/build/pkgconfig.mk
 include $(topdir)/build/languages.mk
 include $(topdir)/build/options.mk
+include $(topdir)/build/set_compiler.mk
+include $(topdir)/build/pkgconfig.mk
 include $(topdir)/build/debug.mk
 include $(topdir)/build/abi.mk
 include $(topdir)/build/coverage.mk
@@ -97,7 +110,6 @@ include $(topdir)/build/vfb.mk
 include $(topdir)/build/fb.mk
 include $(topdir)/build/wayland.mk
 include $(topdir)/build/egl.mk
-include $(topdir)/build/glx.mk
 include $(topdir)/build/opengl.mk
 endif
 
@@ -115,11 +127,7 @@ include $(topdir)/build/link.mk
 include $(topdir)/build/resource.mk
 include $(topdir)/build/libdata.mk
 include $(topdir)/build/java.mk
-ifeq ($(ANDROID_BUNDLE_BUILD),y)
-include $(topdir)/build/android_bundle.mk
-else
 include $(topdir)/build/android.mk
-endif
 include $(topdir)/build/llvm.mk
 include $(topdir)/build/tools.mk
 include $(topdir)/build/version.mk
@@ -169,6 +177,7 @@ include $(topdir)/build/libio.mk
 include $(topdir)/build/shapelib.mk
 include $(topdir)/build/libwaypoint.mk
 include $(topdir)/build/libairspace.mk
+include $(topdir)/build/libnotam.mk
 include $(topdir)/build/libtask.mk
 include $(topdir)/build/libxml.mk
 include $(topdir)/build/libcupfile.mk
@@ -182,9 +191,14 @@ include $(topdir)/build/libevent_options.mk
 include $(topdir)/build/udev.mk
 include $(topdir)/build/libevent.mk
 include $(topdir)/build/freetype.mk
+include $(topdir)/build/fonts.mk
+include $(topdir)/build/nsis.mk
 include $(topdir)/build/libpng.mk
 include $(topdir)/build/libjpeg.mk
+include $(topdir)/build/libsqlite.mk
 include $(topdir)/build/libtiff.mk
+include $(topdir)/build/netcdf.mk
+include $(topdir)/build/zxing.mk
 include $(topdir)/build/coregraphics.mk
 include $(topdir)/build/appkit.mk
 include $(topdir)/build/uikit.mk
@@ -255,6 +269,7 @@ endif
 
 ifeq ($(TARGET),ANDROID)
 OUTPUTS += $(ANDROID_BIN)/XCSoar-debug.apk
+OUTPUTS += $(ANDROID_BIN)/XCSoar-debug.aab
 endif
 
 ifeq ($(TARGET_IS_KOBO),y)
@@ -263,6 +278,18 @@ endif
 
 ifeq ($(HAVE_WIN32),y)
 OUTPUTS += $(LAUNCH_XCSOAR_BIN)
+# Package with ANGLE DLLs if using ANGLE on Windows
+ifeq ($(USE_ANGLE),y)
+ANGLE_ZIP = $(TARGET_BIN_DIR)/$(PROGRAM_NAME).zip
+OUTPUTS += $(ANGLE_ZIP)
+
+$(ANGLE_ZIP): $(XCSOAR_BIN) $(ANGLE_BIN_DLLS) $(FONT_TARGETS)
+	@$(NQ)echo "  ZIP     $(@F)"
+	$(Q)cd $(TARGET_BIN_DIR) && $(ZIP) -r $(@F) $(notdir $(XCSOAR_BIN) $(ANGLE_BIN_DLLS)) $(if $(FONT_TARGETS),fonts/*.ttf)
+endif
+ifeq ($(FREETYPE),y)
+OUTPUTS += $(FONT_TARGETS)
+endif
 endif
 
 endif

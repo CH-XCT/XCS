@@ -9,77 +9,64 @@
 #include "Startup.hpp"
 #include "LocalPath.hpp"
 #include "Version.hpp"
-#include "ProductName.hpp"
 #include "LogFile.hpp"
 #include "CommandLine.hpp"
 #include "MainWindow.hpp"
 #include "Interface.hpp"
 #include "Look/GlobalFonts.hpp"
 #include "ui/window/Init.hpp"
+#include "ui/event/Queue.hpp"
 #include "net/http/Init.hpp"
-#include "ResourceLoader.hpp"
 #include "Language/Language.hpp"
 #include "Language/LanguageGlue.hpp"
 #include "Simulator.hpp"
 #include "Audio/GlobalPCMMixer.hpp"
 #include "Audio/GlobalPCMResourcePlayer.hpp"
 #include "Audio/GlobalVolumeController.hpp"
+#include "Dialogs/DataManagement/ExportFlightsPanel.hpp"
+#if defined(__linux__) && !defined(ANDROID) && !defined(KOBO) && \
+  defined(USE_POLL_EVENT)
+#include "Dialogs/Settings/Panels/SystemToolsPanel.hpp"
+#endif
 #include "system/Args.hpp"
 #include "io/async/GlobalAsioThread.hpp"
 #include "io/async/AsioThread.hpp"
 #include "util/PrintException.hxx"
+#include "UIActions.hpp"
+#include "Hardware/SystemPower.hpp"
+
+#include <cstdio>
 
 #ifdef ENABLE_SDL
+#ifdef SDL_MAIN_HANDLED
+/* When SDL_MAIN_HANDLED is defined, we must call SDL_SetMainReady()
+   before using SDL to avoid SDL's -Dmain=SDL_main
+   macro which conflicts with "main" in the XCSoar code */
+#include <SDL.h>
+#else
 /* this is necessary on macOS, to let libSDL bootstrap Quartz
    before entering our main() */
 #include <SDL_main.h>
+#endif
 #endif
 
 #ifdef __APPLE__
 #include <TargetConditionals.h>
 #if !TARGET_OS_IPHONE
-#import <AppKit/AppKit.h>
+#include "Apple/MacOSMainMenu.hpp"
 #endif
 #endif
 
 #include <cassert>
 
-static const char *const Usage = "\n"
-  "  -version       display version information and exit\n"
-  "  -datapath=      path to " PRODUCT_NAME_A " data can be defined\n"
-#ifdef SIMULATOR_AVAILABLE
-  "  -simulator      bypass startup-screen, use simulator mode directly\n"
-  "  -fly            bypass startup-screen, use fly mode directly\n"
-#endif
-  "  -profile=fname  load profile from file fname\n"
-  "  -WIDTHxHEIGHT   use screen resolution WIDTH x HEIGHT\n"
-  "  -portrait       use a 480x640 screen resolution\n"
-  "  -square         use a 480x480 screen resolution\n"
-  "  -small          use a 320x240 screen resolution\n"
-#if !defined(ANDROID)
-  "  -dpi=DPI        force usage of DPI for pixel density\n"
-  "  -dpi=XDPIxYDPI  force usage of XDPI and YDPI for pixel density\n"
-#endif
-#ifdef HAVE_CMDLINE_FULLSCREEN
-  "  -fullscreen     full-screen mode\n"
-#endif
-#ifdef HAVE_CMDLINE_RESIZABLE
-  "  -resizable      resizable window\n"
-#endif
-#ifdef _WIN32
-  "  -console        open debug output console\n"
-#endif
-  ;
-
 static int
 Main()
 {
-  ScreenGlobalInit screen_init;
+  /* must happen before any other thread is created; see
+     UI::BlockSignals() */
+  UI::BlockSignals();
 
-#if defined(__APPLE__) && !TARGET_OS_IPHONE
-  // We do not want the ugly non-localized main menu which SDL creates
-  [NSApp setMainMenu: [[NSMenu alloc] init]];
-#endif
+  ScreenGlobalInit screen_init;
 
 #ifdef _WIN32
   /* try to make the UI most responsive */
@@ -88,6 +75,10 @@ Main()
 
   AllowLanguage();
   InitLanguage();
+
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
+  InitialiseMacOSMainMenu();
+#endif
 
   ScopeGlobalAsioThread global_asio_thread;
   const Net::ScopeInit net_init(asio_thread->GetEventLoop());
@@ -98,8 +89,19 @@ Main()
 
   // Perform application initialization and run loop
   int ret = EXIT_FAILURE;
-  if (Startup(screen_init.GetDisplay()))
+  if (Startup(screen_init.GetDisplay())) {
+#if defined(__linux__) && !defined(ANDROID) && !defined(KOBO) && \
+  defined(USE_POLL_EVENT)
+    ShowPendingSystemToolResult();
+#endif
     ret = CommonInterface::main_window->RunEventLoop();
+  } else if (WasStartupCancelledByUser())
+    /* quitting from the startup dialogs is a deliberate user action,
+       not an error */
+    ret = EXIT_SUCCESS;
+
+  /* The export-flight cache owns an InjectTask on the Asio event loop. */
+  ShutdownExportFlightsPanel();
 
   Shutdown();
 
@@ -119,31 +121,50 @@ Main()
 int main(int argc, char **argv)
 #else
 int WINAPI
-WinMain(HINSTANCE hInstance, [[maybe_unused]] HINSTANCE hPrevInstance,
+WinMain([[maybe_unused]] HINSTANCE hInstance, [[maybe_unused]] HINSTANCE hPrevInstance,
         [[maybe_unused]] LPSTR lpCmdLine2,
         [[maybe_unused]] int nCmdShow)
 #endif
 try {
-#ifdef USE_WIN32_RESOURCES
-  ResourceLoader::Init(hInstance);
+#if defined(ENABLE_SDL) && defined(SDL_MAIN_HANDLED)
+  SDL_SetMainReady();
 #endif
 
   // Read options from the command line
   {
 #ifdef _WIN32
-    Args args(GetCommandLine(), Usage);
+    Args args(GetCommandLine(), CommandLine::OptionSummary());
 #else
-    Args args(argc, argv, Usage);
+    Args args(argc, argv, CommandLine::OptionSummary());
 #endif
     CommandLine::Parse(args);
   }
 
   InitialiseDataPath();
+  CommandLine::ApplyPendingProfile();
 
   // Write startup note + version to logfile
   LogFormat("Starting %s", XCSoar_ProductToken);
 
   int ret = Main();
+
+  bool power_action_succeeded = true;
+  switch (UIActions::GetExitAction()) {
+  case UIActions::ExitAction::REBOOT:
+    power_action_succeeded = SystemPower::Reboot();
+    break;
+
+  case UIActions::ExitAction::POWER_OFF:
+    power_action_succeeded = SystemPower::PowerOff();
+    break;
+
+  case UIActions::ExitAction::NONE:
+  case UIActions::ExitAction::QUIT:
+    break;
+  }
+
+  if (!power_action_succeeded)
+    std::fprintf(stderr, "Failed to execute system power action\n");
 
 #if defined(__APPLE__) && TARGET_OS_IPHONE
   /* For some reason, the app process does not exit on iOS, but a black

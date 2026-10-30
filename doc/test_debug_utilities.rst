@@ -1,6 +1,11 @@
 Test and Debug Utilities
 =========================
 
+.. _test-debug-utilities:
+
+For a shorter overview of debugging workflows (replay, simulator, gdb,
+device tools), see :doc:`debugging`.
+
 The XCSoar test suite includes a collection of standalone utility programs
 for debugging, testing, and interactive exploration of XCSoar components
 without running the full application. Many of these utilities are prefixed
@@ -23,32 +28,41 @@ These utilities are built as part of the XCSoar build system and are available
 in the output directory after compilation. The exact path depends on your build
 target:
 
-- **Unix/Linux**: ``output/UNIX/bin/`` (default, and for flavors like WAYLAND, OPT, FUZZER)
-- **Windows**: ``output/PC/bin/`` (default, and for WIN64 flavor)
-- **macOS**: ``output/OSX64/bin/`` or ``output/MACOS/bin/`` (default)
+- **Unix/Linux**: ``output/UNIX/bin/`` (default, and for flavors like WAYLAND, FUZZER)
+- **Unix/Linux (optimized)**: ``output/OPT/bin/`` (``TARGET=OPT`` convenience target)
+- **Windows**: ``output/WIN64OPENGL/bin/`` or ``output/WIN32OPENGL/bin/``
+- **macOS**: ``output/MACOS/bin/`` (default)
 
 **Important**: Many build "targets" are actually flavors that override the base
-target. For example, ``TARGET=WAYLAND`` or ``TARGET=OPT`` both build to
-``output/UNIX/bin/`` because they override the TARGET to UNIX internally. The
-debug utilities are built for the base target (UNIX, PC, etc.), not for the
-flavor name.
+target internally. For example, ``TARGET=WAYLAND`` builds as ``UNIX`` with
+output under ``output/UNIX/bin/``, while ``TARGET=OPT`` also builds as ``UNIX``
+but uses a separate output directory (``output/OPT/bin/``).
+Windows OpenGL builds (``WIN64OPENGL``, ``WIN32OPENGL``) keep their own output
+directory (``output/WIN64OPENGL/``, etc.).
 
 **Note**: In the examples below, ``output/UNIX/bin/`` is used (typical for Linux
-development). Replace ``UNIX`` with your actual base build target if different
-(e.g., ``PC`` for Windows, ``OSX64`` for macOS). To find your output directory,
-check what was created in the ``output/`` folder after building.
+development). Replace ``UNIX`` with your flavor output directory if different
+(e.g. ``WIN64OPENGL`` for Windows OpenGL development, ``MACOS`` for macOS). To
+find your output directory, check what was created in the ``output/`` folder
+after building.
 
 Building Run* Utilities
-------------------------
+-----------------------
 
-All Run* utilities are automatically built when you compile XCSoar. They are
-defined in ``build/test.mk`` and compiled as part of the debug programs target.
+These utilities are **not** built by plain ``make``; use the ``debug`` target
+(see :ref:`development-workflow` in :doc:`build`). They are defined in
+:file:`build/test.mk` and compiled as the ``debug`` make target. Before a
+pull request, build them with ``everything`` so they compile.
 
 To build all Run* utilities:
 
 .. code-block:: bash
 
-   make DEBUG
+   make -j$(nproc) debug
+
+Or build everything (main binary, utilities, unit tests, harness)::
+
+   make -j$(nproc) everything
 
 To build a specific utility:
 
@@ -58,6 +72,14 @@ To build a specific utility:
 
 The utilities are built for the host platform (your development machine), not
 for embedded targets like Android or Kobo.
+
+Flight harness
+--------------
+
+``testfast`` and ``testslow`` fly the task engine. They are separate
+from these ``Run*`` tools and from ``make check``. The programs, and how
+to run the two targets, are documented in :ref:`flight-harness` in
+:doc:`build`.
 
 Common Patterns
 ---------------
@@ -79,23 +101,23 @@ flight data.
 
    #include "system/Args.hpp"
    #include "DebugReplay.hpp"
-   
+
    int main(int argc, char **argv)
    {
      Args args(argc, argv, "USAGE");
      DebugReplay *replay = CreateDebugReplay(args);
      if (replay == NULL)
        return EXIT_FAILURE;
-     
+
      args.ExpectEnd();
-     
+
      while (replay->Next()) {
        const MoreData &basic = replay->Basic();
        const DerivedInfo &calculated = replay->Calculated();
-       
+
        // Process data here
      }
-     
+
      delete replay;
      return EXIT_SUCCESS;
    }
@@ -133,9 +155,9 @@ boilerplate for window creation, event loops, and UI initialization.
    #define ENABLE_CMDLINE
    #define ENABLE_PROFILE
    #define USAGE "DRIVER FILE"
-   
+
    #include "Main.hpp"
-   
+
    static void
    Main(UI::Display &display)
    {
@@ -171,13 +193,13 @@ parsing.
 .. code-block:: cpp
 
    #include "system/Args.hpp"
-   
+
    int main(int argc, char **argv)
    {
      Args args(argc, argv, "USAGE");
      // Parse arguments
      args.ExpectEnd();
-     
+
      // Process input (stdin, files, etc.)
      return EXIT_SUCCESS;
    }
@@ -202,22 +224,22 @@ drivers directly.
 
    #include "test/src/DebugPort.hpp"
    #include "Device/Driver.hpp"
-   
+
    int main(int argc, char **argv)
    {
      Args args(argc, argv, "PORT BAUD");
      DebugPort debug_port(args);
      args.ExpectEnd();
-     
+
      ScopeGlobalAsioThread global_asio_thread;
      NullDataHandler handler;
      auto port = debug_port.Open(*asio_thread, *global_cares_channel, handler);
-     
+
      ConsoleOperationEnvironment env;
      if (!port->WaitConnected(env)) {
        return EXIT_FAILURE;
      }
-     
+
      // Interact with device
      return EXIT_SUCCESS;
    }
@@ -247,24 +269,24 @@ utilities. It provides:
    DebugReplay *replay = CreateDebugReplay(args);
    if (replay == NULL)
      return EXIT_FAILURE;
-   
+
    while (replay->Next()) {
      const MoreData &basic = replay->Basic();
      const DerivedInfo &calculated = replay->Calculated();
-     
+
      // Access GPS data
      if (basic.location_available) {
        GeoPoint location = basic.location;
        // ...
      }
-     
+
      // Access calculated values
      if (calculated.estimated_wind_available) {
        SpeedVector wind = calculated.estimated_wind;
        // ...
      }
    }
-   
+
    delete replay;
 
 **Available data**:
@@ -319,6 +341,51 @@ Tests wind estimation algorithms.
 - Processes flight data through wind computer
 - Outputs wind estimates over time
 - Useful for debugging wind calculation algorithms
+
+RunFlyingComputer
+~~~~~~~~~~~~~~~~~
+
+Prints **take-off**, **release**, and **landing** lines from the same
+``FlyingComputer`` logic as ``DebugReplay`` (optionally with a polar from
+``PolarStore`` instead of the built-in default).
+
+**Synopsis** (``[]`` = optional, ``<>`` = operands; full text with ``--help``):
+
+.. code-block:: text
+
+   RunFlyingComputer [OPTION]... <driver> <file>
+       RunFlyingComputer [OPTION]... <file>
+
+**Usage**:
+
+.. code-block:: bash
+
+   ./output/UNIX/bin/RunFlyingComputer flight.igc
+   ./output/UNIX/bin/RunFlyingComputer --polar="Para EN C/DHV2" INTERNAL flight.nmea
+   ./output/UNIX/bin/RunFlyingComputer --list-polars
+   ./output/UNIX/bin/RunFlyingComputer --help
+   ./output/UNIX/bin/RunFlyingComputer --version
+
+**Polar options**:
+
+- ``--polar=name`` or ``--polar name`` — catalog polar (case-insensitive name
+  match); unknown names suggest ``--list-polars``. Omit ``--polar`` to use
+  ``DebugReplay``'s built-in default glide polar (``GlidePolar(1)``); there is
+  no separate ``--polar-default`` option.
+- ``--list-polars`` — print all catalog names and exit.
+
+**CLI conventions** (same behaviour as many Unix utilities and the GNU Coding
+Standards §4.8 model; XCSoar is not a GNU package):
+
+- ``-h`` / ``--help`` — brief usage on standard output; exits successfully; does
+  not run replay (remaining arguments are ignored once ``--help`` is seen).
+  Ends with ``Report bugs to:`` and ``<product> home page:`` (URLs from
+  ``ProductName.hpp``).
+- ``--version`` — canonical tool name, ``XCSoar`` package version, copyright and
+  GPLv2+ notice on standard output; exits successfully.
+
+At most one ``--polar`` selection. Options must appear before ``<driver> <file>``
+or before ``<file>`` (single-operand form).
 
 RunDeviceDriver
 ~~~~~~~~~~~~~~~
@@ -434,7 +501,7 @@ data over the network:
 
    # Terminal 1: Start FeedNMEA as TCP server
    cat flight.nmea | ./output/UNIX/bin/FeedNMEA tcp 4353
-   
+
    # Terminal 2: XCSoar connects to localhost:4353 to receive NMEA data
    # Configure XCSoar device port as "TCP Client" with host "localhost" and port 4353
 
@@ -468,7 +535,7 @@ FeedNMEA is particularly useful for testing XCSoar under WINE:
    # Convert IGC to NMEA and feed to serial port
    ./output/UNIX/bin/IGC2NMEA test/data/01lz1hq1.igc /tmp/flight.nmea
    cat /tmp/flight.nmea | ./output/UNIX/bin/FeedNMEA /dev/ttyUSB0 57600
-   
+
    # Or feed to TCP server for network testing
    cat /tmp/flight.nmea | ./output/UNIX/bin/FeedNMEA tcp 4353
 
@@ -515,7 +582,7 @@ actual hardware. Supports Vega, FLARM, and ATR833 devices.
 
    # Terminal 1: Start device emulator
    ./output/UNIX/bin/EmulateDevice FLARM /tmp/flarm 57600
-   
+
    # Terminal 2: Connect XCSoar to /tmp/flarm and test FLARM features
    # XCSoar will send commands, emulator will respond appropriately
 
@@ -689,7 +756,7 @@ device connection issues.
 Monitoring Device Communication with socat
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-`socat` is a powerful command-line utility available in Debian/Ubuntu that can
+``socat`` is a powerful command-line utility available in Debian/Ubuntu that can
 monitor bidirectional serial port traffic between XCSoar and devices. This is
 useful for debugging device communication protocols and seeing all NMEA
 sentences in both directions.
@@ -711,8 +778,7 @@ To monitor a serial port and see all traffic in both directions:
 
 The flags:
 - ``-x``: Shows hex dump of all data
-- ``-v``: Verbose output with direction indicators (``>`` for TX, ``<`` for
-  RX)
+- ``-v``: Verbose output with direction indicators (``>`` for TX, ``<`` for RX)
 - ``-``: Outputs to stdout
 
 **Spying on XCSoar Device Communication**:
@@ -740,8 +806,7 @@ If you can temporarily disconnect the device, monitor it directly:
 
 This will:
 - Display all traffic in real-time with hex dumps
-- Show direction indicators (``>`` for data sent to device, ``<`` for data
-  received from device)
+- Show direction indicators (``>`` for data sent to device, ``<`` for data received from device)
 - Save output to ``device_traffic.log`` file
 
 **What it does**:
@@ -754,6 +819,134 @@ This will:
 
 **Note**: Requires Debian/Ubuntu package ``socat``. The device port must be
 available (not in use by XCSoar) when monitoring directly.
+
+RunLXNAVPolarEcho
+~~~~~~~~~~~~~~~~~
+
+Hardware check for LXNAV ``PLXV0,POLAR`` coefficient conversion and
+safe full-POLAR rewrites (#2397).  Use with a V7, S80, S10, or compatible
+vario on a free serial/USB port (XCSoar must not hold the port).
+
+**Build**::
+
+   make -j$(nproc) TARGET=UNIX USE_CCACHE=y output/UNIX/bin/RunLXNAVPolarEcho
+   make -j$(nproc) TARGET=WIN64OPENGL USE_CCACHE=y output/WIN64OPENGL/bin/RunLXNAVPolarEcho.exe
+
+**Usage**::
+
+   ./output/UNIX/bin/RunLXNAVPolarEcho /dev/ttyUSB0 115200
+   ./output/UNIX/bin/RunLXNAVPolarEcho /dev/ttyUSB0 115200 --read-only
+   ./output/UNIX/bin/RunLXNAVPolarEcho /dev/ttyUSB0 115200 --preserve-crew
+   ./output/WIN64OPENGL/bin/RunLXNAVPolarEcho.exe COM3 115200
+
+**Modes**:
+
+- default: write a known Hornet sample polar, read it back, verify SI
+  round-trip of a,b,c
+- ``--read-only``: only ``PLXV0,POLAR,R``; print LX and SI coefficients
+  (non-destructive snapshot of the vario polar)
+- ``--preserve-crew``: after a successful read, rewrite a *full* POLAR
+  sentence with pilot weight 95 kg and check that a,b,c, max weight and
+  name are unchanged (guards against empty-field polar wipes)
+
+**Exit status**: ``0`` on success, non-zero on timeout or mismatch.
+
+RunLXNAVPlaneSwitch
+~~~~~~~~~~~~~~~~~~~~
+
+Hardware check for the two plane-switch sequences.  It talks to an
+LXNAV vario, prints what the vario stored, and writes the original
+polar and ballast back before it exits.  Quit XCSoar first so the
+port is free.  Do not interrupt the program while it is running.
+
+**Build**::
+
+   make -j$(nproc) TARGET=UNIX USE_CCACHE=y output/UNIX/bin/RunLXNAVPlaneSwitch
+
+**Usage**::
+
+   ./output/UNIX/bin/RunLXNAVPlaneSwitch /dev/ttyUSB0 115200 --read-only
+   ./output/UNIX/bin/RunLXNAVPlaneSwitch /dev/ttyUSB0 115200
+
+``--read-only`` prints the polar and the ballast overload and does not
+write.  The default run does two sequences:
+
+- Request ``PLXV0,POLAR,R``, then write a full polar whose only change
+  is a pending empty mass, then write another full polar with a
+  different empty mass.  This is the wire shape of an empty mass that
+  was waiting for the first polar and is still sent after a plane
+  switch.
+- Set a modest water ballast, write a full polar that raises the empty
+  mass by 20 kg, and do not send ``PLXV0,BAL``.  Then send the
+  ``PLXV0,BAL`` that keeps the same litres.  This is the wire shape of
+  activating another plane.
+- Write a maximum weight 10 kg above the stored value, then restore it.
+- Write a ballast factor whose all-up weight exceeds the maximum
+  weight, then a maximum weight below the loaded mass, then an empty
+  mass that already exceeds the maximum weight.  The program prints
+  whether the vario stored, clamped, or ignored each one.
+
+**Exit status**: ``0`` when the plane-switch writes were stored and the
+original polar and ballast were restored.  An over-MTOW value the vario
+refuses is still success.  Non-zero on timeout, a plane-switch write the
+vario did not store, or a restore that did not read back.
+
+LXNAV polar sync — manual XCSoar checklist (#2397)
+--------------------------------------------------
+
+Automated unit tests cover conversion and write shaping.  Confirm on a
+real S10/S80 (or V7) with XCSoar before merging polar-sync changes.
+
+Prerequisites
+^^^^^^^^^^^^^
+
+- LXNAV driver selected; note baud rate and ``Sync from/to device``
+- Plane profile: reference mass, empty mass, pilot weight, and max
+  ballast match the vario (or use polar sync Receive to import them)
+- Enable NMEA logger on the device port if you need a recording
+
+A. Coefficient harness (no full UI)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+1. Quit XCSoar so the serial port is free.
+2. Run ``RunLXNAVPolarEcho PORT BAUD`` then
+   ``RunLXNAVPolarEcho PORT BAUD --preserve-crew``.
+3. Expect ``Round-trip vs sent SI: OK`` and
+   ``Preserve coefficients after crew rewrite: OK``.
+
+B. Polar sync Receive (ballast kg)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+1. Device dialog: **Polar sync = Receive from device**.
+2. Connect; wait for “Polar received from device” (or confirm masses
+   updated in Basic settings / plane).
+3. On the vario set MacCready and water ballast to a known full value
+   (e.g. 180 kg).
+4. XCSoar ballast litres / kg should match within a few kg (same
+   reference, empty, and pilot masses).
+5. Change MC on the vario; XCSoar MC should follow.
+
+C. Polar sync Send (must not corrupt vario)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+1. Note the vario’s polar name, MC speed-to-fly at a fixed MC (e.g. 1.2),
+   and ballast display **before** connecting.
+2. Device dialog: **Polar sync = Send to device**; plane polar in XCSoar
+   must be the intended glider polar.
+3. Connect and wait for polar send.
+4. On the vario, MC speeds and polar must remain plausible (not
+   ±10 m/s nonsense, not 180 km/h at MC 1.2 with no water on a Ventus).
+5. Optional: ``RunLXNAVPolarEcho PORT BAUD --read-only`` afterwards and
+   confirm a,b,c are still non-tiny LX values (order ~1, not ~0.002).
+
+D. Crew / empty mass without wiping polar
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+1. Polar sync Off or Receive; connect so XCSoar has seen a POLAR reply.
+2. Change pilot weight in XCSoar Basic settings (sync to device on).
+3. Vario polar and STF must stay sane; pilot weight updates.
+4. Optional NMEA log: outgoing ``PLXV0,POLAR,W`` must include non-empty
+   a,b,c (not ``PLXV0,POLAR,W,,,,,,,,``).
 
 CAI302Tool
 ~~~~~~~~~~
@@ -849,7 +1042,7 @@ Tests observation zone (OZ) rendering for different task zone types.
 - Line, Cylinder, MAT Cylinder
 - Sector, FAI Sector, Annular Sector
 - DAeC Keyhole, BGA Fixed Course, BGA Enhanced Option
-- BGA Start, Symmetric Quadrant, Custom Keyhole
+- BGA Start, Symmetric Sector, Custom Keyhole
 
 RunChartRenderer
 ~~~~~~~~~~~~~~~~
@@ -973,24 +1166,24 @@ To create a new Run* utility:
 
    // SPDX-License-Identifier: GPL-2.0-or-later
    // Copyright The XCSoar Project
-   
+
    #include "system/Args.hpp"
    #include "DebugReplay.hpp"
-   
+
    #include <stdio.h>
    #include <stdlib.h>
-   
+
    int main(int argc, char **argv)
    {
      Args args(argc, argv, "USAGE");
      DebugReplay *replay = CreateDebugReplay(args);
      if (replay == NULL)
        return EXIT_FAILURE;
-     
+
      args.ExpectEnd();
-     
+
      // Your processing logic here
-     
+
      delete replay;
      return EXIT_SUCCESS;
    }
@@ -1045,4 +1238,3 @@ Additional Resources
 - ``test/src/DebugPort.hpp``: Device port utilities
 - ``test/data/``: Sample flight data files for testing
 - ``build/test.mk``: Build system definitions for all utilities
-

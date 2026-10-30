@@ -2,17 +2,31 @@ ifeq ($(TARGET_IS_IOS),y)
 
 TARGET_LDLIBS += -framework UIKit
 
+# the task QR code scanner in Apple/QRScanner.cpp reads camera frames:
+# CMSampleBuffer* lives in CoreMedia, CVPixelBuffer* in CoreVideo
+TARGET_LDLIBS += -framework CoreMedia
+TARGET_LDLIBS += -framework CoreVideo
+
 IPA_TMPDIR = $(TARGET_OUTPUT_DIR)/ipa
 
 IPA_NAME = xcsoar.ipa
 IOS_APP_DIR_NAME = XCSoar.app
+IOS_DSYM_NAME = $(IOS_APP_DIR_NAME).dSYM
+IOS_DSYM = $(TARGET_OUTPUT_DIR)/$(IOS_DSYM_NAME)
+IOS_DSYM_INPUT = $(TARGET_OUTPUT_DIR)/dsym-input/XCSoar
 
 ifeq ($(wildcard VERSION.txt),)
 $(error VERSION.txt is missing)
 endif
 
 IOS_PATCH_VERSION ?= 0
-IOS_APP_VERSION ?= $(shell cat VERSION.txt).$(IOS_PATCH_VERSION)
+# Patch releases put X.Y.Z in VERSION.txt.  Two-part VERSION.txt still
+# appends IOS_PATCH_VERSION so CFBundleShortVersionString is X.Y.Z.
+ifeq ($(words $(subst ., ,$(VERSION))),2)
+IOS_APP_VERSION ?= $(VERSION).$(IOS_PATCH_VERSION)
+else
+IOS_APP_VERSION ?= $(VERSION_SHORT)
+endif
 IOS_APP_BUILD_NUMBER ?= 1
 
 ifeq ($(TESTING),y)
@@ -101,8 +115,29 @@ $(TARGET_OUTPUT_DIR)/$(IPA_NAME): $(TARGET_BIN_DIR)/xcsoar $(TARGET_OUTPUT_DIR)/
 	$(Q)cp $(TARGET_OUTPUT_DIR)/Info.plist $(IPA_TMPDIR)/Payload/$(IOS_APP_DIR_NAME)
 	$(Q)cp -r $(IOS_GRAPHICS_DIR)/. $(IPA_TMPDIR)/Payload/$(IOS_APP_DIR_NAME)
 	$(Q)cp -r $(DATA)/sound/. $(IPA_TMPDIR)/Payload/$(IOS_APP_DIR_NAME)
-	$(Q)cd $(IPA_TMPDIR) && $(ZIP) -r ../$(IPA_NAME) ./*
+	$(Q)cd $(IPA_TMPDIR) && $(ZIP) -qr ../$(IPA_NAME) ./*
 
 ipa: $(TARGET_OUTPUT_DIR)/$(IPA_NAME)
+
+# Generate the dSYM from an identically named copy of the executable that is
+# shipped in the IPA, and verify that both retain the same build UUID.
+$(IOS_DSYM_INPUT): $(TARGET_BIN_DIR)/xcsoar
+	@$(NQ)echo "  CP      $@"
+	$(Q)$(MKDIR) -p $(@D)
+	$(Q)cp $< $@
+
+$(IOS_DSYM): $(IOS_DSYM_INPUT)
+	@$(NQ)echo "  DSYM    $@"
+	$(Q)rm -rf $@
+	$(Q)xcrun dsymutil $(IOS_DSYM_INPUT) -o $@
+	$(Q)binary_uuid="$$(xcrun dwarfdump --uuid $(TARGET_BIN_DIR)/xcsoar | awk '{ print $$2 }' | LC_ALL=C sort | tr '\n' ' ')"; \
+	  dsym_uuid="$$(xcrun dwarfdump --uuid $@ | awk '{ print $$2 }' | LC_ALL=C sort | tr '\n' ' ')"; \
+	  test -n "$$binary_uuid" && test "$$binary_uuid" = "$$dsym_uuid" || { \
+	    echo "dSYM UUID mismatch: binary=$$binary_uuid dSYM=$$dsym_uuid" >&2; \
+	    exit 1; \
+	  }
+
+.PHONY: ios-dsym
+ios-dsym: $(IOS_DSYM)
 
 endif

@@ -10,7 +10,8 @@ File Location
 XCSoar looks for checklist files in the following locations:
 
 1. The file specified in **Site Files > Checklist** setting
-2. ``xcsoar-checklist.txt`` in the XCSoar data directory
+2. ``xcsoar-checklist.txt`` in the XCSoar data directory (typically
+   :file:`checklists/xcsoar-checklist.txt`; see :doc:`data_directory`)
 3. Legacy: Files with ``.xcc`` extension in legacy search paths
 
 The XCSoar data directory is typically:
@@ -76,6 +77,11 @@ Interactive checkboxes that can be toggled by clicking or pressing Enter::
     - [ ] Unchecked item
     - [x] Checked item
 
+Ticks are remembered while XCSoar is running.  Closing and reopening
+the dialog keeps them.  They reset when you select a different
+checklist file in Site Files, or when you restart XCSoar.  Editing the
+page text in the file also drops that page's saved ticks.
+
 Links
 -----
 
@@ -114,6 +120,11 @@ Open XCSoar dialogs and settings directly from your checklist.
     [Status](xcsoar://dialog/status)
     [Checklist](xcsoar://dialog/checklist)
 
+**Sound test**: play the example of the spoken FLARM alerts, "Traffic
+urgent! Twelve o'clock. Above.", to check the voice and the volume::
+
+    - [ ] FLARM voice audible [Test](xcsoar://sound/test)
+
 Communication Links
 ~~~~~~~~~~~~~~~~~~~
 
@@ -122,6 +133,21 @@ Phone and messaging::
     [Call](tel:+1234567890)
     [Email](mailto:pilot@example.com?subject=Flight%20Report)
     [SMS](sms:+1234567890?body=Status%20update)
+
+VHF radio (vhf:)
+~~~~~~~~~~~~~~~~
+
+Set the COM **standby** or **active** frequency in XCSoar (and forward it to
+compatible devices when configured). The link must end with ``#standby`` or
+``#active`` after the MHz value. Use a markdown link ``[name](vhf:…#…)`` so the
+station or service name is stored for the radio; the on-screen label combines
+name and frequency. A short confirmation appears after a successful tap;
+invalid links show a warning.
+
+**Examples**::
+
+    [Tower](vhf:118.650#active)
+    [Information](vhf:122.800#standby)
 
 Messaging Apps
 ~~~~~~~~~~~~~~
@@ -231,7 +257,7 @@ Here is a complete example checklist file for glider operations::
     - [Location](geo:47.5,8.5)
 
     [References]
-    - [XCSoar Manual](https://xcsoar.org/discover/manual.html)
+    - [XCSoar Manual](https://xcsoar.org/docs/#manual)
     - [Weather](https://www.windy.com)
 
 Supported URI Schemes
@@ -245,6 +271,8 @@ Supported URI Schemes
 | ``https://``      | Secure web pages                 | All                    |
 +-------------------+----------------------------------+------------------------+
 | ``xcsoar://``     | Internal dialogs                 | All                    |
++-------------------+----------------------------------+------------------------+
+| ``vhf:``          | Set COM standby or active        | All                    |
 +-------------------+----------------------------------+------------------------+
 | ``tel:``          | Phone calls                      | Mobile, Desktop*       |
 +-------------------+----------------------------------+------------------------+

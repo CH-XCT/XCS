@@ -5,15 +5,47 @@
 #include "system/Path.hpp"
 
 AllocatedPath
-LocalPath([[maybe_unused]] Path file) noexcept
+LocalPath(Path file) noexcept
+{
+  return AllocatedPath(file);
+}
+
+AllocatedPath
+LocalPath(const char *file) noexcept
+{
+  return file != nullptr ? AllocatedPath(file) : nullptr;
+}
+
+Path
+RelativePath(Path path) noexcept
+{
+  return path;
+}
+
+AllocatedPath
+ExpandLocalPath(Path src) noexcept
+{
+  return AllocatedPath(src);
+}
+
+AllocatedPath
+ContractLocalPath([[maybe_unused]] Path src) noexcept
 {
   return nullptr;
 }
 
-AllocatedPath
-LocalPath([[maybe_unused]] const char *file) noexcept
+Path
+GetCachePath() noexcept
 {
-  return nullptr;
+  return Path("cache");
+}
+
+AllocatedPath
+MakeCacheDirectory(const char *name) noexcept
+{
+  return name != nullptr
+    ? AllocatedPath::Build(Path("cache"), Path(name))
+    : AllocatedPath("cache");
 }
 
 void

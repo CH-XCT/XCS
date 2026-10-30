@@ -18,7 +18,7 @@ enum Controls {
   GPS,
   NumSat,
   Vario,
-  FLARM,
+  FlarmStatus,
   Logger,
   Battery,
   Network,
@@ -36,20 +36,6 @@ GetGPSStatus(const NMEAInfo &basic) noexcept
     return N_("2D fix");
   else
     return N_("3D fix");
-}
-
-static const char *const net_state_strings[] = {
-  N_("Unknown"),
-  N_("Disconnected"),
-  N_("Connected"),
-  N_("Roaming"),
-};
-
-[[gnu::pure]]
-static const char *
-ToString(NetState state) noexcept
-{
-  return gettext(net_state_strings[unsigned(state)]);
 }
 
 void
@@ -75,9 +61,9 @@ SystemStatusPanel::Refresh() noexcept
   if (basic.netto_vario_available)
     SetText(Vario, _("Netto"));
   else if (basic.total_energy_vario_available)
-    SetText(Vario, _("Total energy"));
+    SetText(Vario, C_("Status", "Total energy"));
   else if (basic.noncomp_vario_available)
-    SetText(Vario, _("Uncompensated"));
+    SetText(Vario, C_("Status", "Uncompensated"));
   else
     SetText(Vario, _("Disconnected"));
 
@@ -93,7 +79,7 @@ SystemStatusPanel::Refresh() noexcept
     Temp.push_back(')');
   }
 
-  SetText(FLARM, Temp);
+  SetText(FlarmStatus, Temp);
 
   SetText(Logger, backend_components->igc_logger != nullptr &&
           backend_components->igc_logger->IsLoggerActive()
@@ -114,7 +100,7 @@ SystemStatusPanel::Refresh() noexcept
 
   SetText(Battery, Temp);
 
-  SetText(Network, ToString(GetNetState()));
+  SetText(Network, NetStateText::ToString(GetNetState()));
 }
 
 void

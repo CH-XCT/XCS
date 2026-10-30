@@ -6,10 +6,13 @@
 #include "system/PathName.hpp"
 #include "system/Process.hpp"
 #include "system/Sleep.h"
+#include "util/EnvParser.hpp"
 #include "util/StaticString.hxx"
 
 #include <unistd.h>
 #include <sys/stat.h>
+
+#include <cstdio>
 
 #ifdef KOBO
 
@@ -17,6 +20,30 @@
 
 #include <sys/mount.h>
 #include <errno.h>
+
+static constexpr const char *kobo_config_dir = "/mnt/onboard/XCSoarData/kobo";
+static constexpr const char *kobo_wifi_auto_on_path =
+  "/mnt/onboard/XCSoarData/kobo/wifi_auto_on";
+static constexpr const char *kobo_power_off_fd_env =
+  "XCSOAR_KOBO_POWER_OFF_FD";
+
+static bool
+WaitForPath(const char *path, unsigned timeout_ms) noexcept
+{
+  if (path == nullptr)
+    return false;
+
+  constexpr unsigned step_ms = 100;
+
+  for (unsigned elapsed = 0; elapsed < timeout_ms; elapsed += step_ms) {
+    if (File::Exists(Path(path)))
+      return true;
+
+    Sleep(step_ms);
+  }
+
+  return File::Exists(Path(path));
+}
 
 template<typename... Args>
 static bool
@@ -67,6 +94,21 @@ KoboPowerOff()
 
   /* fall back */
   return Run("/sbin/poweroff");
+#else
+  return false;
+#endif
+}
+
+bool
+KoboRequestPowerOff() noexcept
+{
+#ifdef KOBO
+  const int fd = GetEnvInt(kobo_power_off_fd_env, -1, 3, 1024);
+  if (fd < 0)
+    return false;
+
+  constexpr char value = 'P';
+  return write(fd, &value, 1) == 1;
 #else
   return false;
 #endif
@@ -179,11 +221,55 @@ bool
 IsKoboWifiOn()
 {
 #ifdef KOBO
-  char path[64];
-  sprintf(path, "/sys/class/net/%s", GetKoboWifiInterface());
+  StaticString<64> path;
+  path.Format("/sys/class/net/%s", GetKoboWifiInterface());
   return Directory::Exists(Path{path});
 #else
   return false;
+#endif
+}
+
+bool
+IsKoboWifiAutoOn()
+{
+#ifdef KOBO
+  return File::Exists(Path(kobo_wifi_auto_on_path));
+#else
+  return false;
+#endif
+}
+
+bool
+SetKoboWifiAutoOn(bool enabled)
+{
+#ifdef KOBO
+  if (mkdir("/mnt/onboard/XCSoarData", 0777) != 0 && errno != EEXIST)
+    return false;
+  if (mkdir(kobo_config_dir, 0777) != 0 && errno != EEXIST)
+    return false;
+
+  if (enabled)
+    return File::CreateExclusive(Path(kobo_wifi_auto_on_path)) ||
+      File::Exists(Path(kobo_wifi_auto_on_path));
+
+  return File::Delete(Path(kobo_wifi_auto_on_path)) ||
+    !File::Exists(Path(kobo_wifi_auto_on_path));
+#else
+  (void)enabled;
+  return false;
+#endif
+}
+
+void
+ApplyKoboWifiAutoOn()
+{
+#ifdef KOBO
+  if (IsKoboWifiAutoOn()) {
+    if (!IsKoboWifiOn())
+      KoboWifiOn();
+  } else if (IsKoboWifiOn()) {
+    KoboWifiOff();
+  }
 #endif
 }
 
@@ -251,7 +337,9 @@ KoboWifiOn()
       "-c", "/etc/wpa_supplicant/wpa_supplicant.conf",
       "-C", "/var/run/wpa_supplicant", "-B", "-D", driver);
 
-  Sleep(2000);
+  StaticString<128> control_path;
+  control_path.Format("/var/run/wpa_supplicant/%s", interface);
+  WaitForPath(control_path.c_str(), 3000);
 
   Start("/sbin/udhcpc", "-S", "-i", interface,
         "-s", "/etc/udhcpc.d/default.script",
@@ -299,7 +387,7 @@ KoboExecNickel()
 #endif
 }
 
-void
+bool
 KoboRunXCSoar([[maybe_unused]] const char *mode)
 {
 #ifdef KOBO
@@ -309,8 +397,33 @@ KoboRunXCSoar([[maybe_unused]] const char *mode)
   if (!SiblingPath("xcsoar", buffer, sizeof(buffer)))
     cmd = "/mnt/onboard/XCSoar/xcsoar";
 
+  int pipe_fds[2];
+  if (pipe(pipe_fds) != 0) {
+    Run(cmd, mode);
+    return false;
+  }
+
+  char fd_string[16];
+  snprintf(fd_string, sizeof(fd_string), "%d", pipe_fds[1]);
+  if (setenv(kobo_power_off_fd_env, fd_string, 1) != 0) {
+    close(pipe_fds[0]);
+    close(pipe_fds[1]);
+    Run(cmd, mode);
+    return false;
+  }
+
   Run(cmd, mode);
+  unsetenv(kobo_power_off_fd_env);
+
+  close(pipe_fds[1]);
+  char value;
+  const ssize_t nbytes = read(pipe_fds[0], &value, 1);
+  close(pipe_fds[0]);
+
+  return nbytes == 1 && value == 'P';
 #endif
+
+  return false;
 }
 
 void

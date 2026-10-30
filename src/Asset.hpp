@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "DisplayType.hpp"
+
 #ifdef ANDROID
 #include "Android/Product.hpp"
 #endif
@@ -143,20 +145,26 @@ HasPointer() noexcept
 
 #endif
 
+#if !defined(USE_LIBINPUT) && !defined(USE_WAYLAND)
+#include "CommandLine.hpp"
+#endif
+
 /**
  * Does this device have a touch screen?  This is useful to know for
  * sizing controls, as a touch screen may require bigger areas.
+ * The @c -touchscreen and @c -notouchscreen switches (when the host
+ * supports the command line) can override autodetection.
  */
 #if defined(USE_LIBINPUT) || defined(USE_WAYLAND)
 [[gnu::pure]]
 bool
 HasTouchScreen() noexcept;
 #else
-constexpr
 static inline bool
 HasTouchScreen() noexcept
 {
-  return IsAndroid() || IsKobo() || IsIOS();
+  return CommandLine::ApplyTouchInputOverride(
+    IsAndroid() || IsKobo() || IsIOS());
 }
 #endif
 
@@ -238,9 +246,17 @@ IsDithered() noexcept
  * Such screens need some special cases, because they are very slow
  * and show ghosting.  Animations shall be disabled when this function
  * returns true.
+ *
+ * Driven by #DisplaySettings::display_type via #SetDisplayType().
+ * Defaults to e-ink on Kobo and LCD elsewhere.
  */
-static constexpr bool
-HasEPaper() noexcept
-{
-  return IsKobo();
-}
+void
+SetDisplayType(DisplayType type) noexcept;
+
+[[gnu::pure]]
+DisplayType
+GetDisplayType() noexcept;
+
+[[gnu::pure]]
+bool
+HasEPaper() noexcept;

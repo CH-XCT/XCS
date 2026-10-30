@@ -30,8 +30,16 @@
 #include "ui/canvas/opengl/Dynamic.hpp" // for GLExt::discard_framebuffer
 #endif
 
-#ifdef DRAW_MOUSE_CURSOR
+#if defined(DRAW_MOUSE_CURSOR) || defined(DRAW_REDRAW_COUNTER)
 #include "Screen/Layout.hpp"
+#endif
+
+#ifdef DRAW_REDRAW_COUNTER
+#include "Look/FontDescription.hpp"
+#include "ui/canvas/Color.hpp"
+#include "ui/canvas/Font.hpp"
+#include <fmt/format.h>
+#include <chrono>
 #endif
 
 namespace UI {
@@ -43,7 +51,21 @@ TopWindow::~TopWindow() noexcept
 #endif
 
   delete screen;
+  screen = nullptr;
+#ifdef USE_WAYLAND
+  DestroyNative();
+#endif
 }
+
+#ifdef ENABLE_OPENGL
+unsigned
+TopWindow::GetPresentationBufferCount() const noexcept
+{
+  return screen != nullptr
+    ? screen->GetPresentationBufferCount()
+    : 4;
+}
+#endif
 
 void
 TopWindow::Create([[maybe_unused]] const char *text, PixelSize size,
@@ -60,8 +82,6 @@ TopWindow::Create([[maybe_unused]] const char *text, PixelSize size,
 
 #ifdef ENABLE_SDL
   screen = new TopCanvas(display, window);
-#elif defined(USE_GLX)
-  screen = new TopCanvas(display, x_window);
 #elif defined(USE_X11)
   screen = new TopCanvas(display, x_window);
 #elif defined(USE_WAYLAND)
@@ -96,6 +116,10 @@ TopWindow::Create([[maybe_unused]] const char *text, PixelSize size,
   if (native_size.width > 0 && native_size.height > 0)
     size = native_size;
   // else keep the original size (which should be from SystemWindowSize() with fallback)
+#endif
+
+#ifdef USE_WAYLAND
+  size = screen->GetSize();
 #endif
   ContainerWindow::Create(nullptr, PixelRect{size}, style);
 }
@@ -169,6 +193,61 @@ TopWindow::DrawMouseCursor(Canvas &canvas) noexcept
 
 #endif
 
+#ifdef DRAW_REDRAW_COUNTER
+
+inline void
+TopWindow::DrawRedrawCounter(Canvas &canvas) noexcept
+{
+  using namespace std::chrono;
+
+  ++redraw_count;
+  ++hz_window_frames;
+
+  const auto now = steady_clock::now();
+  if (hz_window_start.time_since_epoch().count() == 0)
+    hz_window_start = now;
+
+  const auto elapsed = now - hz_window_start;
+  if (elapsed >= seconds{1}) {
+    const double seconds_elapsed =
+      duration<double>(elapsed).count();
+    if (seconds_elapsed > 0)
+      redraw_hz = hz_window_frames / seconds_elapsed;
+    hz_window_start = now;
+    hz_window_frames = 0;
+  }
+
+  static Font font;
+  if (!font.IsDefined()) {
+    try {
+      font.Load(FontDescription(Layout::FontScale(12)));
+    } catch (...) {
+      return;
+    }
+  }
+
+  const auto text = fmt::format("R:{}  {:.1f}/s",
+                                redraw_count, redraw_hz);
+  const PixelSize text_size = font.TextSize(text);
+  const int pad = Layout::Scale(2);
+  const PixelRect box{
+    pad,
+    pad,
+    pad + int(text_size.width) + pad * 2,
+    pad + int(text_size.height) + pad * 2,
+  };
+
+  canvas.DrawFilledRectangle(box, COLOR_WHITE);
+  canvas.Select(font);
+  canvas.SetTextColor(COLOR_BLACK);
+  canvas.SetBackgroundColor(COLOR_WHITE);
+  canvas.DrawText({box.left + pad, box.top + pad}, text);
+}
+
+#endif
+
+/** \brief Draw the entire scene onto the screen canvas.
+ */
 void
 TopWindow::Expose() noexcept
 {
@@ -182,11 +261,28 @@ TopWindow::Expose() noexcept
 #endif
 
   if (auto canvas = screen->Lock(); canvas.IsDefined()) {
+#if defined(ANDROID) || (defined(__APPLE__) && TARGET_OS_IPHONE)
+    /* On a device with a display cutout or system bars, XCSoar does
+       not necessarily paint every pixel: the user interface may be
+       restricted to the safe area.  Clear the canvas first, or the
+       remaining areas would keep showing stale frame buffer
+       contents. */
+    if (const PixelRect safe_rc = GetSafeAreaRect(),
+          full_rc = PixelRect{canvas.GetSize()};
+        safe_rc.left > full_rc.left || safe_rc.top > full_rc.top ||
+        safe_rc.right < full_rc.right || safe_rc.bottom < full_rc.bottom)
+      canvas.Clear(COLOR_BLACK);
+#endif
+
     OnPaint(canvas);
 
 #ifdef DRAW_MOUSE_CURSOR
     if (std::chrono::steady_clock::now() < cursor_visible_until)
       DrawMouseCursor(canvas);
+#endif
+
+#ifdef DRAW_REDRAW_COUNTER
+    DrawRedrawCounter(canvas);
 #endif
 
     screen->Unlock();
@@ -197,7 +293,7 @@ TopWindow::Expose() noexcept
 #if defined(ENABLE_OPENGL) && defined(GL_EXT_discard_framebuffer) && \
   (defined(ANDROID) || defined(MESA_KMS))
   /* On mobile/KMS style backends, discarding the previous window
-     contents can save bandwidth.  Desktop EGL/GLX compositors may
+     contents can save bandwidth.  Desktop EGL compositors may
      still read from the just-swapped window surface, so avoid this
      optimisation there. */
   if (GLExt::discard_framebuffer != nullptr) {
@@ -220,6 +316,14 @@ TopWindow::Refresh() noexcept
     /* the application is paused/suspended, and we don't have an
        OpenGL surface - ignore all drawing requests */
     return;
+	
+#ifdef MESA_KMS
+  if (!screen->CheckAndFinishPendingFlip()) {
+    /* A buffer flip is ongoing. Refrain from rendering now.*/
+    return;
+  }
+#endif
+
 
 #if defined(USE_X11) || defined(USE_WAYLAND)
   if (!IsVisible())
@@ -228,10 +332,21 @@ TopWindow::Refresh() noexcept
     return;
 #endif
 
+#ifdef USE_WAYLAND
+  /* Leave invalidated set.  The frame callback pushes EXPOSE when
+     the compositor is ready for another buffer. */
+  if (IsFramePending())
+    return;
+#endif
+
   if (!invalidated)
     return;
 
   invalidated = false;
+
+#ifdef USE_WAYLAND
+  ArmFrameCallback();
+#endif
 
   Expose();
 }

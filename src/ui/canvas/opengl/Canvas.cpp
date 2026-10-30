@@ -3,10 +3,10 @@
 
 #include "Canvas.hpp"
 #include "Triangulate.hpp"
+#include "Asset.hpp"
 #include "Globals.hpp"
 #include "Texture.hpp"
 #include "Scope.hpp"
-#include "VertexArray.hpp"
 #include "Buffer.hpp"
 #include "VertexPointer.hpp"
 #include "ExactPixelPoint.hpp"
@@ -48,6 +48,49 @@ GLDrawRectangle(const PixelRect r) noexcept
 
   const ScopeVertexPointer vp{vertices};
   glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+static void
+GLDrawOutlineRectangleEdges(PixelRect r, unsigned width,
+                            const Color &color) noexcept
+{
+  if (r.IsEmpty() || width == 0)
+    return;
+
+  const int left = r.left;
+  const int top = r.top;
+  const int right = r.right;
+  const int bottom = r.bottom;
+  const int w = int(width);
+
+  if (right - left <= w || bottom - top <= w)
+    return;
+
+  OpenGL::solid_shader->Use();
+  color.Bind();
+
+  GLDrawRectangle({left, top, right, top + w});
+  GLDrawRectangle({left, bottom - w, right, bottom});
+  GLDrawRectangle({left, top + w, left + w, bottom - w});
+  GLDrawRectangle({right - w, top + w, right, bottom - w});
+}
+
+static void
+GLDrawLineLoopOutline(ScopeVertexPointer &vp,
+                      const BulkPixelPoint *points, unsigned num_points,
+                      unsigned pen_width,
+                      AllocatedArray<BulkPixelPoint> &buffer) noexcept
+{
+  if (UseOpenGLLineLoopOutline(pen_width))
+    glDrawArrays(GL_LINE_LOOP, 0, num_points);
+  else {
+    unsigned vertices = LineToTriangles(points, num_points, buffer,
+                                        pen_width, true);
+    if (vertices > 0) {
+      vp.Update(buffer.data());
+      glDrawArrays(GL_TRIANGLE_STRIP, 0, vertices);
+    }
+  }
 }
 
 void
@@ -104,39 +147,19 @@ Canvas::DrawFilledRectangle(PixelRect r, const Color color) noexcept
 void
 Canvas::DrawOutlineRectangleGL(PixelRect r) noexcept
 {
-  --r.right;
-  --r.bottom;
-
-  const ExactPixelPoint vertices[] = {
-    r.GetTopLeft(),
-    r.GetTopRight(),
-    r.GetBottomRight(),
-    r.GetBottomLeft(),
-  };
-
-  const ScopeVertexPointer vp(vertices);
-  glDrawArrays(GL_LINE_LOOP, 0, 4);
+  GLDrawOutlineRectangleEdges(r, pen.GetWidth(), pen.GetColor());
 }
 
 void
 Canvas::DrawOutlineRectangle(PixelRect r) noexcept
 {
-  OpenGL::solid_shader->Use();
-
-  pen.Bind();
-  DrawOutlineRectangleGL(r);
-  pen.Unbind();
+  GLDrawOutlineRectangleEdges(r, pen.GetWidth(), pen.GetColor());
 }
 
 void
 Canvas::DrawOutlineRectangle(PixelRect r, Color color) noexcept
 {
-  OpenGL::solid_shader->Use();
-
-  color.Bind();
-  glLineWidth(1);
-
-  DrawOutlineRectangleGL(r);
+  GLDrawOutlineRectangleEdges(r, 1, color);
 }
 
 void
@@ -162,8 +185,18 @@ Canvas::DrawPolyline(const BulkPixelPoint *points, unsigned num_points) noexcept
 
   pen.Bind();
 
-  const ScopeVertexPointer vp(points);
-  glDrawArrays(GL_LINE_STRIP, 0, num_points);
+  // On macOS, glLineWidth() is capped at 1px, so use triangles for pens > 1px
+  if (IsMacOSX() && pen.GetStyle() == Pen::SOLID && pen.GetWidth() > 1u) {
+    unsigned strip_len = LineToTriangles(points, num_points, vertex_buffer,
+                                         pen.GetWidth(), false, false);
+    if (strip_len > 0) {
+      const ScopeVertexPointer vp{vertex_buffer.data()};
+      glDrawArrays(GL_TRIANGLE_STRIP, 0, strip_len);
+    }
+  } else {
+    const ScopeVertexPointer vp(points);
+    glDrawArrays(GL_LINE_STRIP, 0, num_points);
+  }
 
   pen.Unbind();
 }
@@ -191,18 +224,8 @@ Canvas::DrawPolygon(const BulkPixelPoint *points, unsigned num_points) noexcept
 
   if (IsPenOverBrush()) {
     pen.Bind();
-
-    if (pen.GetWidth() <= 2) {
-      glDrawArrays(GL_LINE_LOOP, 0, num_points);
-    } else {
-      unsigned vertices = LineToTriangles(points, num_points, vertex_buffer,
-                                          pen.GetWidth(), true);
-      if (vertices > 0) {
-        vp.Update(vertex_buffer.data());
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, vertices);
-      }
-    }
-
+    GLDrawLineLoopOutline(vp, points, num_points, pen.GetWidth(),
+                          vertex_buffer);
     pen.Unbind();
   }
 }
@@ -224,20 +247,38 @@ Canvas::DrawTriangleFan(const BulkPixelPoint *points, unsigned num_points) noexc
 
   if (IsPenOverBrush()) {
     pen.Bind();
-
-    if (pen.GetWidth() <= 2) {
-      glDrawArrays(GL_LINE_LOOP, 0, num_points);
-    } else {
-      unsigned vertices = LineToTriangles(points, num_points, vertex_buffer,
-                                          pen.GetWidth(), true);
-      if (vertices > 0) {
-        vp.Update(vertex_buffer.data());
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, vertices);
-      }
-    }
-
+    GLDrawLineLoopOutline(vp, points, num_points, pen.GetWidth(),
+                          vertex_buffer);
     pen.Unbind();
   }
+}
+
+void
+Canvas::DrawFilledTriangleFan(const FloatPoint2D *points,
+                              unsigned num_points) noexcept
+{
+  if (points == nullptr || brush.IsHollow() || num_points < 3)
+    return;
+
+  OpenGL::solid_shader->Use();
+
+  ScopeVertexPointer vp(points);
+  brush.Bind();
+  glDrawArrays(GL_TRIANGLE_FAN, 0, num_points);
+}
+
+void
+Canvas::DrawFilledTriangles(const FloatPoint2D *points,
+                            unsigned num_points) noexcept
+{
+  if (points == nullptr || brush.IsHollow() || num_points < 3)
+    return;
+
+  OpenGL::solid_shader->Use();
+
+  ScopeVertexPointer vp(points);
+  brush.Bind();
+  glDrawArrays(GL_TRIANGLES, 0, num_points);
 }
 
 void
@@ -299,8 +340,18 @@ Canvas::DrawLine(PixelPoint a, PixelPoint b) noexcept
   }
 
   const BulkPixelPoint v[] = { a, b };
-  const ScopeVertexPointer vp(v);
-  glDrawArrays(GL_LINE_STRIP, 0, ARRAY_SIZE(v));
+  // On macOS, glLineWidth() is capped at 1px, so use triangles for pens > 1px
+  if (IsMacOSX() && pen.GetStyle() == Pen::SOLID && pen.GetWidth() > 1u) {
+    unsigned strip_len = LineToTriangles(v, 2, vertex_buffer, pen.GetWidth(),
+                                         false, true);
+    if (strip_len > 0) {
+      const ScopeVertexPointer vp{vertex_buffer.data()};
+      glDrawArrays(GL_TRIANGLE_STRIP, 0, strip_len);
+    }
+  } else {
+    const ScopeVertexPointer vp(v);
+    glDrawArrays(GL_LINE_STRIP, 0, ARRAY_SIZE(v));
+  }
 
   pen.Unbind();
 }
@@ -312,9 +363,21 @@ Canvas::DrawExactLine(PixelPoint a, PixelPoint b) noexcept
 
   pen.Bind();
 
-  const ExactPixelPoint v[] = { a, b };
-  const ScopeVertexPointer vp(v);
-  glDrawArrays(GL_LINE_STRIP, 0, ARRAY_SIZE(v));
+  // On macOS, glLineWidth() is capped at 1px, so use triangles for pens > 1px
+  if (IsMacOSX() && pen.GetStyle() == Pen::SOLID && pen.GetWidth() > 1u) {
+    const BulkPixelPoint v[] = { {(GLvalue)a.x, (GLvalue)a.y},
+                                 {(GLvalue)b.x, (GLvalue)b.y} };
+    unsigned strip_len = LineToTriangles(v, 2, vertex_buffer, pen.GetWidth(),
+                                         false, true);
+    if (strip_len > 0) {
+      const ScopeVertexPointer vp{vertex_buffer.data()};
+      glDrawArrays(GL_TRIANGLE_STRIP, 0, strip_len);
+    }
+  } else {
+    const ExactPixelPoint v[] = { a, b };
+    const ScopeVertexPointer vp(v);
+    glDrawArrays(GL_LINE_STRIP, 0, ARRAY_SIZE(v));
+  }
 
   pen.Unbind();
 }
@@ -331,7 +394,7 @@ Canvas::DrawLinePiece(const PixelPoint a, const PixelPoint b) noexcept
   pen.Bind();
 
   const BulkPixelPoint v[] = { {a.x, a.y}, {b.x, b.y} };
-  if (pen.GetWidth() > 2) {
+  if (pen.GetWidth() > (IsMacOSX() ? 1u : 2u)) {
     unsigned strip_len = LineToTriangles(v, 2, vertex_buffer, pen.GetWidth(),
                                          false, true);
     if (strip_len > 0) {
@@ -354,8 +417,18 @@ Canvas::DrawTwoLines(PixelPoint a, PixelPoint b, PixelPoint c) noexcept
   pen.Bind();
 
   const BulkPixelPoint v[] = { a, b, c };
-  const ScopeVertexPointer vp(v);
-  glDrawArrays(GL_LINE_STRIP, 0, ARRAY_SIZE(v));
+  // On macOS, glLineWidth() is capped at 1px, so use triangles for pens > 1px
+  if (IsMacOSX() && pen.GetStyle() == Pen::SOLID && pen.GetWidth() > 1u) {
+    unsigned strip_len = LineToTriangles(v, 3, vertex_buffer, pen.GetWidth(),
+                                         false, false);
+    if (strip_len > 0) {
+      const ScopeVertexPointer vp{vertex_buffer.data()};
+      glDrawArrays(GL_TRIANGLE_STRIP, 0, strip_len);
+    }
+  } else {
+    const ScopeVertexPointer vp(v);
+    glDrawArrays(GL_LINE_STRIP, 0, ARRAY_SIZE(v));
+  }
 
   pen.Unbind();
 }
@@ -367,9 +440,22 @@ Canvas::DrawTwoLinesExact(PixelPoint a, PixelPoint b, PixelPoint c) noexcept
 
   pen.Bind();
 
-  const ExactPixelPoint v[] = { a, b, c };
-  const ScopeVertexPointer vp(v);
-  glDrawArrays(GL_LINE_STRIP, 0, ARRAY_SIZE(v));
+  // On macOS, glLineWidth() is capped at 1px, so use triangles for pens > 1px
+  if (IsMacOSX() && pen.GetStyle() == Pen::SOLID && pen.GetWidth() > 1u) {
+    const BulkPixelPoint v[] = { {(GLvalue)a.x, (GLvalue)a.y},
+                                 {(GLvalue)b.x, (GLvalue)b.y},
+                                 {(GLvalue)c.x, (GLvalue)c.y} };
+    unsigned strip_len = LineToTriangles(v, 3, vertex_buffer, pen.GetWidth(),
+                                         false, false);
+    if (strip_len > 0) {
+      const ScopeVertexPointer vp{vertex_buffer.data()};
+      glDrawArrays(GL_TRIANGLE_STRIP, 0, strip_len);
+    }
+  } else {
+    const ExactPixelPoint v[] = { a, b, c };
+    const ScopeVertexPointer vp(v);
+    glDrawArrays(GL_LINE_STRIP, 0, ARRAY_SIZE(v));
+  }
 
   pen.Unbind();
 }
@@ -413,111 +499,13 @@ Canvas::DrawArc(PixelPoint center, unsigned radius,
   ::Arc(*this, center, radius, start, end);
 }
 
-[[gnu::const]]
-static unsigned
-AngleToDonutVertex(Angle angle) noexcept
-{
-  return GLDonutVertices::ImportAngle(NATIVE_TO_INT(angle.Native())
-                                      + ISINETABLE.size() * 3u / 4u,
-                                      ISINETABLE.size());
-}
-
-[[gnu::const]]
-static std::pair<unsigned,unsigned>
-AngleToDonutVertices(Angle start, Angle end) noexcept
-{
-  static constexpr Angle epsilon = Angle::FullCircle()
-    / int(GLDonutVertices::CIRCLE_SIZE * 4u);
-
-  const Angle delta = end - start;
-
-  if (fabs(delta.AsDelta().Native()) <= epsilon.Native())
-    /* full circle */
-    return std::make_pair(0u, unsigned(GLDonutVertices::MAX_ANGLE));
-
-  const unsigned istart = AngleToDonutVertex(start);
-  unsigned iend = AngleToDonutVertex(end);
-
-  if (istart == iend && delta > epsilon) {
-    if (end - start >= Angle::HalfCircle())
-      /* nearly full circle, round down the end */
-      iend = GLDonutVertices::PreviousAngle(iend);
-    else
-      /* slightly larger than epsilon: draw at least two indices */
-      iend = GLDonutVertices::NextAngle(iend);
-  }
-
-  return std::make_pair(istart, iend);
-}
 
 void
 Canvas::DrawAnnulus(PixelPoint center,
                     unsigned small_radius, unsigned big_radius,
                     Angle start, Angle end) noexcept
 {
-  if (1 == 1) {
-    /* TODO: switched to the unoptimised generic implementation due to
-       TRAC #2221, caused by rounding error of start/end radial;
-       should reimplement GLDonutVertices to use the exact start/end
-       radial */
-    ::Annulus(*this, center, big_radius, start, end, small_radius);
-    return;
-  }
-
-  ScopeVertexPointer vp;
-  GLDonutVertices vertices(center.x, center.y, small_radius, big_radius);
-
-  const std::pair<unsigned,unsigned> i = AngleToDonutVertices(start, end);
-  const unsigned istart = i.first;
-  const unsigned iend = i.second;
-
-  if (!brush.IsHollow()) {
-    brush.Bind();
-    vertices.Bind(vp);
-
-    if (istart > iend) {
-      glDrawArrays(GL_TRIANGLE_STRIP, istart,
-                   GLDonutVertices::MAX_ANGLE - istart + 2);
-      glDrawArrays(GL_TRIANGLE_STRIP, 0, iend + 2);
-    } else {
-      glDrawArrays(GL_TRIANGLE_STRIP, istart, iend - istart + 2);
-    }
-  }
-
-  if (IsPenOverBrush()) {
-    pen.Bind();
-
-    if (istart != iend && iend != GLDonutVertices::MAX_ANGLE) {
-      if (brush.IsHollow())
-        vertices.Bind(vp);
-
-      glDrawArrays(GL_LINE_STRIP, istart, 2);
-      glDrawArrays(GL_LINE_STRIP, iend, 2);
-    }
-
-    const unsigned pstart = istart / 2;
-    const unsigned pend = iend / 2;
-
-    vertices.BindInnerCircle(vp);
-    if (pstart < pend) {
-      glDrawArrays(GL_LINE_STRIP, pstart, pend - pstart + 1);
-    } else {
-      glDrawArrays(GL_LINE_STRIP, pstart,
-                   GLDonutVertices::CIRCLE_SIZE - pstart + 1);
-      glDrawArrays(GL_LINE_STRIP, 0, pend + 1);
-    }
-
-    vertices.BindOuterCircle(vp);
-    if (pstart < pend) {
-      glDrawArrays(GL_LINE_STRIP, pstart, pend - pstart + 1);
-    } else {
-      glDrawArrays(GL_LINE_STRIP, pstart,
-                   GLDonutVertices::CIRCLE_SIZE - pstart + 1);
-      glDrawArrays(GL_LINE_STRIP, 0, pend + 1);
-    }
-
-    pen.Unbind();
-  }
+  ::Annulus(*this, center, big_radius, start, end, small_radius);
 }
 
 void
@@ -559,8 +547,8 @@ Canvas::CalcTextSize(std::string_view text) const noexcept
 static void
 PrepareColoredAlphaTexture(Color color) noexcept
 {
-  OpenGL::alpha_shader->Use();
-  color.Bind();
+  OpenGL::alpha_fix_color_shader->Use();
+  color.Uniform(OpenGL::alpha_fix_color_color);
 }
 
 void
@@ -737,9 +725,8 @@ Canvas::StretchMono(PixelPoint dest_position, PixelSize dest_size,
 {
   /* note that this implementation ignores the background color; it is
      not mandatory, and we can assume that the background is already
-     set; it is only being passed to this function because the GDI
-     implementation will be faster when erasing the background
-     again */
+     set; it is only being passed to this function because some
+     backends are faster when erasing the background again */
 
   PrepareColoredAlphaTexture(fg_color);
 

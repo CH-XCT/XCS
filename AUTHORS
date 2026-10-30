@@ -32,6 +32,7 @@ The following people and organizations have contributed code to XCSoar:
  Roman Stoklasa <rstoki@gmail.com>
  Mateusz Pusz <mateusz.pusz@gmail.com>
  Google Inc., incl. Tom Stepleton <stepleton@google.com>
+ Igor Nazarenko <igor.n.nazarenko@gmail.com>
  James Ward <jamesward22@gmail.com>
  Santiago Berca <santiberca@yahoo.com.ar>
  Winfried Simon <winfried.simon@googlemail.com>
@@ -83,6 +84,8 @@ The following people and organizations have contributed code to XCSoar:
  Yorick Reum <xcsoar@yorickreum.de>
  kobedegeest <kobedegeest@gmail.com>
  B-4pt <bapt80@proton.me>
+ Dominic Spreitz <dominic@spreitz.de>
+ Kai Horstmann <horstmannkai@hotmail.com>
 
 Documentation:
 
@@ -254,23 +257,18 @@ zh_Hang (Traditional Chinese)
 
 *Contributions attributed to the LK8000 project (http://www.lk8000.it/)
 
-Libraries and code segments are included from the following projects:
- JasPer
- http://www.ece.uvic.ca/~mdadams/jasper/
-
- zziplib
- http://zziplib.sourceforge.net/
-
- shapelib
- http://shapelib.maptools.org/
+Libraries and code segments are included from the following projects.
+Those whose licence requires its own copyright and permission notice
+are listed in THIRD_PARTY_NOTICES.txt instead, with the licence text
+and the directory they occupy:
+ Boost C++ libraries
+ https://www.boost.org/
 
  Flightgear
  http://www.flightgear.org/~curt
 
  Polygon interior code
  http://softsurfer.com/Archive/algorithm_0103/algorithm_0103.htm
-
- Volkslogger code by Garrecht Ingenieurgesellschaft
 
  Algorithms from Aviation Formulary
  http://williams.best.vwh.net/avform.htm
@@ -287,6 +285,10 @@ Libraries and code segments are included from the following projects:
  IMIAPI code by Juraj Rojko from IMI-Gliding
 
  Circling wind analyser by André Somers (Cumulus)
+
+ Voice of the spoken traffic alerts: Piper voice "cori" by Bryce
+ Beattie, trained on public domain LibriVox recordings
+ https://brycebeattie.com/files/tts/
 
  Icons from:
    * oNline Web Fonts http://www.onlinewebfonts.com

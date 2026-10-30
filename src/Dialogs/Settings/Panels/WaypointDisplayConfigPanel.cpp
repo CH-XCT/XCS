@@ -12,9 +12,11 @@
 
 enum ControlIndex {
   WaypointLabels,
+  WaypointLabelSelection,
   WaypointArrivalHeightDisplay,
   WaypointLabelStyle,
-  WaypointLabelSelection,
+  SPACER_SYMBOLS,
+  MapWaypointIconScale,
   AppIndLandable,
   AppUseSWLandablesRendering,
   AppLandableRenderingScale,
@@ -43,8 +45,8 @@ void
 WaypointDisplayConfigPanel::UpdateVisibilities()
 {
   bool visible = GetValueBoolean(AppUseSWLandablesRendering);
-  SetRowVisible(AppLandableRenderingScale, visible);
-  SetRowVisible(AppScaleRunwayLength, visible);
+  SetRowAvailable(AppLandableRenderingScale, visible);
+  SetRowAvailable(AppScaleRunwayLength, visible);
 }
 
 void
@@ -85,6 +87,28 @@ WaypointDisplayConfigPanel::Prepare(ContainerWindow &parent,
   AddEnum(_("Label format"), _("Determines how labels are displayed with each waypoint"),
           wp_labels_list, (unsigned)settings.display_text_type);
 
+  static constexpr StaticEnumChoice wp_selection_list[] = {
+    { WaypointRendererSettings::LabelSelection::ALL,
+      N_("All"), N_("All labels will be displayed.") },
+    { WaypointRendererSettings::LabelSelection::TASK_AND_AIRFIELD,
+      N_("Task waypoints & airfields"),
+      N_("All waypoints part of a task and all airfields will be displayed.") },
+    { WaypointRendererSettings::LabelSelection::TASK_AND_LANDABLE,
+      N_("Task waypoints & landables"),
+      N_("All waypoints part of a task and all landables will be displayed.") },
+    { WaypointRendererSettings::LabelSelection::TASK,
+      N_("Task waypoints"),
+      N_("All waypoints part of a task will be displayed.") },
+    { WaypointRendererSettings::LabelSelection::NONE,
+      N_("None"), N_("No labels will be displayed.") },
+    nullptr
+  };
+
+  AddEnum(_("Label visibility"),
+          _("Determines what labels are displayed."),
+          wp_selection_list, (unsigned)settings.label_selection);
+  SetExpertRow(WaypointLabelSelection);
+
   static constexpr StaticEnumChoice wp_arrival_list[] = {
     { WaypointRendererSettings::ArrivalHeightDisplay::NONE,
       N_("None"),
@@ -123,27 +147,12 @@ WaypointDisplayConfigPanel::Prepare(ContainerWindow &parent,
           (unsigned)settings.landable_render_mode);
   SetExpertRow(WaypointLabelStyle);
 
-  static constexpr StaticEnumChoice wp_selection_list[] = {
-    { WaypointRendererSettings::LabelSelection::ALL,
-      N_("All"), N_("All labels will be displayed.") },
-    { WaypointRendererSettings::LabelSelection::TASK_AND_AIRFIELD,
-      N_("Task waypoints & airfields"),
-      N_("All waypoints part of a task and all airfields will be displayed.") },
-    { WaypointRendererSettings::LabelSelection::TASK_AND_LANDABLE,
-      N_("Task waypoints & landables"),
-      N_("All waypoints part of a task and all landables will be displayed.") },
-    { WaypointRendererSettings::LabelSelection::TASK,
-      N_("Task waypoints"),
-      N_("All waypoints part of a task will be displayed.") },
-    { WaypointRendererSettings::LabelSelection::NONE,
-      N_("None"), N_("No labels will be displayed.") },
-    nullptr
-  };
+  AddSpacer();
 
-  AddEnum(_("Label visibility"),
-          _("Determines what labels are displayed."),
-          wp_selection_list, (unsigned)settings.label_selection);
-  SetExpertRow(WaypointLabelSelection);
+  AddInteger(_("Waypoint icon size"),
+             _("Size of waypoint symbols on the map as a percentage of the "
+               "built-in artwork (list dialogs keep a fixed row icon size)."),
+             "%u %%", "%u", 50, 200, 10, settings.map_waypoint_icon_scale);
 
   static constexpr StaticEnumChoice wp_style_list[] = {
     { WaypointRendererSettings::LandableStyle::PURPLE_CIRCLE,
@@ -197,14 +206,17 @@ WaypointDisplayConfigPanel::Save(bool &_changed) noexcept
 
   changed |= SaveValueEnum(WaypointLabels, ProfileKeys::DisplayText, settings.display_text_type);
 
+  changed |= SaveValueEnum(WaypointLabelSelection, ProfileKeys::WaypointLabelSelection,
+                           settings.label_selection);
+
   changed |= SaveValueEnum(WaypointArrivalHeightDisplay, ProfileKeys::WaypointArrivalHeightDisplay,
                            settings.arrival_height_display);
 
   changed |= SaveValueEnum(WaypointLabelStyle, ProfileKeys::WaypointLabelStyle,
                            settings.landable_render_mode);
 
-  changed |= SaveValueEnum(WaypointLabelSelection, ProfileKeys::WaypointLabelSelection,
-                           settings.label_selection);
+  changed |= SaveValueInteger(MapWaypointIconScale, ProfileKeys::MapWaypointIconScale,
+                              settings.map_waypoint_icon_scale);
 
   changed |= SaveValueEnum(AppIndLandable, ProfileKeys::AppIndLandable, settings.landable_style);
 

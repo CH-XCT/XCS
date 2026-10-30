@@ -48,8 +48,22 @@ struct ProjectedFan {
                    triangle_buffer.data());
   }
 
-  void DrawOutline(unsigned start) const noexcept {
-    glDrawArrays(GL_LINE_LOOP, start, size);
+  void DrawOutline(const BulkPixelPoint *all_points, unsigned start,
+                   unsigned pen_width) const noexcept {
+    const BulkPixelPoint *fan_points = all_points + start;
+
+    if (UseOpenGLLineLoopOutline(pen_width)) {
+      glDrawArrays(GL_LINE_LOOP, start, size);
+    } else {
+      static AllocatedArray<BulkPixelPoint> outline_buffer;
+      const unsigned strip_len =
+        LineToTriangles(fan_points, size, outline_buffer,
+                        pen_width, true);
+      if (strip_len > 0) {
+        const ScopeVertexPointer vp{outline_buffer.data()};
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, strip_len);
+      }
+    }
   }
 #else
   void DrawFill(Canvas &canvas, const BulkPixelPoint *points) const noexcept {
@@ -135,23 +149,28 @@ struct ProjectedFans {
 #endif
   }
 
-  void DrawOutline([[maybe_unused]] Canvas &canvas) const noexcept {
+#ifdef ENABLE_OPENGL
+  void DrawOutline(unsigned pen_width) const noexcept {
     assert(remaining == 0);
 
-#ifdef ENABLE_OPENGL
+    const auto *points = &this->points[0];
     unsigned start = 0;
     for (auto i = fans.begin(), end = fans.end(); i != end; ++i) {
-      i->DrawOutline(start);
+      i->DrawOutline(points, start, pen_width);
       start += i->size;
     }
+  }
 #else
+  void DrawOutline(Canvas &canvas) const noexcept {
+    assert(remaining == 0);
+
     const auto *points = &this->points[0];
     for (auto i = fans.begin(), end = fans.end(); i != end; ++i) {
       i->DrawOutline(canvas, points);
       points += i->size;
     }
-#endif
   }
+#endif
 };
 
 typedef StaticArray<ProjectedFan, FlatTriangleFanTree::MAX_FANS> ProjectedFanVector;
@@ -287,43 +306,6 @@ MapWindow::RenderTerrainAbove(Canvas &canvas, bool working) noexcept
 
     canvas.Clear(Color(255, 255, 255, 77));
 
-#elif defined(USE_GDI)
-
-    // Get a buffer for drawing a mask
-    Canvas &buffer = buffer_canvas;
-
-    // Set the pattern colors
-    buffer.SetBackgroundOpaque();
-    buffer.SetBackgroundColor(COLOR_WHITE);
-    buffer.SetTextColor(Color(0xd0, 0xd0, 0xd0));
-
-    // Paint the whole buffer canvas with a pattern brush (small dots)
-    buffer.Clear(look.above_terrain_brush);
-
-    // Select the TerrainLine pen
-    buffer.SelectHollowBrush();
-    buffer.Select(reach_pen_thick);
-    buffer.SetBackgroundColor(Color(0xf0, 0xf0, 0xf0));
-
-    // Draw the TerrainLine polygons
-    visitor.fans.DrawOutline(buffer);
-
-    // Select a white brush (will later be transparent)
-    buffer.SelectNullPen();
-    buffer.SelectWhiteBrush();
-
-    // Draw the TerrainLine polygons to remove the
-    // brush pattern from the polygon areas
-    visitor.fans.DrawFill(buffer);
-
-    // Copy everything non-white to the buffer
-    canvas.CopyTransparentWhite({0, 0}, render_projection.GetScreenSize(),
-                                buffer, {0, 0});
-
-    /* skip the separate terrain line step below, because we have done
-       it already */
-    return;
-
 #endif
 
   }
@@ -346,7 +328,11 @@ MapWindow::RenderTerrainAbove(Canvas &canvas, bool working) noexcept
 
     // Draw the TerrainLine polygon
 
+#ifdef ENABLE_OPENGL
+    visitor.fans.DrawOutline(reach_pen.GetWidth());
+#else
     visitor.fans.DrawOutline(canvas);
+#endif
 
 #ifdef ENABLE_OPENGL
     reach_pen.Unbind();
@@ -374,12 +360,12 @@ MapWindow::RenderTerrainAbove(Canvas &canvas, bool working) noexcept
   glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
 
   reach_pen_thick.Bind();
-  visitor.fans.DrawOutline(canvas);
+  visitor.fans.DrawOutline(reach_pen_thick.GetWidth());
   reach_pen_thick.Unbind();
 
   glDisable(GL_STENCIL_TEST);
 
-#elif defined(USE_GDI) || defined(USE_MEMORY_CANVAS)
+#elif defined(USE_MEMORY_CANVAS)
 
   // Get a buffer for drawing a mask
   Canvas &buffer = buffer_canvas;

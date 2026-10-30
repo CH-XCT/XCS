@@ -19,12 +19,14 @@
 #include <concepts>
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <memory>
 #include <type_traits>
 
 struct DialogLook;
 struct StaticEnumChoice;
 class Angle;
+class FileDataField;
 class RoughTimeDelta;
 class Path;
 class Button;
@@ -385,6 +387,10 @@ public:
   WndProperty *AddEnum(const char *label, const char *help,
                        DataFieldListener *listener=nullptr) noexcept;
 
+  /**
+   * Add a string #DataField (editable).  To show read-only text that you
+   * update with #SetText, use #AddReadOnly instead.
+   */
   WndProperty *AddText(const char *label, const char *help,
                        const char *content,
                        DataFieldListener *listener=nullptr) noexcept;
@@ -430,6 +436,16 @@ public:
   WndProperty *AddFile(const char *label, const char *help,
                        std::string_view profile_key, const char *filters,
                        FileType file_type,
+                       bool nullable = true) noexcept;
+
+  WndProperty *AddFile(const char *label, const char *help,
+                       std::string_view profile_key, const char *filters,
+                       std::initializer_list<FileType> file_types,
+                       bool nullable = true) noexcept;
+
+  WndProperty *AddFile(const char *label, const char *help,
+                       std::string_view profile_key,
+                       std::initializer_list<FileType> file_types,
                        bool nullable = true) noexcept;
 
   WndProperty *AddFile(const char *label, const char *help,
@@ -510,7 +526,10 @@ public:
   }
 
   /**
-   * Update the text of a multi line control.
+   * Update the text of a read-only label row (no #DataField on the control).
+   * Use with rows from #AddReadOnly (plain string), or #Add (label, help, true)
+   * without a data field.  Do not use for #AddText (string editor), #AddInteger,
+   * #AddEnum, etc.; use #LoadValue / #LoadValueEnum instead.
    */
   void SetText(unsigned i, const char *text) noexcept {
     assert(text != nullptr);
@@ -634,6 +653,12 @@ public:
   Path GetValueFile(unsigned i) const noexcept;
 
   [[gnu::pure]]
+  FileDataField &GetFileDataField(unsigned i) noexcept;
+
+  [[gnu::pure]]
+  const FileDataField &GetFileDataField(unsigned i) const noexcept;
+
+  [[gnu::pure]]
   const char *GetValueString(unsigned i) const noexcept {
     return GetDataField(i).GetAsString();
   }
@@ -673,6 +698,7 @@ public:
 
   bool SaveValue(unsigned i, RoughTime &value_r) const noexcept;
   bool SaveValue(unsigned i, char *string, size_t max_size) const noexcept;
+  bool SaveValue(unsigned i, std::string &string) const noexcept;
 
   template<size_t max>
   bool SaveValue(unsigned i, BasicStringBuffer<char, max> &value) const noexcept {
@@ -681,6 +707,9 @@ public:
 
   bool SaveValue(unsigned i, std::string_view profile_key,
                  char *string, size_t max_size) const noexcept;
+
+  bool SaveValue(unsigned i, std::string_view profile_key,
+                 std::string &string) const noexcept;
 
   template<size_t max>
   bool SaveValue(unsigned i, std::string_view profile_key,
@@ -765,6 +794,9 @@ protected:
   void NextControlRect(PixelRect &rc, unsigned height) noexcept {
     assert(IsDefined());
 
+    if (height == 0)
+      height = 1;
+
     rc.top = rc.bottom;
     rc.bottom = rc.top + height;
   }
@@ -793,4 +825,12 @@ public:
   void Move(const PixelRect &rc) noexcept override;
   bool SetFocus() noexcept override;
   bool HasFocus() const noexcept override;
+
+  /**
+   * Move focus to the next or previous visible row.
+   *
+   * @return false when no row has focus, or this row is already
+   * at that end
+   */
+  bool FocusAdjacent(bool next) noexcept;
 };

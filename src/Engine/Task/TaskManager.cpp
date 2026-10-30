@@ -48,7 +48,7 @@ TaskManager::SetTaskBehaviour(const TaskBehaviour &behaviour) noexcept
 {
   task_behaviour = behaviour;
 
-  safety_polar.SetMC(task_behaviour.safety_mc);
+  ApplySafetyMC();
 
   ordered_task->SetTaskBehaviour(behaviour);
   goto_task->SetTaskBehaviour(behaviour);
@@ -263,6 +263,7 @@ TaskManager::Update(const AircraftState &state,
     Reset();
 
   if (ordered_task->TaskSize() > 1) {
+    ordered_task->SetPilotPevWindowSnapshot(common_stats.pev_start_time_span);
     // always update ordered task
     retval |= ordered_task->Update(state, state_last, glide_polar);
   }
@@ -401,7 +402,26 @@ TaskManager::SetGlidePolar(const GlidePolar &_glide_polar) noexcept
   glide_polar = _glide_polar;
 
   safety_polar = glide_polar;
+  ApplySafetyMC();
+}
+
+void
+TaskManager::ApplySafetyMC() noexcept
+{
+  /* The task polar keeps the cruise cap for speed-to-fly. Reach,
+     abort and alternates fly the Safety MC point past that cap. */
+  safety_polar.SetMCLimitedByCruise(false);
   safety_polar.SetMC(task_behaviour.safety_mc);
+}
+
+void
+TaskManager::SetDensityRatio(const double dr) noexcept
+{
+  if (!glide_polar.IsValid())
+    return;
+
+  glide_polar.SetDensityRatio(dr);
+  safety_polar.SetDensityRatio(dr);
 }
 
 bool

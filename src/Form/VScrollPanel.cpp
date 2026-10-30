@@ -3,9 +3,12 @@
 
 #include "VScrollPanel.hpp"
 #include "Look/DialogLook.hpp"
+#include "Renderer/GestureRenderer.hpp"
 #include "ui/canvas/Canvas.hpp"
 #include "ui/event/KeyCode.hpp"
 #include "Asset.hpp"
+#include "Hardware/CPU.hpp"
+#include "Form/Button.hpp"
 #include "Screen/Layout.hpp"
 #include "Math/Point2D.hpp"
 #include "util/StringAPI.hxx"
@@ -20,10 +23,11 @@ VScrollPanel::VScrollPanel(ContainerWindow &parent, const DialogLook &look,
                            const PixelRect &rc,
                            const WindowStyle style,
                            VScrollPanelListener &_listener) noexcept
-  :PanelControl(parent, look, rc, style),
+  :PanelControl(parent, rc, style),
    listener(_listener),
    scroll_bar(look.button)
 {
+  gesture_look.Initialise();
 }
 
 VScrollPanel::~VScrollPanel() noexcept = default;
@@ -56,6 +60,17 @@ VScrollPanel::GetScrollStep() const noexcept
 {
   const int step = scroll_bar.GetWidth();
   return step > 0 ? step : 1;
+}
+
+/**
+ * Can the user scroll with pixel precision?  Fast displays get
+ * kinetic/smooth scrolling; e-paper and slow CPUs snap (same gate as
+ * map pan animations in InputEventsMap).
+ */
+static bool
+UsePixelPan() noexcept
+{
+  return !HasEPaper() && !IsSlowCPU();
 }
 
 void
@@ -94,7 +109,17 @@ VScrollPanel::SmoothScrollTo(int target) noexcept
   const int max_origin = std::max(0, static_cast<int>(virtual_height) -
                                      static_cast<int>(physical_height));
 
-  smooth_scroll_target = std::clamp(target, 0, max_origin);
+  target = std::clamp(target, 0, max_origin);
+
+  /* E-paper cannot keep up with ~60 Hz scroll animation; snap. */
+  if (!UsePixelPan()) {
+    smooth_scroll_timer.Cancel();
+    smooth_scroll_target = -1;
+    SetOriginClamped(target);
+    return;
+  }
+
+  smooth_scroll_target = target;
 
   // Start animation at ~60fps
   smooth_scroll_timer.Schedule(std::chrono::milliseconds(16));
@@ -123,11 +148,6 @@ VScrollPanel::OnSmoothScrollTimer() noexcept
   }
 }
 
-static bool UsePixelPan() noexcept
-{
-  return !HasEPaper();
-}
-
 void
 VScrollPanel::SetOriginClamped(int new_origin) noexcept
 {
@@ -154,10 +174,18 @@ VScrollPanel::OnResize(PixelSize new_size) noexcept
 }
 
 void
+VScrollPanel::OnChildContentHeightChanged() noexcept
+{
+  listener.OnVScrollPanelContentHeightChanged();
+}
+
+void
 VScrollPanel::OnDestroy() noexcept
 {
   kinetic_timer.Cancel();
   smooth_scroll_timer.Cancel();
+  defer_swipe_timer.Cancel();
+  defer_swipe_queue.clear();
   PanelControl::OnDestroy();
 }
 
@@ -217,28 +245,49 @@ VScrollPanel::OnKeyDown(unsigned key_code) noexcept
 bool
 VScrollPanel::OnMouseUp(PixelPoint p) noexcept
 {
+  if (scroll_bar.IsArrowHeld()) {
+    const bool up = scroll_bar.IsArrowUp();
+    if (scroll_bar.ArrowUp(this, p))
+      ScrollBy(up ? -GetScrollStep() : GetScrollStep());
+    return true;
+  }
+
   /* Finish gesture tracking and check for horizontal swipe */
+  const bool had_gesture_trail = gesture_tracking;
+
   const char *gesture =
     gesture_tracking ? gestures.Finish() : nullptr;
   gesture_tracking = false;
 
+  if (had_gesture_trail)
+    Invalidate();
+
   if (gesture != nullptr &&
       (StringIsEqual(gesture, "L") ||
        StringIsEqual(gesture, "R"))) {
-    /* Horizontal swipe detected - forward to listener */
-    if (dragging) {
-      dragging = false;
+    /* Horizontal swipe detected — defer listener: flipping the pager
+       from here would hide this panel during OnMouseUp (crash). */
+    if (dragging || potential_tap) {
+      dragging = potential_tap = false;
+      /* the child that accepted the press does not get this
+         mouse-up */
+      CancelChildCapture();
       ReleaseCapture();
     }
-    if (potential_tap) {
-      potential_tap = false;
-      ReleaseCapture();
-    }
-    if (listener.OnVScrollPanelGesture(gesture))
-      return true;
+    defer_swipe_queue.push_back(
+      StringIsEqual(gesture, "R") ? DeferredSwipeDirection::RIGHT
+                                  : DeferredSwipeDirection::LEFT);
+    defer_swipe_timer.Schedule(std::chrono::milliseconds(0));
+    return true;
   }
 
   if (scroll_bar.IsDragging()) {
+#ifdef HAVE_VIBRATOR
+    /* releasing the slider is the end of a deliberate drag; give it
+       the same feedback as a long press */
+    PlayHapticFeedback(HapticFeedbackType::LONG_PRESS);
+#endif
+
     scroll_bar.DragEnd(this);
     return true;
   }
@@ -247,6 +296,9 @@ VScrollPanel::OnMouseUp(PixelPoint p) noexcept
     const bool enable_kinetic = UsePixelPan();
 
     dragging = false;
+    /* we swallowed the gesture that started on the child (see
+       #potential_tap), so it does not get this mouse-up either */
+    CancelChildCapture();
     ReleaseCapture();
 
     if (enable_kinetic) {
@@ -268,8 +320,13 @@ VScrollPanel::OnMouseUp(PixelPoint p) noexcept
 bool
 VScrollPanel::OnMouseMove(PixelPoint p, unsigned keys) noexcept
 {
-  if (gesture_tracking)
+  if (scroll_bar.ArrowMove(this, p))
+    return true;
+
+  if (gesture_tracking) {
     gestures.Update(p);
+    Invalidate();
+  }
 
   if (scroll_bar.IsDragging()) {
     origin = scroll_bar.DragMove(virtual_height, GetSize().height, p.y);
@@ -311,41 +368,52 @@ VScrollPanel::OnMouseDown(PixelPoint p) noexcept
   smooth_scroll_target = -1;
 
   if (scroll_bar.IsInsideSlider(p)) {
+#ifdef HAVE_VIBRATOR
+    /* only when grabbing the slider, not while dragging it */
+    PlayHapticFeedback(HapticFeedbackType::PRESS);
+#endif
+
     scroll_bar.DragBegin(this, p.y);
     return true;
   } else if (scroll_bar.IsInside(p)) {
     /* click in the scroll bar area (arrows or track) */
-    if (scroll_bar.IsInsideUpArrow(p.y)) {
-      ScrollBy(-GetScrollStep());
-    } else if (scroll_bar.IsInsideDownArrow(p.y)) {
-      ScrollBy(GetScrollStep());
-    } else if (scroll_bar.IsAboveSlider(p.y)) {
-      /* page up */
-      ScrollBy(-std::max(1,
-        static_cast<int>(GetSize().height) - GetScrollStep()));
-    } else if (scroll_bar.IsBelowSlider(p.y)) {
-      /* page down */
-      ScrollBy(std::max(1,
-        static_cast<int>(GetSize().height) - GetScrollStep()));
+#ifdef HAVE_VIBRATOR
+    PlayHapticFeedback(HapticFeedbackType::PRESS);
+#endif
+
+    if (!scroll_bar.ArrowDown(this, p)) {
+      if (scroll_bar.IsAboveSlider(p.y)) {
+        /* page up */
+        ScrollBy(-std::max(1,
+          static_cast<int>(GetSize().height) - GetScrollStep()));
+      } else if (scroll_bar.IsBelowSlider(p.y)) {
+        /* page down */
+        ScrollBy(std::max(1,
+          static_cast<int>(GetSize().height) - GetScrollStep()));
+      }
     }
     return true;
   } else {
-    /* Start gesture tracking for swipe detection only in the
-       content area — not on the scrollbar, where slight horizontal
-       finger movement during a tap would misfire as a page-change
-       swipe (especially noticeable on e-ink touch screens). */
-    gesture_tracking = true;
-    gestures.Start(p, Layout::Scale(20));
-
     // First, let child widgets handle the event
     if (PanelControl::OnMouseDown(p)) {
+      if (HandlesDragging())
+        /* The child that took the press drags itself (a list that
+           pans, its scroll bar slider).  Leave the whole gesture to
+           it: capturing here would make EventChildAt() route every
+           further event to us, and the child would never see the rest
+           of its own drag.  Do not track a swipe either - panning a
+           list sideways must not flip the page. */
+        return true;
+
       potential_tap = true;
       drag_start = p;
+      StartGestureTracking(p);
       SetCapture();
       return true;
     }
 
     // No child widget handled it, so start dragging the content area
+    StartGestureTracking(p);
     dragging = true;
     drag_y = (int)origin + p.y;
     if (UsePixelPan())
@@ -353,6 +421,20 @@ VScrollPanel::OnMouseDown(PixelPoint p) noexcept
     SetCapture();
     return true;
   }
+}
+
+void
+VScrollPanel::StartGestureTracking(PixelPoint p) noexcept
+{
+  if (!listener.IsVScrollPanelGestureEnabled())
+    return;
+
+  /* Track swipes only in the content area — not on the scrollbar,
+     where slight horizontal finger movement during a tap would
+     misfire as a page-change swipe (especially noticeable on e-ink
+     touch screens). */
+  gesture_tracking = true;
+  gestures.Start(p, Layout::Scale(20));
 }
 
 bool
@@ -363,9 +445,13 @@ VScrollPanel::OnMouseWheel(PixelPoint p, int delta) noexcept
   if (PanelControl::OnMouseWheel(p, delta))
     return true;
 
-  // Scroll by 3 steps per wheel notch (delta is typically 120 per notch)
   const int step = GetScrollStep();
+#if defined(ENABLE_SDL) && defined(_WIN32)
+  // On Windows/SDL, scroll wheel signals are smaller
+  const int scroll_amount = delta * 3 * step;
+#else
   const int scroll_amount = (delta * 3 * step) / 120;
+#endif
   ScrollBy(-scroll_amount);
   return true;
 }
@@ -375,7 +461,15 @@ VScrollPanel::OnCancelMode() noexcept
 {
   PanelControl::OnCancelMode();
 
+  defer_swipe_timer.Cancel();
+  defer_swipe_queue.clear();
+
+  const bool had_gesture_trail = gesture_tracking;
+  if (gesture_tracking)
+    gestures.Finish();
   gesture_tracking = false;
+  if (had_gesture_trail)
+    Invalidate();
   scroll_bar.DragEnd(this);
   if (dragging) {
     dragging = false;
@@ -391,6 +485,33 @@ VScrollPanel::OnCancelMode() noexcept
 }
 
 void
+VScrollPanel::OnDeferredSwipeGesture() noexcept
+{
+  defer_swipe_timer.Cancel();
+
+  if (defer_swipe_queue.empty())
+    return;
+
+  const bool swipe_next =
+    defer_swipe_queue.front() == DeferredSwipeDirection::RIGHT;
+  defer_swipe_queue.pop_front();
+
+  listener.OnVScrollPanelGesture(swipe_next ? "R" : "L");
+
+  if (!defer_swipe_queue.empty())
+    defer_swipe_timer.Schedule(std::chrono::milliseconds(0));
+}
+
+void
+VScrollPanel::DrawGesture(Canvas &canvas) const noexcept
+{
+  if (!gestures.HasPoints())
+    return;
+
+  GestureRenderer::Draw(canvas, gesture_look, gestures.GetPoints(), true);
+}
+
+void
 VScrollPanel::OnPaint(Canvas &canvas) noexcept
 {
   {
@@ -402,9 +523,16 @@ VScrollPanel::OnPaint(Canvas &canvas) noexcept
     PanelControl::OnPaint(canvas);
   }
 
+  if (gesture_tracking && gestures.HasPoints()) {
+#ifdef ENABLE_OPENGL
+    const GLCanvasScissor scissor{GetPhysicalRect(canvas.GetSize())};
+#endif
+    DrawGesture(canvas);
+  }
+
   if (scroll_bar.IsDefined()) {
     scroll_bar.SetSlider(virtual_height, canvas.GetHeight(), origin);
-    scroll_bar.Paint(canvas, ButtonState::ENABLED, ButtonState::ENABLED);
+    scroll_bar.Paint(canvas);
   }
 }
 

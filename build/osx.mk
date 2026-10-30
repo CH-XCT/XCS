@@ -18,7 +18,12 @@ endif
 
 # App Store version (must be X.Y.Z format)
 MACOS_PATCH_VERSION ?= 0
-MACOS_APP_VERSION ?= $(shell cat VERSION.txt).$(MACOS_PATCH_VERSION)
+# Same rule as ios.mk: full semver in VERSION.txt, or X.Y + patch.
+ifeq ($(words $(subst ., ,$(VERSION))),2)
+MACOS_APP_VERSION ?= $(VERSION).$(MACOS_PATCH_VERSION)
+else
+MACOS_APP_VERSION ?= $(VERSION_SHORT)
+endif
 MACOS_APP_BUILD_NUMBER ?= 1
 
 # App name and package names are always the same
@@ -26,6 +31,7 @@ APP_NAME = XCSoar.app
 DMG_NAME = XCSoar.dmg
 PKG_NAME = XCSoar.pkg
 MACOS_APP_BUNDLE_IDENTIFIER ?= org.xcsoar.XCSoar
+HDIUTIL_CREATE_DMG = hdiutil create -volname "$(OSX_APP_LABEL)" -srcfolder $(DMG_TMPDIR) -ov -format UDZO $@
 
 # Testing version uses red icon and "Testing" label
 ifeq ($(TESTING),y)
@@ -57,11 +63,11 @@ $(APP_BUNDLE): $(TARGET_BIN_DIR)/xcsoar Data/OSX/Info.plist.in.xml $(OSX_LOGO) $
 	    -e 's/OSX_BUNDLE_ID_PLACEHOLDER/$(MACOS_APP_BUNDLE_IDENTIFIER)/g' \
 	    < Data/OSX/Info.plist.in.xml > $(APP_CONTENTS)/Info.plist
 	@$(NQ)echo "  COPY    xcsoar binary"
-	$(Q)cp $(TARGET_BIN_DIR)/xcsoar $(APP_MACOS)/
+	$(Q)cp $(TARGET_BIN_DIR)/xcsoar $(APP_MACOS)/XCSoar
 	@$(NQ)echo "  COPY    icon"
 	$(Q)cp $(OSX_LOGO) $(APP_RESOURCES)/logo_1024.icns
 	@$(NQ)echo "  COPY    third-party notices"
-	$(Q)cp doc/THIRD_PARTY_NOTICES.txt $(APP_RESOURCES)/ThirdPartyNotices.txt
+	$(Q)cp THIRD_PARTY_NOTICES.txt $(APP_RESOURCES)/ThirdPartyNotices.txt
 ifeq ($(USE_ANGLE),y)
 	@$(NQ)echo "  BUNDLE  ANGLE libraries"
 	$(Q)cp -a $(ANGLE_PREFIX)/lib/libEGL.dylib $(APP_FRAMEWORKS)/
@@ -72,20 +78,20 @@ ifeq ($(USE_ANGLE),y)
 	$(Q)if ! install_name_tool -change "$$(otool -L $(APP_FRAMEWORKS)/libEGL.dylib | grep libGLESv2 | awk '{print $$1}')" "@rpath/libGLESv2.dylib" $(APP_FRAMEWORKS)/libEGL.dylib 2>/dev/null; then \
 		echo "  WARN    Failed to update libEGL.dylib dependency"; \
 	fi
-	$(Q)if ! install_name_tool -change "./libEGL.dylib" "@rpath/libEGL.dylib" $(APP_MACOS)/xcsoar 2>/dev/null; then \
+	$(Q)if ! install_name_tool -change "./libEGL.dylib" "@rpath/libEGL.dylib" $(APP_MACOS)/XCSoar 2>/dev/null; then \
 		echo "  WARN    Failed to update xcsoar libEGL.dylib reference"; \
 	fi
-	$(Q)if ! install_name_tool -change "./libGLESv2.dylib" "@rpath/libGLESv2.dylib" $(APP_MACOS)/xcsoar 2>/dev/null; then \
+	$(Q)if ! install_name_tool -change "./libGLESv2.dylib" "@rpath/libGLESv2.dylib" $(APP_MACOS)/XCSoar 2>/dev/null; then \
 		echo "  WARN    Failed to update xcsoar libGLESv2.dylib reference"; \
 	fi
 endif
 # Bundle Homebrew libraries and fix all @rpath references
 	@$(NQ)echo "  BUNDLE  Homebrew libraries"
-	$(Q)if ! install_name_tool -add_rpath "@executable_path/../Frameworks" $(APP_MACOS)/xcsoar 2>/dev/null; then \
+	$(Q)if ! install_name_tool -add_rpath "@executable_path/../Frameworks" $(APP_MACOS)/XCSoar 2>/dev/null; then \
 		echo "  WARN    Failed to add rpath to xcsoar"; \
 	fi
 	$(Q)ANGLE_PATTERN="$(if $(ANGLE_PREFIX),|$(ANGLE_PREFIX),)"; \
-	for lib in $$(otool -L $(APP_MACOS)/xcsoar | \
+	for lib in $$(otool -L $(APP_MACOS)/XCSoar | \
 		grep -E "/opt/homebrew|/usr/local$$ANGLE_PATTERN" | \
 		awk '{print $$1}'); do \
 		[ -f "$$lib" ] || continue; \
@@ -101,7 +107,7 @@ endif
 		if ! install_name_tool -id "@rpath/$$base" $(APP_FRAMEWORKS)/$$base; then \
 			echo "  WARN    Failed to set install_name for $$base"; \
 		fi; \
-		if ! install_name_tool -change "$$lib" "@rpath/$$base" $(APP_MACOS)/xcsoar; then \
+		if ! install_name_tool -change "$$lib" "@rpath/$$base" $(APP_MACOS)/XCSoar; then \
 			echo "  WARN    Failed to update xcsoar reference for $$base"; \
 		fi; \
 	done
@@ -160,7 +166,18 @@ $(TARGET_OUTPUT_DIR)/$(DMG_NAME): $(APP_BUNDLE)
 	$(Q)cp -a $(APP_BUNDLE) $(DMG_TMPDIR)/
 	$(Q)ln -s /Applications $(DMG_TMPDIR)/Applications
 	$(Q)rm -f $@
-	$(Q)hdiutil create -volname "$(OSX_APP_LABEL)" -srcfolder $(DMG_TMPDIR) -ov -format UDZO $@
+	# Work around intermittent "hdiutil create" failures seen on GitHub Actions macOS runners.
+	$(Q)for attempt in 1 2 3 4 5; do \
+		$(HDIUTIL_CREATE_DMG) && break; \
+		if [ $$attempt -eq 5 ]; then \
+			echo "  ERROR   hdiutil create failed after 5 attempts"; \
+			rm -f $@; \
+			exit 1; \
+		fi; \
+		echo "  WARN    hdiutil create failed (attempt $$attempt/5), retrying..."; \
+		rm -f $@; \
+		sleep 2; \
+	done
 
 # Build the .pkg installer
 $(TARGET_OUTPUT_DIR)/$(PKG_NAME): $(APP_BUNDLE)

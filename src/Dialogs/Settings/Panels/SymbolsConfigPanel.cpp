@@ -13,6 +13,7 @@
 
 enum ControlIndex {
   DISPLAY_TRACK_BEARING,
+  TURN_BACK_MARKER,
   ENABLE_FLARM_MAP,
   FADE_TRAFFIC,
   TRAIL_LENGTH,
@@ -23,6 +24,7 @@ enum ControlIndex {
   AIRCRAFT_SYMBOL,
   WIND_ARROW_STYLE,
   SKYLINES_TRAFFIC_MAP_MODE,
+  DISTANCE_RINGS_ENABLED,
 };
 
 class SymbolsConfigPanel final
@@ -46,9 +48,10 @@ private:
 void
 SymbolsConfigPanel::ShowTrailControls(bool show)
 {
-  SetRowVisible(TRAIL_DRIFT, show);
-  SetRowVisible(TRAIL_TYPE, show);
-  SetRowVisible(TRAIL_WIDTH, show);
+  /* Trail drift also sets the projected track curve while circling,
+     including when the snail trail itself is off. */
+  SetRowAvailable(TRAIL_TYPE, show);
+  SetRowAvailable(TRAIL_WIDTH, show);
 }
 
 void
@@ -64,7 +67,7 @@ SymbolsConfigPanel::OnModified(DataField &df) noexcept
 static constexpr StaticEnumChoice ground_track_mode_list[] = {
   { DisplayGroundTrack::OFF, N_("Off"), N_("Disable display of ground track line.") },
   { DisplayGroundTrack::ON, N_("On"), N_("Always display ground track line.") },
-  { DisplayGroundTrack::AUTO, N_("Auto"), N_("Display ground track line if there is a significant difference to plane heading.") },
+  { DisplayGroundTrack::AUTO, NC_("Setting", "Auto"), N_("Display ground track line if there is a significant difference to plane heading.") },
   nullptr
 };
 
@@ -106,7 +109,7 @@ static constexpr StaticEnumChoice  aircraft_symbol_list[] = {
     N_("Detailed rendered aircraft graphics.") },
   { AircraftSymbol::HANGGLIDER, N_("HangGlider"),
     N_("Simplified hang glider as line graphics, white with black contours.") },
-  { AircraftSymbol::PARAGLIDER, N_("ParaGlider"),
+  { AircraftSymbol::PARAGLIDER, N_("Paraglider"),
     N_("Simplified para glider as line graphics, white with black contours.") },
   nullptr
 };
@@ -118,10 +121,10 @@ static constexpr StaticEnumChoice wind_arrow_list[] = {
   nullptr
 };
 
-static constexpr StaticEnumChoice skylines_map_mode_list[] = {
-  { DisplaySkyLinesTrafficMapMode::OFF, N_("Off"), N_("No SkyLines traffic is drawn.") },
-  { DisplaySkyLinesTrafficMapMode::SYMBOL, N_("Symbol"), N_("Draws the SkyLines symbol only.") },
-  { DisplaySkyLinesTrafficMapMode::SYMBOL_NAME, N_("Symbol and Name"), N_("Draws the SkyLines symbol with name.") },
+static constexpr StaticEnumChoice online_traffic_map_mode_list[] = {
+  { DisplayOnlineTrafficMapMode::OFF, N_("Off"), N_("No online traffic is drawn.") },
+  { DisplayOnlineTrafficMapMode::SYMBOL, N_("Symbol"), N_("Draws the traffic symbol only.") },
+  { DisplayOnlineTrafficMapMode::SYMBOL_NAME, N_("Symbol and Name"), N_("Draws the traffic symbol with name.") },
   nullptr
 };
 
@@ -130,12 +133,23 @@ SymbolsConfigPanel::Prepare([[maybe_unused]] ContainerWindow &parent,
                             [[maybe_unused]] const PixelRect &rc) noexcept
 {
   const MapSettings &settings_map = CommonInterface::GetMapSettings();
+  const TaskBehaviour &task_behaviour =
+    CommonInterface::GetComputerSettings().task;
 
   AddEnum(_("Ground track"),
           _("Display the ground track as a grey line on the map."),
           ground_track_mode_list, (unsigned)settings_map.display_ground_track);
 
-  AddBoolean(_("FLARM traffic"), _("This enables the display of FLARM traffic on the map window."),
+  AddBoolean(C_("Setting", "Turn back marker"),
+             _("Show a green triangle on the map along the current track "
+               "indicating the furthest point from which the active task "
+               "waypoint or Goto target can still be reached with the "
+               "current altitude and conditions. "
+               "The triangle is only shown during cruise when the target "
+               "is reachable."),
+             task_behaviour.turn_back_marker_enabled);
+
+  AddBoolean(_("FLARM Traffic"), _("This enables the display of FLARM traffic on the map window."),
              settings_map.show_flarm_on_map);
 
   AddBoolean(_("Fade traffic"), _("Keep showing traffic for a while after it has disappeared."),
@@ -148,9 +162,11 @@ SymbolsConfigPanel::Prepare([[maybe_unused]] ContainerWindow &parent,
   SetExpertRow(TRAIL_LENGTH);
 
   AddBoolean(_("Trail drift"),
-             _("Determines whether the snail trail is drifted with the wind when displayed in "
-               "circling mode. Switched Off, "
-               "the snail trail stays uncompensated for wind drift."),
+             _("Determines whether the snail trail is drifted with the wind "
+               "when displayed in circling mode at near map scales. Switched "
+               "Off, the snail trail stays uncompensated for wind drift. "
+               "In circling this also applies to the projected track curve: "
+               "On keeps it relative to the air mass; Off includes wind."),
              settings_map.trail.wind_drift_enabled);
   SetExpertRow(TRAIL_DRIFT);
 
@@ -178,9 +194,14 @@ SymbolsConfigPanel::Prepare([[maybe_unused]] ContainerWindow &parent,
           wind_arrow_list, (unsigned)settings_map.wind_arrow_style);
   SetExpertRow(WIND_ARROW_STYLE);
 
-  AddEnum(_("SkyLines traffic mode"),
-          _("Show the SkyLines traffic symbols/names on the map, downloaded from the SkyLines server."),
-          skylines_map_mode_list, (unsigned)settings_map.skylines_traffic_map_mode);
+  AddEnum(C_("Setting", "Online traffic on map"),
+          _("Show traffic from SkyLines and XCSoar Cloud on the map."),
+          online_traffic_map_mode_list,
+          (unsigned)settings_map.online_traffic_map_mode);
+
+  AddBoolean(C_("Setting", "Distance rings"),
+             _("Display distance rings around the aircraft on the map."),
+             settings_map.distance_rings_enabled);
 
   ShowTrailControls(settings_map.trail.length != TrailSettings::Length::OFF);
 }
@@ -191,9 +212,14 @@ SymbolsConfigPanel::Save(bool &_changed) noexcept
   bool changed = false;
 
   MapSettings &settings_map = CommonInterface::SetMapSettings();
+  TaskBehaviour &task_behaviour =
+    CommonInterface::SetComputerSettings().task;
 
   changed |= SaveValueEnum(DISPLAY_TRACK_BEARING, ProfileKeys::DisplayTrackBearing,
                            settings_map.display_ground_track);
+
+  changed |= SaveValue(TURN_BACK_MARKER, ProfileKeys::TurnBackMarkerEnabled,
+                       task_behaviour.turn_back_marker_enabled);
 
   changed |= SaveValue(ENABLE_FLARM_MAP, ProfileKeys::EnableFLARMMap,
                        settings_map.show_flarm_on_map);
@@ -217,8 +243,11 @@ SymbolsConfigPanel::Save(bool &_changed) noexcept
 
   changed |= SaveValueEnum(WIND_ARROW_STYLE, ProfileKeys::WindArrowStyle, settings_map.wind_arrow_style);
 
-  changed |= SaveValueEnum(SKYLINES_TRAFFIC_MAP_MODE, ProfileKeys::SkyLinesTrafficMapMode,
-                           settings_map.skylines_traffic_map_mode);
+  changed |= SaveValueEnum(SKYLINES_TRAFFIC_MAP_MODE, ProfileKeys::OnlineTrafficMapMode,
+                           settings_map.online_traffic_map_mode);
+
+  changed |= SaveValue(DISTANCE_RINGS_ENABLED, ProfileKeys::DistanceRingsEnabled,
+                       settings_map.distance_rings_enabled);
 
   _changed |= changed;
 

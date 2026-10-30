@@ -6,13 +6,15 @@
 #include "ui/canvas/Color.hpp"
 #include "ui/canvas/Brush.hpp"
 #include "ui/canvas/Pen.hpp"
-#include "ui/canvas/Bitmap.hpp"
+#include "ui/canvas/Icon.hpp"
 #include "ui/canvas/Font.hpp"
 
 class Font;
 
 struct VarioLook {
   bool inverse, colors;
+  unsigned geometry_scale_percent = 100;
+  unsigned geometry_width = 0;
 
   Color background_color, text_color, dimmed_text_color;
 
@@ -23,9 +25,7 @@ struct VarioLook {
 
   Brush sink_brush, lift_brush;
 
-  Pen thick_background_pen, thick_sink_pen, thick_lift_pen;
-
-  Bitmap climb_bitmap;
+  MaskedIcon climb_icon;
 
   const Font *text_font;
   Font value_font;
@@ -39,5 +39,10 @@ struct VarioLook {
                   unsigned width,
                   const Font &text_font);
 
-  void ReinitialiseLayout(unsigned width);
+  void ReinitialiseLayout(unsigned width, unsigned reference_width=0);
+
+  unsigned Scale(unsigned value) const noexcept {
+    const unsigned scaled = value * geometry_scale_percent / 100;
+    return scaled > 0 ? scaled : 1;
+  }
 };

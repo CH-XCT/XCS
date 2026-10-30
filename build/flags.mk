@@ -54,13 +54,19 @@ ifneq ($(MAKECMDGOALS),python)
   endif
 endif
 
-ifeq ($(DEBUG)$(HAVE_WIN32)$(TARGET_IS_DARWIN),nnn)
+# MinGW ld accepts --gc-sections. Darwin's linker does not.
+ifeq ($(DEBUG)$(TARGET_IS_DARWIN),nn)
   CXX_FEATURES += -ffunction-sections
   C_FEATURES += -ffunction-sections
   TARGET_LDFLAGS += -Wl,--gc-sections
 endif
 
-ALL_CPPFLAGS = $(TARGET_INCLUDES) $(INCLUDES) $(TARGET_CPPFLAGS) $(CPPFLAGS)
+# Objects shared by generated targets may collect the same dependencies many
+# times.  Deduplicate dependency names before expanding their flags; individual
+# options cannot be safely deduplicated because some consist of two arguments.
+DEPENDENCY_CPPFLAGS = $(foreach i,$(call last-unique-words,$(CPPFLAGS_DEPENDS)),\
+	$($(i)_CPPFLAGS))
+ALL_CPPFLAGS = $(TARGET_INCLUDES) $(INCLUDES) $(TARGET_CPPFLAGS) $(CPPFLAGS) $(DEPENDENCY_CPPFLAGS)
 ALL_CXXFLAGS = $(OPTIMIZE) $(TARGET_OPTIMIZE) $(FLAGS_PROFILE) $(SANITIZE_FLAGS) $(CXX_FEATURES) $(TARGET_CXXFLAGS) $(CXX_WARNINGS) $(CXXFLAGS)
 ALL_CFLAGS = $(OPTIMIZE) $(TARGET_OPTIMIZE) $(FLAGS_PROFILE) $(SANITIZE_FLAGS) $(C_FEATURES) $(C_WARNINGS) $(CFLAGS)
 

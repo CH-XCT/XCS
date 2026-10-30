@@ -9,19 +9,10 @@ ifeq ($(USE_CCACHE),y)
   export CCACHE_CPP2 = yes
 endif
 
-EXE := $(findstring .exe,$(MAKE))
 AR = $(TCPREFIX)ar$(EXE)
 RANLIB = $(TCPREFIX)ranlib$(EXE)
 
-ifneq ($(ANALYZER),y)
-  ifeq ($(CLANG),y)
-    CXX = $(LLVM_PREFIX)clang++$(LLVM_SUFFIX)$(EXE)
-    CC = $(LLVM_PREFIX)clang$(LLVM_SUFFIX)$(EXE)
-  else
-    CXX = $(TCPREFIX)g++$(TCSUFFIX)$(EXE)
-    CC = $(TCPREFIX)gcc$(TCSUFFIX)$(EXE)
-  endif
-endif
+# $(EXE), $(CC) and $(CXX) are defined in build/set_compiler.mk.
 
 ifeq ($(CLANG),y)
   AS = $(CC)
@@ -96,21 +87,23 @@ $(ABI_OUTPUT_DIR)/%.i: %.c FORCE
 # Provide our own rules for building...
 #
 
+.SECONDEXPANSION:
+
 WRAPPED_CC = $(strip $(CCACHE) $(CC))
 WRAPPED_CXX = $(strip $(CCACHE) $(CXX))
 
-$(ABI_OUTPUT_DIR)/%$(OBJ_SUFFIX): %.c | $(ABI_OUTPUT_DIR)/%/../dirstamp $(compile-depends)
+$(ABI_OUTPUT_DIR)/%$(OBJ_SUFFIX): %.c | $$(dir $$@)dirstamp $(compile-depends)
 	@$(NQ)echo "  CC      $@"
 	$(Q)$(WRAPPED_CC) $< -c -o $@ $(cc-flags)
 
-$(ABI_OUTPUT_DIR)/%$(OBJ_SUFFIX): %.cpp | $(ABI_OUTPUT_DIR)/%/../dirstamp $(compile-depends)
+$(ABI_OUTPUT_DIR)/%$(OBJ_SUFFIX): %.cpp | $$(dir $$@)dirstamp $(compile-depends)
 	@$(NQ)echo "  CXX     $@"
 	$(Q)$(WRAPPED_CXX) $< -c -o $@ $(cxx-flags)
 ifeq ($(IWYU),y)
 	$(Q)iwyu $< $(cxx-flags)
 endif
 
-$(ABI_OUTPUT_DIR)/%$(OBJ_SUFFIX): %.cxx | $(ABI_OUTPUT_DIR)/%/../dirstamp $(compile-depends)
+$(ABI_OUTPUT_DIR)/%$(OBJ_SUFFIX): %.cxx | $$(dir $$@)dirstamp $(compile-depends)
 	@$(NQ)echo "  CXX     $@"
 	$(Q)$(WRAPPED_CXX) $< -c -o $@ $(cxx-flags)
 ifeq ($(IWYU),y)

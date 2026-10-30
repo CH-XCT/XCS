@@ -9,6 +9,7 @@
 #include "Task/ProtectedTaskManager.hpp"
 #include "Dialogs/Dialogs.h"
 #include "Dialogs/Waypoint/WaypointDialogs.hpp"
+#include "Geo/SpeedVector.hpp"
 #include "Engine/Util/Gradient.hpp"
 #include "Engine/Waypoint/Waypoint.hpp"
 #include "Units/Units.hpp"
@@ -21,11 +22,15 @@
 #include "Look/Look.hpp"
 #include "BackendComponents.hpp"
 #include "DataComponents.hpp"
+#include "Geo/GeoVector.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <string>
 
 static void
-UpdateStartOpenInfobox(InfoBoxData &data, const TimeStamp &projected_start_time_s) noexcept;
+UpdateStartOpenInfobox(InfoBoxData &data, const TimeStamp &projected_start_time_s,
+                       bool at_reach_time) noexcept;
 
 /**
  * Return the active waypoint, or nullptr if unavailable.
@@ -91,6 +96,32 @@ UpdateInfoBoxBearingDiff(InfoBoxData &data) noexcept
 
   Angle Value = vector_remaining.bearing - basic.track;
   data.SetValueFromBearingDifference(Value);
+  data.SetValueColor(task_stats.inside_oz ? 3 : 0);
+}
+
+void
+UpdateInfoBoxSpeedVMG(InfoBoxData &data) noexcept
+{
+  const NMEAInfo &basic = CommonInterface::Basic();
+  const TaskStats &task_stats = CommonInterface::Calculated().task_stats;
+  const GeoVector &vector_remaining = task_stats.current_leg.vector_remaining;
+  if (!basic.track_available || !basic.ground_speed_available ||
+      !task_stats.task_valid || !vector_remaining.IsValid() ||
+      vector_remaining.distance <= 10) {
+    data.SetInvalid();
+    return;
+  }
+
+  const SpeedVector ground_velocity{basic.track, basic.ground_speed};
+  auto vmg = ground_velocity.ComponentAlong(vector_remaining.bearing);
+
+  /* no decimals: the value is noisy enough that a tenth of a unit
+     would only flicker; and flying abeam should read "0", not
+     alternate with "-0" */
+  if (std::abs(Units::ToUserSpeed(vmg)) < 0.5)
+    vmg = 0;
+
+  data.SetValueFromSpeed(vmg, false);
   data.SetValueColor(task_stats.inside_oz ? 3 : 0);
 }
 
@@ -837,20 +868,139 @@ InfoBoxContentCruiseEfficiency::HandleClick() noexcept
   return true;
 }
 
-static constexpr unsigned
-SecondsUntil(TimeStamp now, FineTime until) noexcept
+[[gnu::const]]
+static int
+SignedSecondsUntil(TimeStamp from, FineTime until) noexcept
 {
-  auto d = TimeStamp{until} - now;
-  if (d.count() < 0)
-    d += std::chrono::hours{24};
-  return std::chrono::duration_cast<std::chrono::duration<unsigned>>(d).count();
+  if (!until.IsValid())
+    return 0;
+
+  const FloatDuration d = TimeStamp{until} - from;
+  return static_cast<int>(d.count());
+}
+
+static void
+FormatCountdownSignedMMSS(InfoBoxData &data, int seconds) noexcept
+{
+  const bool neg = seconds < 0;
+  const long long mag = neg ? -(long long)seconds : (long long)seconds;
+  const unsigned clamped =
+      (unsigned)std::min(std::max(mag, 0LL), 99999LL);
+  const unsigned m = clamped / 60u;
+  const unsigned s = clamped % 60u;
+  data.FmtValue("{}{:d}:{:02}", neg ? "-" : "", m, s);
+}
+
+/**
+ * Time to the start along the current ordered-task leg; same basis as
+ * #UpdateInfoBoxStartOpenArrival (MacCready leg when OK, else distance / GS).
+ */
+static bool
+TryLegEtaToStartForStartReach(FloatDuration &out_eta) noexcept
+{
+  const TaskStats &task_stats =
+      CommonInterface::Calculated().ordered_task_stats;
+  const GlideResult &current_remaining =
+      task_stats.current_leg.solution_remaining;
+  const NMEAInfo &basic = CommonInterface::Basic();
+
+  if (current_remaining.IsOk()) {
+    out_eta = current_remaining.time_elapsed;
+    return true;
+  }
+
+  const GeoVector &vr = task_stats.current_leg.vector_remaining;
+  if (!vr.IsValid() || !basic.ground_speed_available || basic.ground_speed <= 1)
+    return false;
+
+  static constexpr double k_max_eta_s = 6 * 3600;
+  const double t = vr.distance / basic.ground_speed;
+  if (t <= 0 || t >= k_max_eta_s)
+    return false;
+
+  out_eta = FloatDuration{t};
+  return true;
+}
+
+enum class StartGateComment {
+  NONE,
+  TOO_EARLY,
+  CAN_START,
+  TOO_LATE,
+};
+
+static StartGateComment
+StartGateCommentAt(const TimeSpan &window, FineTime when) noexcept
+{
+  if (!when.IsValid())
+    return StartGateComment::NONE;
+
+  if (!window.HasBegun(when))
+    return StartGateComment::TOO_EARLY;
+
+  if (window.HasEnded(when))
+    return StartGateComment::TOO_LATE;
+
+  return StartGateComment::CAN_START;
+}
+
+static void
+ApplyStartOpenGateNowStyle(InfoBoxData &data,
+                           StartGateComment state) noexcept
+{
+  data.SetCommentColor(0);
+
+  switch (state) {
+  case StartGateComment::TOO_EARLY:
+    data.SetComment(_("Waiting"));
+    data.SetValueColor(2);
+    break;
+  case StartGateComment::CAN_START:
+    data.SetComment(_("Open"));
+    data.SetValueColor(3);
+    break;
+  case StartGateComment::TOO_LATE:
+    data.SetComment(_("Closed"));
+    data.SetValueColor(1);
+    break;
+  default:
+    data.SetCommentInvalid();
+    data.SetValueColor(0);
+    break;
+  }
+}
+
+static void
+ApplyStartGateReachStyle(InfoBoxData &data,
+                         StartGateComment state) noexcept
+{
+  data.SetCommentColor(0);
+
+  switch (state) {
+  case StartGateComment::TOO_EARLY:
+    data.SetComment(C_("Status", "Too early"));
+    data.SetValueColor(2);
+    break;
+  case StartGateComment::CAN_START:
+    data.SetComment(C_("Status", "Can start"));
+    data.SetValueColor(3);
+    break;
+  case StartGateComment::TOO_LATE:
+    data.SetComment(C_("Status", "Too late"));
+    data.SetValueColor(1);
+    break;
+  default:
+    data.SetCommentInvalid();
+    data.SetValueColor(0);
+    break;
+  }
 }
 
 void
 UpdateInfoBoxStartOpen(InfoBoxData &data) noexcept
 {
   const auto now_s = CommonInterface::Basic().time;
-  UpdateStartOpenInfobox(data, now_s);
+  UpdateStartOpenInfobox(data, now_s, false);
 }
 
 void
@@ -866,8 +1016,14 @@ InfoBoxContentStartOpen::HandleClick() noexcept
   return true;
 }
 
+/**
+ * @param projected_start_time_s gate reference for Start open (current time);
+ *     ignored for Start reach (value is leg time to the start line).
+ * @param at_reach_time true for Start reach.
+ */
 static void
-UpdateStartOpenInfobox(InfoBoxData &data, const TimeStamp &projected_start_time_s) noexcept
+UpdateStartOpenInfobox(InfoBoxData &data, const TimeStamp &projected_start_time_s,
+                       bool at_reach_time) noexcept
 {
   const NMEAInfo &basic = CommonInterface::Basic();
   const TaskStats &task_stats = CommonInterface::Calculated().ordered_task_stats;
@@ -882,55 +1038,82 @@ UpdateStartOpenInfobox(InfoBoxData &data, const TimeStamp &projected_start_time_
 
   /* reset color that may have been set by a previous call */
   data.SetValueColor(0);
+  data.SetCommentColor(0);
 
   if (!basic.time_available || !task_stats.task_valid ||
       common_stats.ordered_summary.active != 0 ||
       !eff_start_window.IsDefined()) {
     data.SetInvalid();
+    if (at_reach_time)
+      data.SetTitle(_("Start reach"));
+    else {
+      /* Title is StaticString<32> (31 bytes + NUL). */
+      data.SetTitle(C_("InfoBox", "Start unknown"));
+    }
     return;
   }
 
   const FineTime projected_start_time{projected_start_time_s};
 
-  if (eff_start_window.HasEnded(projected_start_time)) {
-    data.SetValueInvalid();
-    data.SetComment(_("Closed"));
-  } else if (eff_start_window.HasBegun(projected_start_time)) {
+  if (at_reach_time) {
+    FloatDuration leg_eta{};
+    if (!TryLegEtaToStartForStartReach(leg_eta)) {
+      data.SetInvalid();
+      data.SetTitle(_("Start reach"));
+      return;
+    }
+
+    const int leg_sec = static_cast<int>(std::lround(leg_eta.count()));
+    FormatCountdownSignedMMSS(data, leg_sec);
+
+    const FineTime at_arrival{basic.time + leg_eta};
+    ApplyStartGateReachStyle(data,
+                             StartGateCommentAt(eff_start_window, at_arrival));
+    return;
+  }
+
+  data.SetTitle(_("Start open"));
+
+  const StartGateComment gate_now =
+      StartGateCommentAt(eff_start_window, projected_start_time);
+
+  if (!eff_start_window.HasBegun(projected_start_time)) {
+    const int sec = eff_start_window.GetStart().IsValid()
+                        ? SignedSecondsUntil(projected_start_time_s,
+                                               eff_start_window.GetStart())
+                        : 0;
+    FormatCountdownSignedMMSS(data, sec);
+    ApplyStartOpenGateNowStyle(data, gate_now);
+  } else if (!eff_start_window.HasEnded(projected_start_time)) {
     if (eff_start_window.GetEnd().IsValid()) {
-      unsigned seconds = SecondsUntil(projected_start_time_s,
-                         eff_start_window.GetEnd());
-      data.FmtValue("{:02}:{:02}", seconds / 60, seconds % 60);
-      data.SetValueColor(3);
+      const int sec = SignedSecondsUntil(projected_start_time_s,
+                                         eff_start_window.GetEnd());
+      FormatCountdownSignedMMSS(data, sec);
     } else
       data.SetValueInvalid();
 
-    data.SetComment(_("Open"));
+    ApplyStartOpenGateNowStyle(data, gate_now);
   } else {
-    unsigned seconds = SecondsUntil(projected_start_time_s,
-                       eff_start_window.GetStart());
-    data.FmtValue("{:02}:{:02}", seconds / 60, seconds % 60);
-    data.SetValueColor(2);
-    data.SetComment(_("Waiting"));
+    const int sec = eff_start_window.GetEnd().IsValid()
+                        ? SignedSecondsUntil(projected_start_time_s,
+                                             eff_start_window.GetEnd())
+                        : 0;
+    FormatCountdownSignedMMSS(data, sec);
+    ApplyStartOpenGateNowStyle(data, gate_now);
   }
 }
 
 void
 UpdateInfoBoxStartOpenArrival(InfoBoxData &data) noexcept
 {
-  const GlideResult &current_remaining =
-    CommonInterface::Calculated().ordered_task_stats.current_leg
-                                 .solution_remaining;
-
-  /* reset color that may have been set by a previous call */
-  if (!current_remaining.IsOk()) {
+  const NMEAInfo &basic = CommonInterface::Basic();
+  if (!basic.time_available) {
     data.SetValueColor(0);
     data.SetInvalid();
     return;
   }
 
-  const auto arrival_s = CommonInterface::Basic().time +
-                         current_remaining.time_elapsed;
-  UpdateStartOpenInfobox(data, arrival_s);
+  UpdateStartOpenInfobox(data, basic.time, true);
 }
 
 void

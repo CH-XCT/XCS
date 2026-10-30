@@ -14,6 +14,7 @@
 #include "Form/DataField/Prefix.hpp"
 #include "Engine/Airspace/Airspaces.hpp"
 #include "Renderer/AirspaceListRenderer.hpp"
+#include "Renderer/AirspaceWarningStatusRenderer.hpp"
 #include "Renderer/TwoTextRowsRenderer.hpp"
 #include "Look/MapLook.hpp"
 #include "Look/DialogLook.hpp"
@@ -26,6 +27,11 @@
 #include "Blackboard/BlackboardListener.hpp"
 #include "Language/Language.hpp"
 #include "util/StringCompare.hxx"
+#include "Airspace/ProtectedAirspaceWarningManager.hpp"
+#include "Asset.hpp"
+#include "Look/Colors.hpp"
+#include "Screen/Layout.hpp"
+#include "ui/canvas/Canvas.hpp"
 
 #include <cassert>
 #include <stdio.h>
@@ -113,28 +119,6 @@ public:
                const PixelRect &rc) noexcept override;
 };
 
-class AirspaceListButtons final : public RowFormWidget {
-  WndForm &dialog;
-  AirspaceListWidget *list;
-
-public:
-  AirspaceListButtons(const DialogLook &look, WndForm &_dialog) noexcept
-    :RowFormWidget(look), dialog(_dialog) {}
-
-  void SetList(AirspaceListWidget *_list) {
-    list = _list;
-  }
-
-  void Prepare([[maybe_unused]] ContainerWindow &parent,
-               [[maybe_unused]] const PixelRect &rc) noexcept override {
-    AddButton(_("Details"), [this](){
-      list->ShowDetails();
-    });
-
-    AddButton(_("Close"), dialog.MakeModalResultCallback(mrCancel));
-  }
-};
-
 /**
  * Special enum integer value for "filter disabled".
  */
@@ -198,7 +182,7 @@ static constexpr StaticEnumChoice type_filter_list[] = {
   { LTA, "Lower Traffic Area" },
   { UTA, "Upper Traffic Area" },
   { ASRA, "Aerial Sporting Or Recreational Activity" },
-  { NOTAM, "NTOAM Affected Area" },
+  { NOTAM, N_("NOTAM Affected Area") },
   { NONE, "None" },
   { TRAFR, "TRA/TSA Feeding Route" },
   { TRZ, "Transponder Recommended Zone" },
@@ -335,11 +319,45 @@ AirspaceListWidget::OnPaintItem(Canvas &canvas, const PixelRect rc,
 
   const AbstractAirspace &airspace = items[i].GetAirspace();
 
+  const bool cleared = airspace_warnings != nullptr &&
+    airspace_warnings->GetCleared(airspace);
+
+  if (cleared) {
+    if (!IsDithered())
+      canvas.SetTextColor(AirspaceClearanceTextColor(
+        UIGlobals::GetDialogLook().dark_mode, canvas.GetTextColor()));
+  } else if (airspace_warnings != nullptr &&
+             airspace_warnings->GetAckDay(airspace))
+    canvas.SetTextColor(COLOR_GRAY);
+
+  PixelRect draw_rc = rc;
+  PixelRect status_rc{};
+  bool show_badge = false;
+  if (cleared) {
+    const Font &font = *UIGlobals::GetDialogLook().list.font;
+    const int needed = AirspaceWarningStatusWidth(font);
+    const int min_main = Layout::Scale(80);
+    if ((int)rc.GetWidth() > needed + min_main) {
+      const auto split = rc.VerticalSplit(rc.right - needed);
+      draw_rc = split.first;
+      status_rc = split.second;
+      show_badge = true;
+    }
+  }
+
   AirspaceListRenderer::Draw(
-      canvas, rc, airspace,
+      canvas, draw_rc, airspace,
       items[i].GetVector(location, airspaces->GetProjection()),
       row_renderer, UIGlobals::GetMapLook().airspace,
       CommonInterface::GetMapSettings().airspace);
+
+  if (show_badge) {
+    AirspaceWarningStatusBadge status;
+    status.kind = AirspaceWarningStatusBadge::Kind::Cleared;
+    DrawAirspaceWarningStatus(canvas,
+                              *UIGlobals::GetDialogLook().list.font,
+                              status_rc, status);
+  }
 }
 
 [[gnu::pure]]
@@ -466,17 +484,18 @@ ShowAirspaceListDialog(const Airspaces &_airspaces,
   auto filter_widget = std::make_unique<AirspaceFilterWidget>(look);
 
   auto list_widget = std::make_unique<AirspaceListWidget>(*filter_widget);
+  AirspaceListWidget *const list = list_widget.get();
 
-  auto buttons_widget = std::make_unique<AirspaceListButtons>(look, dialog);
+  filter_widget->SetListener(list);
 
-  filter_widget->SetListener(list_widget.get());
-  buttons_widget->SetList(list_widget.get());
-
-  auto left_widget = std::make_unique<TwoWidgets>(std::move(filter_widget),
-                                                  std::move(buttons_widget),
-                                                  true);
-
-  dialog.FinishPreliminary(new TwoWidgets(std::move(left_widget),
-                                          std::move(list_widget), false));
+  /* Details/Close are in the dialog #ButtonPanel so tab/Up/Down from
+     the list (after the last item) go to the actions, like other list
+     dialogs, instead of wrapping to the name filter. */
+  dialog.FinishPreliminary(
+    new TwoWidgets(std::move(filter_widget), std::move(list_widget), false));
+  dialog.AddButton(_("Details"), [list](){
+    list->ShowDetails();
+  });
+  dialog.AddButton(_("Close"), dialog.MakeModalResultCallback(mrCancel));
   dialog.ShowModal();
 }

@@ -39,6 +39,9 @@ private:
 
   PixelPoint label_position;
 
+  /** Last safe-area rect used for the buttons; empty until laid out. */
+  PixelRect layout_rc{};
+
 public:
   SimulatorPromptWindow(const DialogLook &_look,
                         std::function<void(Result)> _callback,
@@ -46,7 +49,17 @@ public:
     :look(_look), callback(std::move(_callback)),
      have_quit_button(_quit) {}
 
+  void SelectFly() noexcept {
+    callback(Result::FLY);
+  }
+
+  void SelectSimulator() noexcept {
+    callback(Result::SIMULATOR);
+  }
+
 protected:
+  void LayoutControls() noexcept;
+
   /* virtual methods from class Window */
   void OnCreate() override;
   void OnResize(PixelSize new_size) noexcept override;

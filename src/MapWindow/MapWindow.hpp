@@ -16,8 +16,9 @@
 #include "Renderer/BackgroundRenderer.hpp"
 #include "Renderer/WaypointRenderer.hpp"
 #include "Renderer/TrailRenderer.hpp"
+#include "Renderer/TurnBackMarkerRenderer.hpp"
+#include "OverlayLimits.hpp"
 #include "Weather/Features.hpp"
-#include "Tracking/SkyLines/Features.hpp"
 
 #include <memory>
 
@@ -37,11 +38,7 @@ class ContainerWindow;
 class NOAAStore;
 class MapOverlay;
 
-namespace SkyLinesTracking {
-  struct Data;
-}
-
-namespace TIM { class Glue; }
+class ObservationDatabase;
 
 class MapWindow :
   public DoubleBufferWindow,
@@ -88,6 +85,19 @@ protected:
    * the DrawThread has finished drawing the new projection.
    */
   MapWindowProjection buffer_projection;
+
+  /**
+   * Protects #published_projection.  Held only for a short copy into
+   * or out of that field; never across Render().
+   */
+  mutable Mutex frame_projection_mutex;
+
+  /**
+   * Coherent projection snapshot published by the UI thread after
+   * UpdateScreenBounds().  The DrawThread copies this into
+   * #render_projection at the start of each frame.
+   */
+  MapWindowProjection published_projection;
 #endif
 
   /**
@@ -113,7 +123,11 @@ protected:
   std::unique_ptr<RaspRenderer> rasp_renderer;
 
 #ifdef ENABLE_OPENGL
+#if defined(HAVE_HTTP)
+  std::unique_ptr<MapOverlay> overlay[MapWindowOverlay::MAX_MAP_OVERLAYS];
+#else
   std::unique_ptr<MapOverlay> overlay;
+#endif
 #endif
 
   const TrafficLook &traffic_look;
@@ -125,6 +139,7 @@ protected:
   AirspaceLabelRenderer airspace_label_renderer;
 
   TrailRenderer trail_renderer;
+  TurnBackMarkerRenderer turn_back_marker_renderer;
 
   ProtectedTaskManager *task = nullptr;
   const ProtectedRoutePlanner *route_planner = nullptr;
@@ -134,15 +149,26 @@ protected:
   NOAAStore *noaa_store = nullptr;
 #endif
 
-#ifdef HAVE_SKYLINES_TRACKING
-  const SkyLinesTracking::Data *skylines_data = nullptr;
-#endif
-
-#ifdef HAVE_HTTP
-  const TIM::Glue *tim_glue = nullptr;
-#endif
+  const ObservationDatabase *observations = nullptr;
 
   bool compass_visible = true;
+
+  /**
+   * Width at the right edge of the map covered by the overlay buttons
+   * (menu, quick menu, zoom).  HUD items in the top right corner are
+   * moved left by this amount so the buttons do not hide them.
+   */
+  unsigned top_right_margin = 0;
+
+  /**
+   * Margins that keep the HUD elements clear of the areas covered by
+   * system UI (display cutout, status bar, home indicator) while the
+   * map itself uses the whole screen.
+   *
+   * @see GetHudRect(), DisplaySettings::infobox_area_stretch
+   */
+  unsigned hud_margin_left = 0, hud_margin_top = 0;
+  unsigned hud_margin_right = 0, hud_margin_bottom = 0;
 
 #ifndef ENABLE_OPENGL
   /**
@@ -199,6 +225,36 @@ public:
 
   void SetGlideComputer(GlideComputer *_gc) noexcept;
 
+  /**
+   * Keep the HUD elements this far away from the window borders.
+   * The projection origin follows #GetHudRect(); #GlueMapWindow
+   * republishes it when these margins change.
+   *
+   * @see GetHudRect()
+   */
+  virtual void SetHudMargins(unsigned left, unsigned top,
+                             unsigned right, unsigned bottom) noexcept;
+
+  /**
+   * The part of the given rectangle in which the HUD elements
+   * (compass, map scale, final glide bar, ...) may be drawn.  This is
+   * the whole rectangle unless the map extends into areas covered by
+   * system UI.
+   */
+  [[gnu::pure]]
+  PixelRect GetHudRect(PixelRect rc) const noexcept {
+    rc.left += int(hud_margin_left);
+    rc.top += int(hud_margin_top);
+    rc.right -= int(hud_margin_right);
+    rc.bottom -= int(hud_margin_bottom);
+    return rc;
+  }
+
+  [[gnu::pure]]
+  PixelRect GetHudRect() const noexcept {
+    return GetHudRect(GetClientRect());
+  }
+
   void SetAirspaces(Airspaces *airspaces) noexcept {
     airspace_renderer.SetAirspaces(airspaces);
     airspace_label_renderer.SetAirspaces(airspaces);
@@ -216,8 +272,22 @@ public:
 #ifdef ENABLE_OPENGL
   void SetOverlay(std::unique_ptr<MapOverlay> &&_overlay) noexcept;
 
+#if defined(HAVE_HTTP)
+  void SetOverlay(unsigned index, std::unique_ptr<MapOverlay> &&_overlay) noexcept;
+
+  const MapOverlay *GetOverlay(unsigned index) const noexcept {
+    return index < MapWindowOverlay::MAX_MAP_OVERLAYS
+      ? overlay[index].get()
+      : nullptr;
+  }
+#endif
+
   const MapOverlay *GetOverlay() const noexcept {
+#if defined(HAVE_HTTP)
+    return GetOverlay(0);
+#else
     return overlay.get();
+#endif
   }
 #endif
 
@@ -227,17 +297,9 @@ public:
   }
 #endif
 
-#ifdef HAVE_SKYLINES_TRACKING
-  void SetSkyLinesData(const SkyLinesTracking::Data *_data) noexcept {
-    skylines_data = _data;
+  void SetObservations(const ObservationDatabase *db) noexcept {
+    observations = db;
   }
-#endif
-
-#ifdef HAVE_HTTP
-  void SetThermalInfoMap(const TIM::Glue *_tim) noexcept {
-    tim_glue = _tim;
-  }
-#endif
 
   void FlushCaches() noexcept;
 
@@ -265,9 +327,21 @@ public:
 
   void UpdateScreenBounds() noexcept {
     visible_projection.UpdateScreenBounds();
+#ifndef ENABLE_OPENGL
+    PublishFrameProjection();
+#endif
   }
 
 protected:
+#ifndef ENABLE_OPENGL
+  /**
+   * Publish a coherent copy of #visible_projection for the DrawThread.
+   * Call only after UpdateScreenBounds() (or equivalent) so bounds match
+   * location/scale/angle/origin.
+   */
+  void PublishFrameProjection() noexcept;
+#endif
+
   void DrawBestCruiseTrack(Canvas &canvas, PixelPoint aircraft_pos) const noexcept;
   void DrawTrackBearing(Canvas &canvas,
                         PixelPoint aircraft_pos, bool circling) const noexcept;
@@ -281,11 +355,9 @@ protected:
   virtual void RenderTrail(Canvas &canvas, PixelPoint aircraft_pos) noexcept;
   virtual void RenderTrackBearing(Canvas &canvas, PixelPoint aircraft_pos) noexcept;
 
-#ifdef HAVE_SKYLINES_TRACKING
-  void DrawSkyLinesTraffic(Canvas &canvas) const noexcept;
-#endif
 
   void DrawTeammate(Canvas &canvas) const noexcept;
+  void DrawDistanceRings(Canvas &canvas) const noexcept;
   void DrawContest(Canvas &canvas) noexcept;
   void DrawTask(Canvas &canvas) noexcept;
   void DrawRoute(Canvas &canvas) noexcept;
@@ -361,6 +433,12 @@ private:
    * @param canvas The drawing canvas
    */
   void RenderFinalGlideShading(Canvas &canvas) noexcept;
+
+  /**
+   * Draw the Turn Back Marker (TBM) on the track line
+   * @param canvas The drawing canvas
+   */
+  void DrawTurnBackMarker(Canvas &canvas) const noexcept;
 
   /**
    * Renders the airspace

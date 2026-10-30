@@ -45,14 +45,6 @@ struct DeviceConfig {
     IOIOVOLTAGE,
 
     /**
-     * Attempt to auto-discover the GPS source.
-     *
-     * On Windows CE, this opens the GPS Intermediate Driver Multiplexer.
-     * @see http://msdn.microsoft.com/en-us/library/bb202042.aspx
-     */
-    AUTO,
-
-    /**
      * The built-in GPS receiver.
      */
     INTERNAL,
@@ -85,11 +77,15 @@ struct DeviceConfig {
     BLE_SENSOR,
 
     /**
-     * Bluetooth Low Energy HM10 protocol to a paired device.  Unlike
-     * #BLE_SENSOR, this provides a bidirectional data stream and
-     * XCSoar accesses it through the #Port interface.
+     * Bluetooth Low Energy serial bridge to a paired device (HM-10,
+     * Nordic UART Service, or Microchip/ISSC transparent UART).
+     * Unlike #BLE_SENSOR, this provides a bidirectional data stream
+     * and XCSoar accesses it through the #Port interface.
+     *
+     * @note The profile stores this mode under the legacy port type string
+     * @c ble_hm10 (see Profile/DeviceConfig.cpp).
      */
-    BLE_HM10,
+    BLE_SERIAL,
 
     /**
      * A GliderLink broadcast receiver. Available on Android only
@@ -100,6 +96,11 @@ struct DeviceConfig {
      * USB serial port on Android.
      */
     ANDROID_USB_SERIAL,
+
+    /**
+     * Poll a Condor 3 Spectate.json file for multiplayer traffic.
+     */
+    SPECTATE_FILE,
   };
 
   /**
@@ -171,6 +172,30 @@ struct DeviceConfig {
    */
   double sensor_offset;
   double sensor_factor;
+
+  /**
+   * For Acceleration & Rotation sensors of the built-in sensor set.
+   * It is important to know the orientation of the sensor axis.
+   *
+   * Is the instrument housing of these sensors permanently mounted in the
+   * aircraft, and do the sensors' three axes correspond to the aircraft's
+   * three axes (FIXED_AND_ALIGNED)? Or is the instrument mounted flexibly in the cockpit,
+   * for example using a gooseneck (NOT_ALIGNED)?
+   * If in doubt, this should be set to NOT_ALIGNED, as incorrect measurements
+   * can lead to misinterpretations.
+   */
+  enum class InstrumentAlignment : uint8_t {
+    NONE = 0,
+    /** The instrument is fixed and the axis are aligned to the aircraft */
+    FIXED_AND_ALIGNED,
+    /** Not aligned to the aircraft's axis, e.g. flexible mount */
+    NOT_ALIGNED,
+
+    /**
+     * A dummy entry that is used for validating profile values.
+     */
+    MAX
+  } instrument_alignment;
 
   /**
    * User choices of engine types supported.
@@ -278,6 +303,15 @@ struct DeviceConfig {
   bool sync_from_device;
 
   /**
+   * Should XCSoar send its current GPS position to the device as
+   * $GPGGA / $GPRMC sentences?  Only honored by drivers that advertise
+   * #DeviceRegister::SEND_POSITION (e.g. LX160).  When this is false the
+   * driver still emits navigation context such as $GPRMB.  Defaults to
+   * true; turn off when an upstream GPS source already feeds the device.
+   */
+  bool send_position;
+
+  /**
    * Polar synchronization direction (off, receive, or send).
    */
   PolarSync polar_sync;
@@ -286,7 +320,7 @@ struct DeviceConfig {
    * Does this port type use a baud rate?
    */
   static constexpr bool UsesSpeed(PortType port_type) noexcept {
-    return port_type == PortType::SERIAL || port_type == PortType::AUTO ||
+    return port_type == PortType::SERIAL ||
       port_type == PortType::ANDROID_USB_SERIAL ||
       port_type == PortType::IOIOUART;
   }
@@ -294,7 +328,7 @@ struct DeviceConfig {
   static constexpr bool UsesBluetoothMac(PortType port_type) noexcept {
     return port_type == PortType::RFCOMM ||
       port_type == PortType::BLE_SENSOR ||
-      port_type == PortType::BLE_HM10;
+      port_type == PortType::BLE_SERIAL;
   }
 
   constexpr bool IsDisabled() const noexcept {
@@ -318,7 +352,7 @@ struct DeviceConfig {
   constexpr bool IsAndroidBluetooth() const noexcept {
     switch (port_type) {
     case PortType::BLE_SENSOR:
-    case PortType::BLE_HM10:
+    case PortType::BLE_SERIAL:
     case PortType::RFCOMM:
     case PortType::RFCOMM_SERVER:
       return true;
@@ -331,13 +365,13 @@ struct DeviceConfig {
     case PortType::IOIOVOLTAGE:
     case PortType::INTERNAL:
     case PortType::SERIAL:
-    case PortType::AUTO:
     case PortType::TCP_LISTENER:
     case PortType::TCP_CLIENT:
     case PortType::IOIOUART:
     case PortType::PTY:
     case PortType::UDP_LISTENER:
     case PortType::ANDROID_USB_SERIAL:
+    case PortType::SPECTATE_FILE:
       break;
     }
 
@@ -383,16 +417,16 @@ struct DeviceConfig {
       return false;
 
     case PortType::SERIAL:
-    case PortType::BLE_HM10:
+    case PortType::BLE_SERIAL:
     case PortType::RFCOMM:
     case PortType::RFCOMM_SERVER:
-    case PortType::AUTO:
     case PortType::TCP_LISTENER:
     case PortType::TCP_CLIENT:
     case PortType::IOIOUART:
     case PortType::PTY:
     case PortType::UDP_LISTENER:
     case PortType::ANDROID_USB_SERIAL:
+    case PortType::SPECTATE_FILE:
       return true;
     }
 
@@ -478,6 +512,17 @@ struct DeviceConfig {
     return UsesCalibration(port_type);
   }
 
+  /**
+   * Default Condor 3 Spectate.json location on Windows.
+   */
+  static constexpr const char *DEFAULT_SPECTATE_PATH =
+    "c:\\condor3\\logs\\spectate.json";
+
+  /**
+   * Apply default Spectate file path when none is configured.
+   */
+  void ApplySpectateDefaults() noexcept;
+
   void Clear() noexcept;
 
   /**
@@ -485,4 +530,20 @@ struct DeviceConfig {
    */
   [[gnu::pure]]
   const char *GetPortName(char *buffer, size_t max_size) const noexcept;
+
+  /**
+   * G-load contribution of one phone acceleration sample.
+   *
+   * The sign is which edge of the phone is up: positive when the top
+   * edge is above the bottom edge. Not aligned folds that sign away.
+   * Any other alignment keeps it. The published G load is the mean of
+   * these samples.
+   */
+  [[nodiscard]]
+  static constexpr double
+  GLoadSample(InstrumentAlignment alignment, double acceleration) noexcept {
+    return alignment == InstrumentAlignment::NOT_ALIGNED && acceleration < 0.
+      ? -acceleration
+      : acceleration;
+  }
 };

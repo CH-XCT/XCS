@@ -7,6 +7,7 @@
 #include "Form/DataField/Enum.hpp"
 #include "Dialogs/Dialogs.h"
 #include "util/StringCompare.hxx"
+#include "util/StaticString.hxx"
 #include "Interface.hpp"
 #include "Language/Table.hpp"
 #include "Asset.hpp"
@@ -17,19 +18,25 @@
 #include "Language/Language.hpp"
 #include "UIGlobals.hpp"
 #include "Hardware/Vibrator.hpp"
+#include "Repository/FileType.hpp"
+#include "Version.hpp"
 
 using namespace std::chrono;
 
 enum ControlIndex {
-  UIScale,
-  CustomDPI,
   InputFile,
 #ifdef HAVE_NLS
   LanguageFile,
 #endif
   MenuTimeout,
   TextInput,
-  HapticFeedback
+#ifdef HAVE_VIBRATOR
+  HapticFeedback,
+#endif
+  ShowQuickGuideOnStartup,
+  ShowReleaseNotesOnStartup,
+  WarnRadarExpired,
+  DisclaimerAccepted,
 };
 
 class InterfaceConfigPanel final : public RowFormWidget {
@@ -68,37 +75,12 @@ InterfaceConfigPanel::Prepare(ContainerWindow &parent,
 
   RowFormWidget::Prepare(parent, rc);
 
-  AddInteger(_("Text size"),
-             nullptr,
-             "%d %%", "%d", 75, 200, 5,
-             settings.scale);
-
-  WndProperty *wp_dpi = AddEnum(_("Display Resolution"),
-                                _("The display resolution is used to adapt line widths, "
-                                  "font size, landable size and more."));
-  if (wp_dpi != nullptr) {
-    static constexpr unsigned dpi_choices[] = {
-      120, 160, 240, 260, 280, 300, 340, 360, 400, 420, 520,
-    };
-    const unsigned *dpi_choices_end =
-      dpi_choices + sizeof(dpi_choices) / sizeof(dpi_choices[0]);
-
-    DataFieldEnum &df = *(DataFieldEnum *)wp_dpi->GetDataField();
-    df.AddChoice(0, _("Automatic"));
-    for (const unsigned *dpi = dpi_choices; dpi != dpi_choices_end; ++dpi) {
-      char buffer[20];
-      sprintf(buffer, _("%d dpi"), *dpi);
-      df.AddChoice(*dpi, buffer);
-    }
-    df.SetValue(settings.custom_dpi);
-    wp_dpi->RefreshDisplay();
-  }
-  SetExpertRow(CustomDPI);
-
   AddFile(_("Events"),
           _("The Input Events file defines the menu system and how XCSoar responds to "
             "button presses and events from external devices."),
-          ProfileKeys::InputFile, "*.xci\0", FileType::XCI);
+          ProfileKeys::InputFile,
+          GetFileTypePatterns(FileType::XCI),
+          FileType::XCI);
   SetExpertRow(InputFile);
 
 #ifdef HAVE_NLS
@@ -164,7 +146,7 @@ InterfaceConfigPanel::Prepare(ContainerWindow &parent,
 
   /* on-screen keyboard doesn't work without a pointing device
      (mouse or touch screen) */
-  SetRowVisible(TextInput, HasPointer());
+  SetRowAvailable(TextInput, HasPointer());
 
 #ifdef HAVE_VIBRATOR
   static constexpr StaticEnumChoice haptic_feedback_list[] = {
@@ -179,6 +161,49 @@ InterfaceConfigPanel::Prepare(ContainerWindow &parent,
                haptic_feedback_list, (unsigned)settings.haptic_feedback);
   SetExpertRow(HapticFeedback);
 #endif /* HAVE_VIBRATOR */
+
+  bool hide_quick_guide = false;
+  Profile::Get(ProfileKeys::HideQuickGuideDialogOnStartup,
+               hide_quick_guide);
+  AddBoolean(C_("Setting", "Show Quick Guide"),
+             _("If enabled, the Quick Guide is shown when XCSoar starts."),
+             !hide_quick_guide);
+
+  const char *last_seen_news =
+    Profile::Get(ProfileKeys::LastSeenNewsVersion);
+  const bool news_seen = last_seen_news != nullptr &&
+    StringIsEqual(last_seen_news, XCSoar_Version);
+  AddBoolean(C_("Setting", "Show release notes"),
+             _("If enabled, the What's New page is shown on the next "
+               "startup."),
+             !news_seen);
+
+  bool hide_radar_warning = false;
+  Profile::Get(ProfileKeys::HideRadarStaleWarning, hide_radar_warning);
+  AddBoolean(C_("Setting", "Warn when radar expires"),
+             _("If enabled, a warning is shown when the rain radar "
+               "overlay could not be refreshed and was removed from "
+               "the map."),
+             !hide_radar_warning);
+
+  const char *disclaimer_acknowledged_version =
+    Profile::Get(ProfileKeys::DisclaimerAcknowledgedVersion);
+  const bool disclaimer_acknowledged =
+    disclaimer_acknowledged_version != nullptr &&
+    StringIsEqual(disclaimer_acknowledged_version, XCSoar_Version);
+
+  static constexpr StaticEnumChoice disclaimer_accepted_list[] = {
+    { 0, N_("No") },
+    { 1, N_("Yes") },
+    nullptr
+  };
+
+  AddEnum(_("Safety disclaimer accepted"),
+          _("Whether the safety disclaimer has been accepted for this "
+            "version."),
+          disclaimer_accepted_list,
+          disclaimer_acknowledged ? 1u : 0u);
+  SetExpertRow(DisclaimerAccepted);
 }
 
 bool
@@ -187,26 +212,23 @@ InterfaceConfigPanel::Save(bool &_changed) noexcept
   UISettings &settings = CommonInterface::SetUISettings();
   bool changed = false;
 
-  if (SaveValueInteger(UIScale, ProfileKeys::UIScale,
-                       settings.scale))
-    require_restart = changed = true;
-
-  if (SaveValueEnum(CustomDPI, ProfileKeys::CustomDPI,
-                    settings.custom_dpi))
-    require_restart = changed = true;
-
   if (SaveValueFileReader(InputFile, ProfileKeys::InputFile))
-    require_restart = changed = true;
+    InputFileChanged = changed = true;
 
 #ifdef HAVE_NLS
   WndProperty *wp = (WndProperty *)&GetControl(LanguageFile);
   if (wp != nullptr) {
     DataFieldEnum &df = *(DataFieldEnum *)wp->GetDataField();
 
+    /* Use AllocatedPath here: Path::empty() null-dereferences, while
+       AllocatedPath::empty() is safe. Missing / empty LanguageFile means
+       automatic — same as ReadLanguageFile(); do not persist "auto" just
+       because the key was absent (#1793). */
     const auto old_value_buffer = Profile::GetPath(ProfileKeys::LanguageFile);
-    Path old_value = old_value_buffer;
-    if (old_value == nullptr)
-      old_value = Path("");
+    const bool old_is_auto =
+      old_value_buffer == nullptr || old_value_buffer.empty() ||
+      old_value_buffer == Path("auto");
+    Path old_value = old_is_auto ? Path("auto") : Path(old_value_buffer);
 
     auto old_base = old_value.GetBase();
     if (old_base == nullptr)
@@ -256,6 +278,48 @@ InterfaceConfigPanel::Save(bool &_changed) noexcept
 #ifdef HAVE_VIBRATOR
   changed |= SaveValueEnum(HapticFeedback, ProfileKeys::HapticFeedback, settings.haptic_feedback);
 #endif
+
+  bool hide_quick_guide = false;
+  Profile::Get(ProfileKeys::HideQuickGuideDialogOnStartup, hide_quick_guide);
+  if (SaveValue(ShowQuickGuideOnStartup,
+                ProfileKeys::HideQuickGuideDialogOnStartup,
+                hide_quick_guide, true))
+    changed = true;
+
+  bool hide_radar_warning = false;
+  Profile::Get(ProfileKeys::HideRadarStaleWarning, hide_radar_warning);
+  if (SaveValue(WarnRadarExpired, ProfileKeys::HideRadarStaleWarning,
+                hide_radar_warning, true))
+    changed = true;
+
+  const bool show_release_notes = GetValueBoolean(ShowReleaseNotesOnStartup);
+  const char *last_seen_news =
+    Profile::Get(ProfileKeys::LastSeenNewsVersion);
+  const bool news_seen = last_seen_news != nullptr &&
+    StringIsEqual(last_seen_news, XCSoar_Version);
+  if (show_release_notes != !news_seen) {
+    if (show_release_notes)
+      Profile::Set(ProfileKeys::LastSeenNewsVersion, "");
+    else
+      Profile::Set(ProfileKeys::LastSeenNewsVersion, XCSoar_Version);
+    changed = true;
+  }
+
+  const bool disclaimer_accepted =
+    GetValueEnum(DisclaimerAccepted) != 0;
+  const char *disclaimer_acknowledged_version =
+    Profile::Get(ProfileKeys::DisclaimerAcknowledgedVersion);
+  const bool disclaimer_acknowledged =
+    disclaimer_acknowledged_version != nullptr &&
+    StringIsEqual(disclaimer_acknowledged_version, XCSoar_Version);
+  if (disclaimer_accepted != disclaimer_acknowledged) {
+    if (disclaimer_accepted)
+      Profile::Set(ProfileKeys::DisclaimerAcknowledgedVersion,
+                   XCSoar_Version);
+    else
+      Profile::Set(ProfileKeys::DisclaimerAcknowledgedVersion, "");
+    changed = true;
+  }
 
   _changed |= changed;
   return true;

@@ -6,6 +6,7 @@
 #include "util/StaticArray.hxx"
 #include "util/StaticString.hxx"
 #include "system/Path.hpp"
+#include "time/BrokenDateTime.hpp"
 #include "time/BrokenTime.hpp"
 
 #include <memory>
@@ -77,12 +78,15 @@ public:
   explicit RaspStore(AllocatedPath &&_path)
     :path(std::move(_path)) {}
 
-  [[gnu::const]]
+  [[gnu::pure]]
   unsigned GetItemCount() const {
     return maps.size();
   }
 
-  [[gnu::const]]
+  [[nodiscard]]
+  BrokenDateTime GetFileModifiedTime() const noexcept;
+
+  [[gnu::pure]]
   const MapItem &GetItemInfo(unsigned i) const {
     return maps[i];
   }
@@ -93,15 +97,45 @@ public:
   void ScanAll();
 
   bool IsTimeAvailable(unsigned item_index, unsigned time_index) const {
-    assert(item_index < maps.size());
-    assert(time_index < MAX_WEATHER_TIMES);
+    if (item_index >= maps.size() || time_index >= MAX_WEATHER_TIMES)
+      return false;
 
     return maps[item_index].times[time_index];
   }
 
+  /**
+   * Number of quarter-hour slots that exist for @p item_index in the
+   * archive (0..#MAX_WEATHER_TIMES).
+   */
+  [[gnu::pure]]
+  unsigned CountAvailableTimes(unsigned item_index) const noexcept;
+
+  /**
+   * True when the archive has exactly one raster time for this field
+   * (typical "all day" products such as PFD).
+   */
+  [[gnu::pure]]
+  bool IsSingleTimeField(unsigned item_index) const noexcept {
+    return CountAvailableTimes(item_index) == 1;
+  }
+
+  /**
+   * Return true when this field has raster data for the effective
+   * cursor-bar time (AUTO quarter-hour or manual selection).
+   *
+   * Single-time ("all day") fields always return true when that one
+   * slot exists: rendering resolves the file via #GetNearestTime
+   * without rewriting the shared session cursor.
+   */
+  [[gnu::pure]]
+  bool HasSelectedTimeData(unsigned item_index, bool auto_advance,
+                           BrokenTime manual_time,
+                           BrokenTime auto_local_time) const noexcept;
+
   template<typename C>
   void ForEachTime(unsigned item_index, C &&c) {
-    assert(item_index < maps.size());
+    if (item_index >= maps.size())
+      return;
 
     const auto &mi = maps[item_index];
 
@@ -122,6 +156,12 @@ public:
    */
   [[gnu::pure]]
   static BrokenTime IndexToTime(unsigned index);
+
+  /**
+   * Converts a #BrokenTime to a quarter-hour time index (0..95).
+   */
+  [[gnu::pure]]
+  static unsigned TimeToIndex(BrokenTime t) noexcept;
 
   std::unique_ptr<ZipArchive> OpenArchive() const;
 

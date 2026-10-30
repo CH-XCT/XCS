@@ -3,6 +3,7 @@
 
 #include "UIReceiveBlackboard.hpp"
 #include "Interface.hpp"
+#include "UIState.hpp"
 #include "ActionInterface.hpp"
 #include "ApplyVegaSwitches.hpp"
 #include "ApplyExternalSettings.hpp"
@@ -25,12 +26,72 @@
 
 static TaskEventObserver task_event_observer;
 
+/** Display force last written by the speed-command switch. */
+static DisplayMode owned_speed_command_page = DisplayMode::NONE;
+
+/**
+ * While Display mode is selected, the page follows the current
+ * cruise/climb report.  Releasing the setting clears only that force.
+ *
+ * @return true when force_display_mode changed
+ */
+static bool
+ApplySpeedCommandDisplay() noexcept
+{
+  const auto &basic = CommonInterface::Basic();
+  const auto setting = CommonInterface::GetComputerSettings()
+    .circling.speed_command_switch;
+  UIState &ui = CommonInterface::SetUIState();
+
+  DisplayMode want = DisplayMode::NONE;
+  if (setting == CirclingSettings::SpeedCommandSwitch::DISPLAY_MODE &&
+      !basic.gps.replay) {
+    switch (basic.switch_state.SpeedCommandPage()) {
+    case SwitchState::FlightMode::CRUISE:
+      want = DisplayMode::CRUISE;
+      break;
+
+    case SwitchState::FlightMode::CIRCLING:
+      want = DisplayMode::CIRCLING;
+      break;
+
+    case SwitchState::FlightMode::UNKNOWN:
+      break;
+    }
+  }
+
+  if (want == DisplayMode::NONE) {
+    if (owned_speed_command_page == DisplayMode::NONE ||
+        ui.force_display_mode != owned_speed_command_page) {
+      owned_speed_command_page = DisplayMode::NONE;
+      return false;
+    }
+
+    ui.force_display_mode = DisplayMode::NONE;
+    owned_speed_command_page = DisplayMode::NONE;
+    return true;
+  }
+
+  if (ui.force_display_mode == want &&
+      owned_speed_command_page == want)
+    return false;
+
+  ui.force_display_mode = want;
+  owned_speed_command_page = want;
+  return true;
+}
+
 void
 UIReceiveSensorData(OperationEnvironment &env)
 {
   XCSoarInterface::ReceiveGPS();
 
   ApplyVegaSwitches();
+
+  if (ApplySpeedCommandDisplay()) {
+    ActionInterface::UpdateDisplayMode();
+    ActionInterface::SendUIState();
+  }
 
 #if defined(__linux__) && defined(USE_POLL_EVENT) && !defined(KOBO)
   static bool clock_set = false;
@@ -60,13 +121,20 @@ UIReceiveSensorData(OperationEnvironment &env)
 
   bool modified = ApplyExternalSettings(env);
 
-  /*
-   * Update the infoboxes if no location is available
-   *
-   * (if the location is available the CalculationThread will send the
-   * Command::CALCULATED_UPDATE message which will update them)
-   */
-  if (modified || !CommonInterface::Basic().location_available) {
+  /* Most InfoBoxes are refreshed by calculated updates.  Merge-rate STF
+     (MoreData::V_stf) also dirties boxes when availability or value changes.
+     Compare as bool so Validity timestamps alone do not thrash redraws. */
+  static bool last_stf_available = false;
+  static double last_stf = 0;
+  const auto &basic = CommonInterface::Basic();
+  const bool stf_available = (bool)basic.V_stf_available;
+  const bool stf_changed = stf_available != last_stf_available ||
+    (stf_available && basic.V_stf != last_stf);
+  last_stf_available = stf_available;
+  if (stf_available)
+    last_stf = basic.V_stf;
+
+  if (modified || !basic.location_available || stf_changed) {
     InfoBoxManager::SetDirty();
     InfoBoxManager::ProcessTimer();
   }
@@ -101,8 +169,12 @@ UIReceiveCalculatedData()
 {
   XCSoarInterface::ReceiveCalculated();
 
+  const bool speed_command_page_changed = ApplySpeedCommandDisplay();
   ActionInterface::UpdateDisplayMode();
-  ActionInterface::SendUIState();
+  if (speed_command_page_changed)
+    ActionInterface::SendUIState();
+  else
+    ActionInterface::ScheduleSendUIState();
 
   if (backend_components->devices)
     backend_components->devices->NotifyCalculatedUpdate(CommonInterface::Basic(),

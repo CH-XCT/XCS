@@ -4,8 +4,10 @@
 #include "Waypoint/Waypoints.hpp"
 #include "Geo/GeoVector.hpp"
 #include "test_debug.hpp"
+#include "util/Macros.hpp"
 
 #include <functional>
+#include <limits>
 
 #include <stdio.h>
 extern "C" {
@@ -58,7 +60,7 @@ AddSpiralWaypoints(Waypoints &waypoints,
     Waypoint waypoint{vector.EndPoint(center)};
     waypoint.original_id = i;
     waypoint.elevation = i * 10 - 500;
-    waypoint.has_elevation = true;
+    waypoint.elevation_source = Waypoint::ElevationSource::FILE;
 
     StaticString<256> buffer;
 
@@ -134,6 +136,53 @@ TestNamePrefixVisitor(const Waypoints &waypoints)
   TestNamePrefixVisitor(waypoints, "A", 22);
   TestNamePrefixVisitor(waypoints, "Air", 22);
   TestNamePrefixVisitor(waypoints, "Field", 51 - 8);
+}
+
+static void
+TestNameSubstringVisitor(const Waypoints &waypoints, const char *substring,
+                         unsigned expected_results)
+{
+  unsigned count = 0;
+  waypoints.VisitNameSubstring(substring,
+                               [&]([[maybe_unused]] const auto &wp){
+                                 ++count;
+                               });
+  ok1(count == expected_results);
+}
+
+static void
+TestNameSubstringVisitor(const Waypoints &waypoints)
+{
+  /* Spiral has 22 "Airfield", 51-8=43 "Field", 151-22-43=86
+     "Waypoint" entries.  Letter A appears in Airfield AND
+     Waypoint; W and POINT appear only in Waypoint; FIELD
+     appears in both Airfield and Field. */
+
+  /* Empty pattern matches every waypoint. */
+  TestNameSubstringVisitor(waypoints, "", 151);
+
+  /* Non-existent substring. */
+  TestNameSubstringVisitor(waypoints, "Foo", 0);
+
+  /* Case-insensitive: "a" matches "Airfield" + "Waypoint". */
+  TestNameSubstringVisitor(waypoints, "a", 22 + 86);
+  TestNameSubstringVisitor(waypoints, "A", 22 + 86);
+
+  /* "Air" only in Airfield. */
+  TestNameSubstringVisitor(waypoints, "Air", 22);
+
+  /* Substring (not just prefix): "Field" matches both "Field"
+     and "Airfield" entries. */
+  TestNameSubstringVisitor(waypoints, "Field", 22 + 43);
+  TestNameSubstringVisitor(waypoints, "field", 22 + 43);
+
+  /* "Point" appears only inside "Waypoint". */
+  TestNameSubstringVisitor(waypoints, "Point", 86);
+
+  /* Non-alphanumerics are dropped from both sides by
+     NormalizeSearchString, so " #" normalises to empty and
+     therefore matches every waypoint. */
+  TestNameSubstringVisitor(waypoints, " #", 151);
 }
 
 class CloserThan
@@ -277,13 +326,282 @@ TestReplace(Waypoints& waypoints, unsigned id)
   return wp != NULL && wp->name != oldName && wp->name == "Fred";
 }
 
+static bool
+SuggestionContains(const char *suggestion, char ch) noexcept
+{
+  if (suggestion == nullptr)
+    return false;
+  for (const char *p = suggestion; *p; ++p)
+    if (*p == ch)
+      return true;
+  return false;
+}
+
+static void
+TestSuggestNameSubstring()
+{
+  /* Tiny waypoint set with three distinct second letters after
+     the substring "DI": "DITTINGEN" -> 'T', "DIANA" -> 'A',
+     "ADIEU" -> 'E' (substring match inside the name).  No 'X'
+     anywhere.  We also include a shortname-only match. */
+  Waypoints waypoints;
+
+  Waypoint w1{GeoPoint(Angle::Degrees(7.0), Angle::Degrees(47.0))};
+  w1.name = "DITTINGEN";
+  waypoints.Append(std::move(w1));
+
+  Waypoint w2{GeoPoint(Angle::Degrees(7.1), Angle::Degrees(47.1))};
+  w2.name = "DIANA";
+  waypoints.Append(std::move(w2));
+
+  Waypoint w3{GeoPoint(Angle::Degrees(7.2), Angle::Degrees(47.2))};
+  w3.name = "ADIEU";
+  waypoints.Append(std::move(w3));
+
+  Waypoint w4{GeoPoint(Angle::Degrees(7.3), Angle::Degrees(47.3))};
+  w4.name = "Plain";
+  w4.shortname = "DIVE";
+  waypoints.Append(std::move(w4));
+
+  waypoints.Optimise();
+
+  char buffer[64];
+
+  /* Empty input => union of all distinct chars across all
+     names/shortnames.  Should include letters present in the
+     data and exclude ones that aren't (e.g. 'X', 'Q'). */
+  const char *all = waypoints.SuggestNameSubstring("", buffer,
+                                                   ARRAY_SIZE(buffer));
+  ok1(all != nullptr);
+  ok1(SuggestionContains(all, 'D'));
+  ok1(SuggestionContains(all, 'I'));
+  ok1(SuggestionContains(all, 'V'));      // only via shortname "DIVE"
+  ok1(!SuggestionContains(all, 'X'));
+  ok1(!SuggestionContains(all, 'Q'));
+
+  /* "DI" => candidates that follow it anywhere in any name/shortname.
+     Expect: T (DITTINGEN), A (DIANA), E (ADIEU), V (DIVE).
+     Should not include 'Z'. */
+  const char *after_di = waypoints.SuggestNameSubstring("DI", buffer,
+                                                        ARRAY_SIZE(buffer));
+  ok1(after_di != nullptr);
+  ok1(SuggestionContains(after_di, 'T'));
+  ok1(SuggestionContains(after_di, 'A'));
+  ok1(SuggestionContains(after_di, 'E'));
+  ok1(SuggestionContains(after_di, 'V'));
+  ok1(!SuggestionContains(after_di, 'Z'));
+
+  /* Lowercase input is normalised (uppercased) before scanning. */
+  const char *after_di_lower = waypoints.SuggestNameSubstring("di", buffer,
+                                                              ARRAY_SIZE(buffer));
+  ok1(after_di_lower != nullptr);
+  ok1(SuggestionContains(after_di_lower, 'T'));
+
+  /* Pattern that doesn't match anything => nullptr (keyboard
+     should re-enable all keys so the user can correct). */
+  ok1(waypoints.SuggestNameSubstring("ZZZZ", buffer,
+                                     ARRAY_SIZE(buffer)) == nullptr);
+
+  /* Pattern that matches only at the very end of a name returns
+     a non-null string (any_match=true) but with no "next"
+     characters from that occurrence.  "EU" matches at end of
+     ADIEU; nothing follows.  But the result is still non-null
+     because we did find a match -- the user can still backspace.
+     The empty allowed set means no key is enabled, which is
+     correct: nothing extends the pattern. */
+  const char *after_eu = waypoints.SuggestNameSubstring("EU", buffer,
+                                                        ARRAY_SIZE(buffer));
+  ok1(after_eu != nullptr);
+  ok1(after_eu[0] == '\0');
+}
+
+static void
+TestTempPoint()
+{
+  Waypoints waypoints;
+  const GeoPoint location(Angle::Degrees(7.85), Angle::Degrees(51.4));
+
+  /* unknown elevation: no value, not a number standing in for one */
+  waypoints.AddTempPoint(location, std::nullopt, "(goto)");
+  auto wp = waypoints.LookupName("(goto)");
+  ok1(wp != nullptr);
+  ok1(wp != nullptr && !wp->HasElevation());
+
+  /* known elevation, also at sea level; replaces the previous one */
+  waypoints.AddTempPoint(location, 0., "(goto)");
+  wp = waypoints.LookupName("(goto)");
+  ok1(wp != nullptr && wp->HasElevation() && wp->elevation == 0);
+  ok1(waypoints.size() == 1);
+
+  const Waypoint takeoff =
+    waypoints.GenerateTempPoint(location, 312., "(takeoff)");
+  ok1(takeoff.HasElevation() && takeoff.elevation == 312);
+
+  /* an altitude that is not a number is not an elevation */
+  const Waypoint nan_point =
+    waypoints.GenerateTempPoint(location,
+                                std::numeric_limits<double>::quiet_NaN(),
+                                "(takeoff)");
+  ok1(!nan_point.HasElevation());
+}
+
+static void
+TestNameSubstringShortname()
+{
+  /* Reproduce the SeeYou .cup case where the long name is the
+     human-readable airport name and the shortname is the ICAO
+     code (e.g. name="DITTINGEN 'R'", shortname="LSPD"). */
+  Waypoints waypoints;
+
+  Waypoint dittingen{GeoPoint(Angle::Degrees(7.49), Angle::Degrees(47.44))};
+  dittingen.name = "DITTINGEN 'R'";
+  dittingen.shortname = "LSPD";
+  waypoints.Append(std::move(dittingen));
+
+  Waypoint ambri{GeoPoint(Angle::Degrees(8.69), Angle::Degrees(46.51))};
+  ambri.name = "AMBRI";
+  ambri.shortname = "LSPM";
+  waypoints.Append(std::move(ambri));
+
+  /* Waypoint whose long name AND shortname both contain the
+     same substring -- the regression check for #1316. */
+  Waypoint dual{GeoPoint(Angle::Degrees(7.00), Angle::Degrees(46.00))};
+  dual.name = "ALPHA FIELD";
+  dual.shortname = "ALPHA";
+  waypoints.Append(std::move(dual));
+
+  waypoints.Optimise();
+
+  /* Lookup by long-name substring still works. */
+  unsigned name_hits = 0;
+  waypoints.VisitNameSubstring("DITT",
+                               [&]([[maybe_unused]] const auto &wp){
+                                 ++name_hits;
+                               });
+  ok1(name_hits == 1);
+
+  /* Lookup by ICAO shortname (lowercase user input). */
+  unsigned shortname_hits = 0;
+  WaypointPtr matched;
+  waypoints.VisitNameSubstring("lspd",
+                               [&](const auto &wp){
+                                 ++shortname_hits;
+                                 matched = wp;
+                               });
+  ok1(shortname_hits == 1);
+  ok1(matched && matched->shortname == "LSPD");
+
+  /* Common prefix of shortnames matches both. */
+  unsigned prefix_hits = 0;
+  waypoints.VisitNameSubstring("LSP",
+                               [&]([[maybe_unused]] const auto &wp){
+                                 ++prefix_hits;
+                               });
+  ok1(prefix_hits == 2);
+
+  /* A single waypoint whose name AND shortname both contain
+     the search substring must be visited exactly once.  The
+     pre-substring radix-tree path inserted each waypoint twice
+     (once under its normalised name, once under its normalised
+     shortname) and would have produced 2 hits here.  Regression
+     test for #1316. */
+  unsigned dual_hits = 0;
+  WaypointPtr dual_matched;
+  waypoints.VisitNameSubstring("ALPHA",
+                               [&](const auto &wp){
+                                 ++dual_hits;
+                                 dual_matched = wp;
+                               });
+  ok1(dual_hits == 1);
+  ok1(dual_matched && dual_matched->name == "ALPHA FIELD");
+}
+
+static WaypointPtr
+AppendOrigin(Waypoints &waypoints, const char *name,
+             WaypointOrigin origin, uint8_t file_num,
+             Waypoint::Type type, double longitude)
+{
+  Waypoint waypoint{GeoPoint(Angle::Degrees(longitude),
+                             Angle::Degrees(48))};
+  waypoint.name = name;
+  waypoint.origin = origin;
+  waypoint.file_num = file_num;
+  waypoint.type = type;
+  return waypoints.Append(std::move(waypoint));
+}
+
+static void
+TestEraseFile()
+{
+  Waypoints waypoints;
+
+  const unsigned id0 = AppendOrigin(waypoints, "Primary 0",
+                                    WaypointOrigin::PRIMARY, 0,
+                                    Waypoint::Type::NORMAL, 7.0)->id;
+  const unsigned id1 = AppendOrigin(waypoints, "Primary 1",
+                                    WaypointOrigin::PRIMARY, 1,
+                                    Waypoint::Type::NORMAL, 7.1)->id;
+  AppendOrigin(waypoints, "Watched 0",
+               WaypointOrigin::WATCHED, 0,
+               Waypoint::Type::NORMAL, 7.2);
+  const auto user = AppendOrigin(waypoints, "User",
+                                 WaypointOrigin::USER, 0,
+                                 Waypoint::Type::NORMAL, 7.3);
+  AppendOrigin(waypoints, "Marker",
+               WaypointOrigin::USER, 0,
+               Waypoint::Type::MARKER, 7.4);
+  const unsigned id_map = AppendOrigin(waypoints, "Map",
+                                       WaypointOrigin::MAP, 0,
+                                       Waypoint::Type::NORMAL, 7.5)->id;
+  const unsigned id_goto = AppendOrigin(waypoints, "(goto)",
+                                        WaypointOrigin::NONE, 0,
+                                        Waypoint::Type::NORMAL, 7.6)->id;
+
+  waypoints.Optimise();
+
+  const unsigned id_user = user->id;
+  ok1(waypoints.SetHome(id_user));
+  const Serial serial_before = waypoints.GetSerial();
+
+  waypoints.EraseFile(WaypointOrigin::PRIMARY, 0);
+  waypoints.Optimise();
+
+  ok1(waypoints.GetSerial() != serial_before);
+  ok1(waypoints.LookupId(id0) == nullptr);
+  ok1(waypoints.LookupId(id1) != nullptr &&
+      waypoints.LookupId(id1)->id == id1);
+  ok1(waypoints.LookupName("Watched 0") != nullptr);
+  ok1(waypoints.LookupName("User") != nullptr &&
+      waypoints.LookupName("User")->id == id_user);
+  ok1(waypoints.LookupName("Marker") != nullptr);
+  ok1(waypoints.LookupName("Map") != nullptr &&
+      waypoints.LookupName("Map")->id == id_map);
+  ok1(waypoints.LookupName("(goto)") != nullptr &&
+      waypoints.LookupName("(goto)")->id == id_goto);
+  ok1(waypoints.GetHome() == user);
+  ok1(waypoints.size() == 6);
+
+  waypoints.EraseUserMarkers();
+  ok1(waypoints.LookupName("Marker") == nullptr);
+  ok1(waypoints.LookupName("User") != nullptr);
+  ok1(waypoints.GetHome() == user);
+
+  ok1(waypoints.SetHome(id1));
+  waypoints.EraseFile(WaypointOrigin::PRIMARY, 1);
+  ok1(waypoints.GetHome() == nullptr);
+  ok1(waypoints.LookupId(id1) == nullptr);
+  ok1(waypoints.LookupName("User") != nullptr);
+  ok1(waypoints.LookupName("Watched 0") != nullptr);
+  ok1(waypoints.LookupName("Map") != nullptr);
+}
+
 int
 main(int argc, char** argv)
 {
   if (!ParseArgs(argc, argv))
     return 0;
 
-  plan_tests(52);
+  plan_tests(52 + 9 + 6 + 17 + 6 + 20);
 
   Waypoints waypoints;
   GeoPoint center(Angle::Degrees(51.4), Angle::Degrees(7.85));
@@ -295,8 +613,13 @@ main(int argc, char** argv)
   ok1(!waypoints.IsEmpty());
   ok1(waypoints.size() == 151);
 
+  TestEraseFile();
   TestLookups(waypoints, center);
   TestNamePrefixVisitor(waypoints);
+  TestNameSubstringVisitor(waypoints);
+  TestNameSubstringShortname();
+  TestTempPoint();
+  TestSuggestNameSubstring();
   TestRangeVisitor(waypoints, center);
   TestGetNearest(waypoints, center);
   TestIterator(waypoints);

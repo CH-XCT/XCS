@@ -31,7 +31,9 @@ static unsigned
 TranslateKeyCode(unsigned key_code)
 {
   if (key_code == KEYCODE_BACK)
-    /* the "back" key acts as escape */
+    /* the "back" key acts as escape; on Android 16+ (target API 36)
+       KEYCODE_BACK is no longer dispatched, so XCSoar.java injects
+       this same code from OnBackInvokedCallback */
     return KEYCODE_ESCAPE;
 
   if (key_code >= KEYCODE_0 && key_code <= KEYCODE_9)
@@ -138,13 +140,36 @@ Java_org_xcsoar_EventBridge_onMouseCancel([[maybe_unused]] JNIEnv *env, [[maybe_
 
 gcc_visibility_default
 void
-Java_org_xcsoar_EventBridge_onPointerDown([[maybe_unused]] JNIEnv *env, [[maybe_unused]] jclass cls)
+Java_org_xcsoar_EventBridge_onPointerDown([[maybe_unused]] JNIEnv *env,
+                                          [[maybe_unused]] jclass cls,
+                                          jint x1, jint y1,
+                                          jint x2, jint y2)
 {
   if (event_queue == nullptr)
     /* XCSoar not yet initialised */
     return;
 
-  event_queue->Inject(Event::POINTER_DOWN);
+  event_queue->Inject(Event(Event::POINTER_DOWN,
+                            PixelPoint(x1, y1),
+                            PixelPoint(x2, y2)));
+  ResetUserIdle();
+}
+
+gcc_visibility_default
+void
+Java_org_xcsoar_EventBridge_onPointerMove([[maybe_unused]] JNIEnv *env,
+                                          [[maybe_unused]] jclass cls,
+                                          jint x1, jint y1,
+                                          jint x2, jint y2)
+{
+  if (event_queue == nullptr)
+    /* XCSoar not yet initialised */
+    return;
+
+  event_queue->Purge(Event::POINTER_MOVE);
+  event_queue->Inject(Event(Event::POINTER_MOVE,
+                            PixelPoint(x1, y1),
+                            PixelPoint(x2, y2)));
   ResetUserIdle();
 }
 

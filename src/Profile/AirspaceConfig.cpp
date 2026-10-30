@@ -4,20 +4,29 @@
 #include "AirspaceConfig.hpp"
 #include "Map.hpp"
 #include "Keys.hpp"
-#include "ui/canvas/Features.hpp"
 #include "Look/AirspaceLook.hpp"
 #include "Renderer/AirspaceRendererSettings.hpp"
 #include "Airspace/AirspaceComputerSettings.hpp"
 #include "util/Macros.hpp"
+#include "util/StringFormat.hpp"
 
-#include <string.h>
-#include <stdio.h>
+#include <cassert>
 
+#ifdef HAVE_HTTP
+#include "NotamConfig.hpp"
+#endif
+
+template <size_t N>
 static const char *
-MakeAirspaceSettingName(char *buffer, const char *prefix, unsigned n)
+MakeAirspaceSettingName(char (&buffer)[N], const char *prefix, unsigned n)
 {
-  strcpy(buffer, prefix);
-  sprintf(buffer + strlen(buffer), "%u", n);
+  if (prefix == nullptr || prefix[0] == '\0')
+    prefix = "";
+
+  const int written = StringFormat(buffer, N, "%s%u", prefix, n);
+  assert(written > 0 && written < (int)N);
+  if (written <= 0 || static_cast<size_t>(written) >= N)
+    buffer[0] = '\0';
 
   return buffer;
 }
@@ -25,8 +34,6 @@ MakeAirspaceSettingName(char *buffer, const char *prefix, unsigned n)
 /**
  * This function and the "ColourXX" profile keys are deprecated and
  * are only used as a fallback for old profiles.
- *
- * @see Load(unsigned, AirspaceClassRendererSettings &)
  */
 static bool
 GetAirspaceColor(const ProfileMap &map, unsigned i, RGB8Color &color)
@@ -56,13 +63,10 @@ void
 Profile::Load(const ProfileMap &map, AirspaceRendererSettings &settings)
 {
   map.GetEnum(ProfileKeys::AirspaceLabelSelection, settings.label_selection);
+  map.Get(ProfileKeys::AirspaceShowNOTAMLabels, settings.show_notam_labels);
   map.Get(ProfileKeys::AirspaceBlackOutline, settings.black_outline);
   map.GetEnum(ProfileKeys::AltMode, settings.altitude_mode);
   map.Get(ProfileKeys::ClipAlt, settings.clip_altitude);
-
-#if defined(HAVE_HATCHED_BRUSH) && defined(HAVE_ALPHA_BLEND)
-  map.Get(ProfileKeys::AirspaceTransparency, settings.transparency);
-#endif
 
   map.GetEnum(ProfileKeys::AirspaceFillMode, settings.fill_mode);
 
@@ -85,13 +89,6 @@ Profile::Load(const ProfileMap &map,
     if (map.Get(name, value))
       settings.display = (value & 0x1) != 0;
   }
-
-#ifdef HAVE_HATCHED_BRUSH
-  MakeAirspaceSettingName(name, "Brush", i);
-  map.Get(name, settings.brush);
-  if (settings.brush >= ARRAY_SIZE(AirspaceLook::brushes))
-    settings.brush = 0;
-#endif
 
   MakeAirspaceSettingName(name, "AirspaceBorderColor", i);
   if (!map.GetColor(name, settings.border_color))
@@ -128,7 +125,15 @@ Profile::Load(const ProfileMap &map, AirspaceComputerSettings &settings)
       if (map.Get(name, value))
         settings.warnings.class_warnings[i] = (value & 0x2) != 0;
     }
+
+    MakeAirspaceSettingName(name, "AirspaceClearance", i);
+    map.Get(name, settings.warnings.class_clearance_allowed[i]);
   }
+
+#ifdef HAVE_HTTP
+  // Load NOTAM settings via NotamConfig
+  Profile::LoadNOTAMSettings(map, settings.notam);
+#endif
 }
 
 void
@@ -142,6 +147,15 @@ Profile::SetAirspaceMode(ProfileMap &map,
 
   MakeAirspaceSettingName(name, "AirspaceWarning", i);
   map.Set(name, warning);
+}
+
+void
+Profile::SetAirspaceClearance(ProfileMap &map,
+                              unsigned i, bool clearance_allowed)
+{
+  char name[64];
+  MakeAirspaceSettingName(name, "AirspaceClearance", i);
+  map.Set(name, clearance_allowed);
 }
 
 void
@@ -177,12 +191,4 @@ Profile::SetAirspaceFillMode(ProfileMap &map, unsigned i, uint8_t mode)
   char name[64];
   MakeAirspaceSettingName(name, "AirspaceFillMode", i);
   map.SetEnum(name, (AirspaceClassRendererSettings::FillMode)mode);
-}
-
-void
-Profile::SetAirspaceBrush(ProfileMap &map, unsigned i, int brush_index)
-{
-  char name[64];
-  MakeAirspaceSettingName(name, "Brush", i);
-  map.Set(name, brush_index);
 }

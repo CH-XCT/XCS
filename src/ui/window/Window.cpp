@@ -13,7 +13,7 @@
 
 #include <cassert>
 
-#if defined(USE_WINUSER) && !defined(NDEBUG)
+#if defined(_WIN32) && !defined(NDEBUG)
 #include <processthreadsapi.h>
 #endif
 
@@ -30,11 +30,11 @@ Window::AssertThread() const noexcept
   assert(IsDefined());
 
 #ifdef ENABLE_OPENGL
+#ifdef _WIN32
+  assert(GetCurrentThreadId() == OpenGL::thread);
+#else
   assert(pthread_equal(pthread_self(), OpenGL::thread));
-#elif defined(USE_WINUSER)
-  assert(hWnd != nullptr);
-  assert(!::IsWindow(hWnd) ||
-         ::GetWindowThreadProcessId(hWnd, nullptr) == ::GetCurrentThreadId());
+#endif
 #endif
 }
 
@@ -42,10 +42,11 @@ void
 Window::AssertThreadOrUndefined() const noexcept
 {
 #ifdef ENABLE_OPENGL
+#ifdef _WIN32
+  assert(GetCurrentThreadId() == OpenGL::thread);
+#else
   assert(pthread_equal(pthread_self(), OpenGL::thread));
-#elif defined(USE_WINUSER)
-  assert(hWnd == nullptr || !::IsWindow(hWnd) ||
-         ::GetWindowThreadProcessId(hWnd, nullptr) == ::GetCurrentThreadId());
+#endif
 #endif
 }
 
@@ -60,14 +61,9 @@ Window::Destroy() noexcept
   assert(IsScreenInitialized());
   AssertThread();
 
-#ifndef USE_WINUSER
   OnDestroy();
 
   size = {0, 0};
-#else /* USE_WINUSER */
-  ::DestroyWindow(hWnd);
-  hWnd = nullptr;
-#endif /* USE_WINUSER */
 }
 
 ContainerWindow *
@@ -75,7 +71,6 @@ Window::GetRootOwner() noexcept
 {
   assert(IsDefined());
 
-#ifndef USE_WINUSER
   if (parent == nullptr)
     /* no parent?  We must be a ContainerWindow instance */
     return (ContainerWindow *)this;
@@ -85,15 +80,6 @@ Window::GetRootOwner() noexcept
     root = root->parent;
 
   return root;
-#else /* USE_WINUSER */
-  HWND hRoot = ::GetAncestor(hWnd, GA_ROOTOWNER);
-  if (hRoot == nullptr)
-    return nullptr;
-
-  /* can't use the "checked" method get() because hRoot may be a
-     dialog, and uses Dialog::DlgProc() */
-  return (ContainerWindow *)GetUnchecked(hRoot);
-#endif /* USE_WINUSER */
 }
 
 void
@@ -111,7 +97,6 @@ Window::OnCreate()
 void
 Window::OnDestroy() noexcept
 {
-#ifndef USE_WINUSER
   visible = false;
 
   if (capture)
@@ -121,11 +106,6 @@ Window::OnDestroy() noexcept
     parent->RemoveChild(*this);
     parent = nullptr;
   }
-#else /* USE_WINUSER */
-  assert(hWnd != nullptr);
-
-  hWnd = nullptr;
-#endif /* USE_WINUSER */
 }
 
 void
@@ -177,6 +157,13 @@ Window::OnMultiTouchDown() noexcept
 }
 
 bool
+Window::OnMultiTouchMove([[maybe_unused]] PixelPoint a,
+                         [[maybe_unused]] PixelPoint b) noexcept
+{
+  return false;
+}
+
+bool
 Window::OnMultiTouchUp() noexcept
 {
   return false;
@@ -211,29 +198,23 @@ Window::OnCharacter([[maybe_unused]] unsigned ch) noexcept
 void
 Window::OnCancelMode() noexcept
 {
-#ifndef USE_WINUSER
   ReleaseCapture();
-#endif
 }
 
 void
 Window::OnSetFocus() noexcept
 {
-#ifndef USE_WINUSER
   assert(!focused);
 
   focused = true;
-#endif /* USE_WINUSER */
 }
 
 void
 Window::OnKillFocus() noexcept
 {
-#ifndef USE_WINUSER
   assert(focused);
 
   ReleaseCapture();
 
   focused = false;
-#endif /* USE_WINUSER */
 }

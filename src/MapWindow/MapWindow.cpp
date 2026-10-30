@@ -24,7 +24,8 @@ MapWindow::MapWindow(const MapLook &_look,
    waypoint_renderer(nullptr, look.waypoint),
    airspace_renderer(look.airspace),
    airspace_label_renderer(look.airspace),
-   trail_renderer(look.trail) {}
+   trail_renderer(look.trail),
+   turn_back_marker_renderer(look) {}
 
 MapWindow::~MapWindow() noexcept
 {
@@ -33,13 +34,38 @@ MapWindow::~MapWindow() noexcept
   delete topography_renderer;
 }
 
+#ifndef ENABLE_OPENGL
+
+void
+MapWindow::PublishFrameProjection() noexcept
+{
+  const std::lock_guard lock{frame_projection_mutex};
+  published_projection = visible_projection;
+}
+
+#endif
+
 #ifdef ENABLE_OPENGL
 
 void
 MapWindow::SetOverlay(std::unique_ptr<MapOverlay> &&_overlay) noexcept
 {
+#if defined(HAVE_HTTP)
+  SetOverlay(0, std::move(_overlay));
+#else
   overlay = std::move(_overlay);
+#endif
 }
+
+#if defined(HAVE_HTTP)
+void
+MapWindow::SetOverlay(unsigned index, std::unique_ptr<MapOverlay> &&_overlay) noexcept
+{
+  assert(index < MapWindowOverlay::MAX_MAP_OVERLAYS);
+  if (index < MapWindowOverlay::MAX_MAP_OVERLAYS)
+    overlay[index] = std::move(_overlay);
+}
+#endif
 
 #endif
 
@@ -50,6 +76,22 @@ MapWindow::SetGlideComputer(GlideComputer *_gc) noexcept
   airspace_renderer.SetAirspaceWarnings(glide_computer != nullptr
                                         ? &glide_computer->GetAirspaceWarnings()
                                         : nullptr);
+}
+
+void
+MapWindow::SetHudMargins(unsigned left, unsigned top,
+                              unsigned right, unsigned bottom) noexcept
+{
+  if (left == hud_margin_left && top == hud_margin_top &&
+      right == hud_margin_right && bottom == hud_margin_bottom)
+    return;
+
+  hud_margin_left = left;
+  hud_margin_top = top;
+  hud_margin_right = right;
+  hud_margin_bottom = bottom;
+
+  Invalidate();
 }
 
 void

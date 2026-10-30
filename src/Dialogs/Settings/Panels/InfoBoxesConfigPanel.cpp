@@ -8,12 +8,12 @@
 #include "Profile/InfoBoxConfig.hpp"
 #include "Form/Button.hpp"
 #include "Interface.hpp"
-#include "InfoBoxes/InfoBoxManager.hpp"
-#include "InfoBoxes/InfoBoxLayout.hpp"
 #include "Widget/RowFormWidget.hpp"
 #include "Language/Language.hpp"
 #include "UIGlobals.hpp"
 #include "Look/Look.hpp"
+#include "MainWindow.hpp"
+#include "UIState.hpp"
 
 class InfoBoxesConfigPanel final
   : public RowFormWidget {
@@ -40,12 +40,18 @@ InfoBoxesConfigPanel::OnAction(int id) noexcept
     dlgConfigInfoboxesShowModal(UIGlobals::GetMainWindow(),
                                 UIGlobals::GetDialogLook(),
                                 UIGlobals::GetLook().info_box,
-                                InfoBoxManager::layout.geometry, data,
+                                settings.ResolveGeometry(data),
+                                data,
                                 i >= InfoBoxSettings::PREASSIGNED_PANELS);
   if (changed) {
     Profile::Save(Profile::map, data, i);
     Profile::Save();
     ((Button &)GetRow(i)).SetCaption(gettext(data.name));
+
+    // If the edited panel is currently active, rebuild layout so
+    // the new geometry apply immediately
+    if (CommonInterface::GetUIState().panel_index == i)
+      CommonInterface::main_window->ReinitialiseLayout();
   }
 }
 

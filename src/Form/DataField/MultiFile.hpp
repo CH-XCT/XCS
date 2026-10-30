@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright The XCSoar Project
 
-#ifndef XCSOAR_MULTIFILE_DATA_FIELD_HPP
-#define XCSOAR_MULTIFILE_DATA_FIELD_HPP
+#pragma once
 
 #include "Base.hpp"
 #include "File.hpp"
 #include "Repository/FileType.hpp"
 #include "system/Path.hpp"
 
+#include <initializer_list>
 #include <string>
+#include <string_view>
 #include <vector>
 
 /**
@@ -57,6 +58,9 @@ public:
   // Return the currently selected items
   std::vector<Path> GetPathFiles() const;
 
+  // Return all available items from the embedded FileDataField.
+  std::vector<Path> GetAllPaths() const;
+
   // Set selection to the given index(es)
   void AddValue(Path new_value);
   void ForceModify(Path path);
@@ -72,6 +76,16 @@ public:
    * null byte, and the list ends with an empty pattern.
    */
   void ScanMultiplePatterns(const char *patterns);
+
+  /**
+   * Scan @p path for files matching any of the patterns and add them
+   * to the embedded file list (newest first).
+   */
+  void Scan(Path path, std::initializer_list<std::string_view> patterns,
+            bool recursive = true) noexcept;
+
+  void Scan(Path path, std::initializer_list<FileType> file_types,
+            bool recursive = true) noexcept;
 
   Path GetItem(unsigned index) const;
 
@@ -93,5 +107,3 @@ public:
   void Inc() noexcept override {}
   void Dec() noexcept override {}
 };
-
-#endif

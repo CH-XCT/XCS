@@ -19,7 +19,7 @@ typedef StaticString<256u> Buffer;
 static void
 FormatWaypointDetails(Buffer &buffer, const Waypoint &waypoint)
 {
-  if (waypoint.has_elevation)
+  if (waypoint.HasElevation())
     buffer.Format("%s: %s", _("Elevation"),
                   FormatUserAltitude(waypoint.elevation).c_str());
   else
@@ -41,7 +41,8 @@ Draw(Canvas &canvas, PixelRect rc,
      const Waypoint &waypoint, const GeoVector *vector,
      const TwoTextRowsRenderer &row_renderer,
      const WaypointLook &look,
-     const WaypointRendererSettings &settings)
+     const WaypointRendererSettings &settings,
+     WaypointReachability reachable)
 {
   const unsigned padding = Layout::GetTextPadding();
   const unsigned line_height = rc.GetHeight();
@@ -53,7 +54,7 @@ Draw(Canvas &canvas, PixelRect rc,
   const PixelPoint pt(rc.left + line_height / 2, rc.top + line_height / 2);
   WaypointIconRenderer wir(settings, look, canvas);
   wir.SetIconSize(icon_size);
-  wir.Draw(waypoint, pt);
+  wir.Draw(waypoint, pt, reachable);
 
   rc.left += line_height + padding;
 
@@ -91,9 +92,11 @@ WaypointListRenderer::Draw(Canvas &canvas, const PixelRect rc,
                            const Waypoint &waypoint,
                            const TwoTextRowsRenderer &row_renderer,
                            const WaypointLook &look,
-                           const WaypointRendererSettings &renderer_settings)
+                           const WaypointRendererSettings &renderer_settings,
+                           WaypointReachability reachable)
 {
-  ::Draw(canvas, rc, waypoint, nullptr, row_renderer, look, renderer_settings);
+  ::Draw(canvas, rc, waypoint, nullptr, row_renderer, look, renderer_settings,
+         reachable);
 }
 
 void
@@ -101,9 +104,11 @@ WaypointListRenderer::Draw(Canvas &canvas, const PixelRect rc,
                            const Waypoint &waypoint, const GeoVector &vector,
                            const TwoTextRowsRenderer &row_renderer,
                            const WaypointLook &look,
-                           const WaypointRendererSettings &settings)
+                           const WaypointRendererSettings &settings,
+                           WaypointReachability reachable)
 {
-  ::Draw(canvas, rc, waypoint, &vector, row_renderer, look, settings);
+  ::Draw(canvas, rc, waypoint, &vector, row_renderer, look, settings,
+         reachable);
 }
 
 void
@@ -112,7 +117,8 @@ WaypointListRenderer::Draw(Canvas &canvas, PixelRect rc,
                            double arrival_altitude,
                            const TwoTextRowsRenderer &row_renderer,
                            const WaypointLook &look,
-                           const WaypointRendererSettings &settings)
+                           const WaypointRendererSettings &settings,
+                           WaypointReachability reachable)
 {
   const unsigned padding = Layout::GetTextPadding();
   const unsigned line_height = rc.GetHeight();
@@ -124,9 +130,10 @@ WaypointListRenderer::Draw(Canvas &canvas, PixelRect rc,
   const PixelPoint pt(rc.left + line_height / 2,
                       rc.top + line_height / 2);
 
-  const auto reachable = arrival_altitude > 0
-    ? WaypointReachability::TERRAIN
-    : WaypointReachability::UNREACHABLE;
+  if (reachable == WaypointReachability::INVALID)
+    reachable = arrival_altitude > 0
+      ? WaypointReachability::TERRAIN
+      : WaypointReachability::UNREACHABLE;
 
   WaypointIconRenderer wir(settings, look, canvas);
   wir.SetIconSize(icon_size);

@@ -35,6 +35,12 @@ public:
                                  const char *address) const noexcept;
 
   /**
+   * True when the device caches the PPG engine-sensor GATT service.
+   */
+  [[gnu::pure]]
+  bool HasEngineSensors(JNIEnv *env, const char *address) const noexcept;
+
+  /**
    * Does the device support Bluetooth LE?
    */
   [[gnu::const]]
@@ -60,7 +66,7 @@ public:
 
   PortBridge *connect(JNIEnv *env, const char *address);
 
-  PortBridge *connectHM10(JNIEnv *env, const char *address);
+  PortBridge *connectBleSerial(JNIEnv *env, const char *address);
 
   PortBridge *createServer(JNIEnv *env);
 };

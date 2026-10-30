@@ -17,7 +17,10 @@
 class Angle;
 
 struct InfoBoxData {
-  static constexpr unsigned COLOR_COUNT = 6;
+  static constexpr unsigned COLOR_COUNT = 7;
+
+  /** Caution: best glide still arrives, the reach polar does not. */
+  static constexpr unsigned COLOR_ORANGE = 6;
 
   /**
    * If non-zero, then custom painting is enabled via
@@ -30,6 +33,7 @@ struct InfoBoxData {
 
   StaticString<32> title;
   StaticString<32> value;
+  /** UTF-8; truncated to fit (31 bytes + NUL). Keep user-visible msgids short. */
   StaticString<32> comment;
 
   Unit value_unit;

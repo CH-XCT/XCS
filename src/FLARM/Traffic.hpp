@@ -5,7 +5,7 @@
 
 #include "Id.hpp"
 #include "Geo/GeoPoint.hpp"
-#include "NMEA/Validity.hpp"
+#include "time/Validity.hpp"
 #include "util/StaticString.hxx"
 #include "Rough/RoughAltitude.hpp"
 #include "Rough/RoughDistance.hpp"
@@ -32,6 +32,12 @@ struct FlarmTraffic {
     ADSR = 3,
     TISB = 4,
     MODES = 6,
+    /** OGN / cloud-server traffic injected by XCSoar */
+    OGN = 7,
+    /** SkyLines tracking traffic injected by XCSoar */
+    SKYLINES = 8,
+    /** Other XCSoar cloud-server participants */
+    CLOUD = 9,
   };
 
   /**
@@ -137,6 +143,15 @@ struct FlarmTraffic {
   /** Has the geographical location been calculated yet? */
   bool location_available;
 
+  /**
+   * Does this target have an absolute geographic location that was
+   * received from an external traffic source (e.g. ADS-B)?
+   *
+   * If true, FLARM post-processing must not overwrite #location from
+   * #relative_north/#relative_east.
+   */
+  bool absolute_location;
+
   /** Was the direction of the target received from the flarm or calculated? */
   bool track_received;
 
@@ -145,6 +160,15 @@ struct FlarmTraffic {
 
   /** Has the absolute altitude of the target been calculated yet? */
   bool altitude_available;
+
+  /**
+   * Does this target have an absolute altitude received from an
+   * external traffic source?
+   *
+   * If true, FLARM post-processing must not overwrite #altitude from
+   * #relative_altitude and ownship GPS altitude.
+   */
+  bool absolute_altitude;
 
   /** Was the turn rate of the target received from the flarm or calculated? */
   bool turn_rate_received;
@@ -157,6 +181,13 @@ struct FlarmTraffic {
 
   /** Was the RSSI value received from the device? */
   bool rssi_available;
+
+  /**
+   * Did the device say where the target came from (PFLAA Source,
+   * protocol version 9), with a value this parser knows?  If not,
+   * #source is FLARM by default, also for an ADS-B target.
+   */
+  bool source_received;
 
   bool IsDefined() const noexcept {
     return valid;
@@ -181,7 +212,10 @@ struct FlarmTraffic {
     id_type = IdType::UNKNOWN;
     rssi = 0;
     rssi_available = false;
+    source_received = false;
     no_track = false;
+    absolute_location = false;
+    absolute_altitude = false;
   }
 
   Angle Bearing() const noexcept {
@@ -214,7 +248,16 @@ struct FlarmTraffic {
   [[gnu::const]]
   static const char *GetSourceString(SourceType source) noexcept;
 
+  [[gnu::const]]
+  static bool IsInjectedSource(SourceType source) noexcept;
+
   void Update(const FlarmTraffic &other) noexcept;
+
+  /**
+   * Merge an online (SkyLines/cloud) traffic update into this record.
+   * Preserves track when @p built has no new track data.
+   */
+  void UpdateOnline(const FlarmTraffic &built) noexcept;
 };
 
 static_assert(std::is_trivial<FlarmTraffic>::value, "type is not trivial");

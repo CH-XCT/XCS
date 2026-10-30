@@ -7,11 +7,14 @@
 #include "Formatter/LocalTimeFormatter.hpp"
 #include "Math/SunEphemeris.hpp"
 #include "Language/Language.hpp"
+#include "time/BrokenDateTime.hpp"
+#include "time/RoughTime.hpp"
 
 enum Controls {
   LocalTime,
   UTCTime,
   UTCDate,
+  FlightState,
   FlightTime,
   TakeoffTime,
   LandingTime,
@@ -60,6 +63,8 @@ TimesStatusPanel::Refresh() noexcept
     ClearText(UTCDate);
   }
 
+  SetText(FlightState, flight.flying ? _("In flight") : _("On ground"));
+
   if (flight.takeoff_time.IsDefined()) {
     SetText(TakeoffTime,
             FormatLocalTimeHHMM(flight.takeoff_time,
@@ -77,7 +82,34 @@ TimesStatusPanel::Refresh() noexcept
   }
 
   if (flight.flight_time.count() > 0) {
-    SetText(FlightTime, FormatSignedTimeHHMM(flight.flight_time));
+    if (flight.takeoff_time.IsDefined() && flight.landing_time.IsDefined()) {
+      bool set = false;
+
+      if (basic.time_available && basic.date_time_utc.IsDatePlausible()) {
+        const BrokenDateTime takeoff_dt =
+          basic.GetDateTimeAt(flight.takeoff_time).FloorToMinute();
+        const BrokenDateTime landing_dt =
+          basic.GetDateTimeAt(flight.landing_time).FloorToMinute();
+
+        if (takeoff_dt.IsPlausible() && landing_dt.IsPlausible()) {
+          const auto duration = landing_dt - takeoff_dt;
+          SetText(FlightTime, FormatSignedTimeHHMM(
+            std::chrono::duration_cast<std::chrono::seconds>(duration)));
+          set = true;
+        }
+      }
+
+      if (!set) {
+        const RoughTime rough_takeoff =
+          RoughTime::FromSinceMidnight(flight.takeoff_time);
+        const RoughTime rough_landing =
+          RoughTime::FromSinceMidnight(flight.landing_time);
+        SetText(FlightTime, FormatSignedTimeHHMM(
+          FloatDuration{rough_landing - rough_takeoff}));
+      }
+    } else {
+      SetText(FlightTime, FormatSignedTimeHHMM(flight.flight_time));
+    }
   } else {
     ClearText(FlightTime);
   }
@@ -89,6 +121,7 @@ TimesStatusPanel::Prepare([[maybe_unused]] ContainerWindow &parent, [[maybe_unus
   AddReadOnly(_("Local time"));
   AddReadOnly(_("UTC time"));
   AddReadOnly(_("UTC date"));
+  AddReadOnly(_("Flight state"));
   AddReadOnly(_("Flight time"));
   AddReadOnly(_("Takeoff time"));
   AddReadOnly(_("Landing time"));

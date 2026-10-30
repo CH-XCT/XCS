@@ -6,41 +6,86 @@
 #include "Dialogs/WidgetDialog.hpp"
 #include "Form/Button.hpp"
 #include "Look/DialogLook.hpp"
+#include "Look/MapLook.hpp"
+#include "Renderer/AirspaceWarningStatusRenderer.hpp"
 #include "Formatter/UserUnits.hpp"
 #include "Renderer/TwoTextRowsRenderer.hpp"
 #include "ui/canvas/Canvas.hpp"
 #include "Screen/Layout.hpp"
+#include "ui/event/KeyCode.hpp"
 #include "ui/event/PeriodicTimer.hpp"
 #include "Airspace/AirspaceWarning.hpp"
 #include "Airspace/ProtectedAirspaceWarningManager.hpp"
 #include "Airspace/AirspaceWarningManager.hpp"
 #include "Formatter/AirspaceFormatter.hpp"
+#include "Renderer/AirspacePreviewRenderer.hpp"
 #include "Engine/Airspace/AbstractAirspace.hpp"
 #include "util/Macros.hpp"
 #include "Interface.hpp"
 #include "ActionInterface.hpp"
 #include "Language/Language.hpp"
+#include "Asset.hpp"
+#include "Look/Colors.hpp"
 #include "Widget/ListWidget.hpp"
 #include "UIGlobals.hpp"
-#include "Audio/Sound.hpp"
+#include "LogFile.hpp"
+#include "util/StringFormat.hpp"
+#include <Message.hpp>
 
 #include <algorithm>
 #include <cassert>
+#include <exception>
 #include <vector>
 
 #include <stdio.h>
+
+bool
+IsAirspaceClearanceAllowed(AirspaceClass type) noexcept
+{
+  return CommonInterface::GetComputerSettings().airspace.warnings
+    .IsClassClearanceAllowed(type);
+}
+
+bool
+TrySetAirspaceClearance(ProtectedAirspaceWarningManager &manager,
+                        ConstAirspacePtr airspace,
+                        bool set) noexcept
+{
+  try {
+    manager.SetCleared(std::move(airspace), set);
+    return true;
+  } catch (const std::exception &e) {
+    LogFmt("Failed to update airspace clearance: {}", e.what());
+    Message::AddMessage(_("Failed to update airspace clearance"));
+    return false;
+  } catch (...) {
+    LogError(std::current_exception(),
+             "Failed to update airspace clearance");
+    Message::AddMessage(_("Failed to update airspace clearance"));
+    return false;
+  }
+}
 
 class AirspaceWarningListWidget final
   : public ListWidget {
 
   ProtectedAirspaceWarningManager &airspace_warnings;
 
+  /**
+   * Non-owning: only valid for the #ShowModal scope after
+   * #CreateButtons.
+   */
+  WidgetDialog *self_dialog{nullptr};
+
   UI::PeriodicTimer update_list_timer{[this]{ UpdateList(); }};
 
   Button *ack_button;
   Button *ack_day_button;
   Button *enable_button;
+  Button *clearance_button;
+  Button *revoke_clearance_button;
   Button *radio_button;
+  Button *details_button;
 
   std::vector<AirspaceWarning> warning_list;
 
@@ -51,22 +96,22 @@ class AirspaceWarningListWidget final
 
   TwoTextRowsRenderer row_renderer;
 
-  /**
-   * Airspace repetitive warning sound interval counter.
-   */
-  unsigned sound_interval_counter;
-
 public:
   AirspaceWarningListWidget(ProtectedAirspaceWarningManager &aw)
-    :airspace_warnings(aw),
-     sound_interval_counter(1)
+    :airspace_warnings(aw)
   {}
 
-  void CreateButtons(WidgetDialog &buttons) {
-    ack_button = buttons.AddButton(_("ACK"), [this](){ Ack(); });
-    ack_day_button = buttons.AddButton(_("ACK Day"), [this](){ AckDay(); });
-    enable_button = buttons.AddButton(_("Enable"), [this](){ Enable(); });
-    radio_button = buttons.AddButton(_("Radio"), [this](){ Radio(); });
+  void CreateButtons(WidgetDialog &dialog) {
+    self_dialog = &dialog;
+    ack_button = dialog.AddButton(_("ACK"), [this](){ Ack(); });
+    ack_day_button = dialog.AddButton(_("Ack Day"), [this](){ AckDay(); });
+    enable_button = dialog.AddButton(_("Enable"), [this](){ Enable(); });
+    clearance_button = dialog.AddButton(_("Clearance"),
+                                         [this](){ ChangeClearance(true); });
+    revoke_clearance_button = dialog.AddButton(_("Revoke Clearance"),
+                                         [this](){ ChangeClearance(false); });
+    radio_button = dialog.AddButton(_("Radio"), [this](){ Radio(); });
+    details_button = dialog.AddButton(_("Details"), [this](){ Details(); });
   }
 
   void CopyList();
@@ -82,9 +127,12 @@ public:
   void Ack();
   void AckDay();
   void Enable();
+  void ChangeClearance(bool set);
   void Radio() noexcept;
+  void Details() noexcept;
 
   /* virtual methods from Widget */
+  bool KeyPress(unsigned key_code) noexcept override;
   void Prepare(ContainerWindow &parent, const PixelRect &rc) noexcept override;
   void Show(const PixelRect &rc) noexcept override;
   void Hide() noexcept override;
@@ -106,10 +154,6 @@ public:
 static WndForm *dialog = NULL;
 static AirspaceWarningListWidget *list;
 
-static constexpr Color inside_color(254,50,50);
-static constexpr Color near_color(254,254,50);
-static constexpr Color inside_ack_color(254,100,100);
-static constexpr Color near_ack_color(254,254,100);
 static bool auto_close = true;
 
 
@@ -127,23 +171,47 @@ AirspaceWarningListWidget::UpdateButtons()
     ack_button->SetEnabled(false);
     ack_day_button->SetEnabled(false);
     enable_button->SetEnabled(false);
+    clearance_button->SetEnabled(false);
+    revoke_clearance_button->SetEnabled(false);
     radio_button->SetEnabled(false);
+    details_button->SetEnabled(false);
+    if (self_dialog != nullptr)
+      self_dialog->ResyncButtonPanelSelection();
     return;
   }
 
-  bool ack_expired, ack_day;
-
-  {
-    ProtectedAirspaceWarningManager::ExclusiveLease lease(airspace_warnings);
-    const AirspaceWarning &warning = lease->GetWarning(airspace);
-    ack_expired = warning.IsAckExpired();
-    ack_day = warning.GetAckDay();
+  ProtectedAirspaceWarningManager::ExclusiveLease lease(airspace_warnings);
+  const AirspaceWarning *warning = lease->GetWarningPtr(*airspace);
+  if (warning == nullptr) {
+    ack_button->SetEnabled(false);
+    ack_day_button->SetEnabled(false);
+    enable_button->SetEnabled(false);
+    clearance_button->SetEnabled(false);
+    revoke_clearance_button->SetEnabled(false);
+    radio_button->SetEnabled(airspace->GetRadioFrequency().IsDefined());
+    details_button->SetEnabled(true);
+    if (self_dialog != nullptr)
+      self_dialog->ResyncButtonPanelSelection();
+    return;
   }
 
-  ack_button->SetEnabled(ack_expired);
-  ack_day_button->SetEnabled(!ack_day);
-  enable_button->SetEnabled(!ack_expired);
+  const bool cleared = warning->IsCleared();
+
+  ack_button->SetEnabled(warning->IsAckExpired());
+  ack_day_button->SetEnabled(!warning->GetAckDay());
+  enable_button->SetEnabled(!warning->IsAckExpired());
+  clearance_button->SetEnabled(
+    !cleared &&
+    IsAirspaceClearanceAllowed(airspace->GetTypeOrClass()));
+  revoke_clearance_button->SetEnabled(cleared);
   radio_button->SetEnabled(airspace->GetRadioFrequency().IsDefined());
+  details_button->SetEnabled(true);
+
+  /* #EnableCursorSelection(0) may leave #selected_index on a disabled
+     #Button when ACK is inactive but ACK Day is not; re-arm the first
+     operable action for KEY_LEFT/KEY_RIGHT/KEY_RETURN. */
+  if (self_dialog != nullptr)
+    self_dialog->ResyncButtonPanelSelection();
 }
 
 void
@@ -154,6 +222,23 @@ AirspaceWarningListWidget::Prepare(ContainerWindow &parent,
 
   CreateList(parent, look, rc,
              row_renderer.CalculateLayout(*look.list.font, *look.list.font));
+}
+
+bool
+AirspaceWarningListWidget::KeyPress(unsigned key_code) noexcept
+{
+  /* Up/Down: list; Left/Right: #ButtonPanel (see #WidgetDialog::OnAnyKeyDown);
+     when focus is on the action bar, Up only returns to the list. */
+  if (key_code == KEY_UP && IsDefined() && !GetList().HasFocus() &&
+      self_dialog != nullptr) {
+    GetList().SetFocus();
+    return true;
+  }
+
+  if (key_code == KEY_UP || key_code == KEY_DOWN)
+    return ListWidget::KeyPress(key_code);
+
+  return false;
 }
 
 void
@@ -169,7 +254,6 @@ AirspaceWarningListWidget::OnCursorMoved(unsigned i) noexcept
 void
 AirspaceWarningListWidget::Show(const PixelRect &rc) noexcept
 {
-  sound_interval_counter = 0;
   ListWidget::Show(rc);
   UpdateList();
   update_list_timer.Schedule(std::chrono::milliseconds(500));
@@ -185,8 +269,7 @@ AirspaceWarningListWidget::Hide() noexcept
 void
 AirspaceWarningListWidget::OnActivateItem([[maybe_unused]] unsigned i) noexcept
 {
-  if (selected_airspace != nullptr)
-    dlgAirspaceDetails(selected_airspace, &airspace_warnings);
+  Details();
 }
 
 bool
@@ -228,10 +311,34 @@ AirspaceWarningListWidget::AckDay()
 {
   const auto &airspace = selected_airspace;
   if (airspace != NULL) {
-    airspace_warnings.AcknowledgeDay(airspace, true);
+    try {
+      airspace_warnings.AcknowledgeDay(airspace, true);
+    } catch (const std::exception &e) {
+      LogFmt("Failed to acknowledge airspace warning for day: {}",
+             e.what());
+      Message::AddMessage(_("Failed to acknowledge airspace warning for day"));
+      return;
+    } catch (...) {
+      LogError(std::current_exception(),
+               "Failed to acknowledge airspace warning for day");
+      Message::AddMessage(_("Failed to acknowledge airspace warning for day"));
+      return;
+    }
+
     UpdateList();
     AutoHide();
   }
+}
+
+void
+AirspaceWarningListWidget::ChangeClearance(bool set)
+{
+  if (selected_airspace == nullptr)
+    return;
+  if (!TrySetAirspaceClearance(airspace_warnings, selected_airspace, set))
+    return;
+
+  UpdateList();
 }
 
 void
@@ -241,27 +348,53 @@ AirspaceWarningListWidget::Enable()
   if (airspace == NULL)
     return;
 
-  {
-    ProtectedAirspaceWarningManager::ExclusiveLease lease(airspace_warnings);
-    AirspaceWarning *warning = lease->GetWarningPtr(*airspace);
-    if (warning == NULL)
-      return;
-
-    warning->AcknowledgeInside(false);
-    warning->AcknowledgeWarning(false);
-    warning->AcknowledgeDay(false);
+  try {
+    airspace_warnings.AcknowledgeDay(airspace, false);
+    airspace_warnings.AcknowledgeInside(airspace, false);
+    airspace_warnings.AcknowledgeWarning(airspace, false);
+  } catch (const std::exception &e) {
+    LogFmt("Failed to re-enable airspace warning: {}", e.what());
+    Message::AddMessage(_("Failed to re-enable airspace warning"));
+    return;
+  } catch (...) {
+    LogError(std::current_exception(),
+             "Failed to re-enable airspace warning");
+    Message::AddMessage(_("Failed to re-enable airspace warning"));
+    return;
   }
 
   UpdateList();
 }
 
-inline void
+void
 AirspaceWarningListWidget::Radio() noexcept
 {
-  if (selected_airspace != nullptr &&
-      selected_airspace->GetRadioFrequency().IsDefined())
-    ActionInterface::SetActiveFrequency(selected_airspace->GetRadioFrequency(),
-                                        selected_airspace->GetName());
+  if (selected_airspace == nullptr)
+    return;
+
+  const auto freq = selected_airspace->GetRadioFrequency();
+  if (!freq.IsDefined())
+    return;
+
+  const char *name = selected_airspace->GetName();
+  ActionInterface::SetActiveFrequency(freq,
+                                      name != nullptr && *name != '\0'
+                                      ? name
+                                      : nullptr);
+}
+
+void
+AirspaceWarningListWidget::Details() noexcept
+{
+  if (selected_airspace == nullptr)
+    return;
+
+  try {
+    dlgAirspaceDetails(selected_airspace, &airspace_warnings);
+  } catch (...) {
+    LogError(std::current_exception(), "Failed to open airspace details");
+    Message::AddMessage(_("Failed to open airspace details"));
+  }
 }
 
 void
@@ -288,21 +421,39 @@ AirspaceWarningListWidget::OnPaintItem(Canvas &canvas,
   const auto &warning = warning_list[i];
   const AbstractAirspace &airspace = warning.GetAirspace();
 
-  // word "inside" is used as the etalon, because it is longer than "near" and
-  // currently (9.4.2011) there is no other possibility for the status text.
-  const int status_width = canvas.CalcTextWidth("inside");
+  PixelRect layout_rc = paint_rc;
+  const unsigned line_height = paint_rc.GetHeight();
+  {
+    const AirspaceLook &airspace_look = UIGlobals::GetMapLook().airspace;
+    const AirspaceRendererSettings &airspace_renderer =
+      CommonInterface::GetMapSettings().airspace;
+
+    const PixelPoint pt(layout_rc.left + line_height / 2,
+                        layout_rc.top + line_height / 2);
+    const unsigned radius = line_height / 2 - padding;
+    AirspacePreviewRenderer::Draw(canvas, airspace, pt, radius,
+                                  airspace_renderer, airspace_look);
+    layout_rc.left += line_height + padding;
+  }
+
+  const Font &list_font = *UIGlobals::GetDialogLook().list.font;
+  const int status_width = AirspaceWarningStatusWidth(list_font);
   // "1888" is used in order to have enough space for 4-digit heights with "AGL"
   const int altitude_width = canvas.CalcTextWidth("1888 m AGL");
 
   // Dynamic columns scaling - "name" column is flexible, altitude and state
   // columns are fixed-width.
   auto [text_altitude_rc, status_rc] =
-    paint_rc.VerticalSplit(paint_rc.right - (2 * padding + status_width));
+    layout_rc.VerticalSplit(layout_rc.right - status_width);
   auto text_rc =
     text_altitude_rc.VerticalSplit(text_altitude_rc.right - (padding + altitude_width)).first;
   text_rc.right -= padding;
 
-  if (!warning.IsActive())
+  if (warning.IsCleared() || warning.IsCoveredByClearance()) {
+    if (!IsDithered())
+      canvas.SetTextColor(AirspaceClearanceTextColor(
+        UIGlobals::GetDialogLook().dark_mode, canvas.GetTextColor()));
+  } else if (!warning.IsActive())
     canvas.SetTextColor(COLOR_GRAY);
 
   { // name, altitude info
@@ -320,63 +471,33 @@ AirspaceWarningListWidget::OnPaintItem(Canvas &canvas,
 
   if (const auto &solution = warning.GetSolution();
       warning.IsWarning() && !warning.IsInside() && solution.IsValid()) {
+    StringFormat(buffer, ARRAY_SIZE(buffer), _("%d secs"),
+                 (int)solution.elapsed_time.count());
 
-    sprintf(buffer, "%d secs",
-              (int)solution.elapsed_time.count());
-
-    if (solution.distance > 0)
-      sprintf(buffer + strlen(buffer), " dist %d m",
-                (int)solution.distance);
-    else {
+    if (solution.distance > 0) {
+      const size_t len = strlen(buffer);
+      StringFormat(buffer + len, ARRAY_SIZE(buffer) - len,
+                   _(" dist %d m"), (int)solution.distance);
+    } else {
       /* the airspace is right above or below us - show the vertical
          distance */
-      strcat(buffer, " vertical ");
+      const size_t len = strlen(buffer);
+      StringFormat(buffer + len, ARRAY_SIZE(buffer) - len,
+                   "%s", _(" vertical "));
 
+      const size_t len2 = strlen(buffer);
       auto delta = solution.altitude - CommonInterface::Basic().nav_altitude;
-      FormatRelativeUserAltitude(delta, buffer + strlen(buffer), true);
+      char relative_altitude[ARRAY_SIZE(buffer)];
+      FormatRelativeUserAltitude(delta, relative_altitude, true);
+      StringFormat(buffer + len2, ARRAY_SIZE(buffer) - len2,
+                   "%s", relative_altitude);
     }
 
     row_renderer.DrawSecondRow(canvas, text_rc, buffer);
   }
 
-  /* draw the warning state indicator */
-
-  Color state_color;
-  const char *state_text;
-
-  if (warning.IsInside()) {
-    state_color = warning.IsActive() ? inside_color : inside_ack_color;
-    state_text = "inside";
-  } else if (warning.IsWarning()) {
-    state_color = warning.IsActive() ? near_color : near_ack_color;
-    state_text = "near";
-  } else {
-    state_color = COLOR_WHITE;
-    state_text = NULL;
-  }
-
-  const PixelSize state_text_size =
-    canvas.CalcTextSize(state_text != NULL ? state_text : "W");
-
-  if (state_color != COLOR_WHITE) {
-    /* colored background */
-    PixelRect rc = status_rc;
-    rc.top += padding;
-    rc.right -= padding;
-    rc.bottom -= padding;
-
-    canvas.DrawFilledRectangle(rc, state_color);
-
-    /* on this background we just painted, we must use black color for
-       the state text; our caller might have selected a different
-       color, override it here */
-    canvas.SetTextColor(COLOR_BLACK);
-  }
-
-  if (state_text != NULL) {
-    // -- status text will be centered inside its table cell:
-    canvas.DrawText(status_rc.CenteredTopLeft(state_text_size), state_text);
-  }
+  DrawAirspaceWarningStatus(canvas, list_font, status_rc,
+                            AirspaceWarningStatusFrom(warning));
 }
 
 inline void
@@ -410,34 +531,9 @@ AirspaceWarningListWidget::UpdateList()
       /* the selection may have changed, update CursorAirspace */
       OnCursorMoved(GetList().GetCursorIndex());
 
-    // Process repetitive sound warnings if they are enabled in config
-    const AirspaceWarningConfig &warning_config =
-      CommonInterface::GetComputerSettings().airspace.warnings;
-    if (warning_config.repetitive_sound) {
-      FloatDuration tt_closest_airspace{1000};
-      for (const auto &i : warning_list) {
-        /* Find smallest time to nearest aispace (cannot always rely
-           on fact that closest airspace should be in the beginning of
-           the list) */
-        if (!i.IsInside())
-          tt_closest_airspace = std::min(tt_closest_airspace,
-                                         i.GetSolution().elapsed_time);
-        else
-          tt_closest_airspace = {};
-      }
-
-      const unsigned sound_interval =
-        ((tt_closest_airspace * 3 / warning_config.warning_time) + 1) * 2;
-      if (sound_interval_counter >= sound_interval) {
-        PlayResource("IDR_WAV_BEEPBWEEP");
-        sound_interval_counter = 1;
-      } else
-        ++sound_interval_counter;
-    }
   } else {
     GetList().SetLength(1);
     selected_airspace = NULL;
-    sound_interval_counter = 0;
   }
 
   GetList().Invalidate();

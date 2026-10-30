@@ -7,6 +7,7 @@
 #include "File.hpp"
 #include "LocalPath.hpp"
 #include "LogFile.hpp"
+#include "Repository/FileType.hpp"
 #include "Map.hpp"
 #include "lib/fmt/PathFormatter.hpp"
 #include "system/FileUtil.hpp"
@@ -24,10 +25,28 @@
 
 static AllocatedPath startProfileFile = nullptr;
 
+/** True after Load() has been called for startProfileFile. */
+static bool loaded = false;
+
+static AllocatedPath
+BuildProfilePath(Path base_name) noexcept
+{
+  return LocalPath(AllocatedPath::Build(
+    GetFileTypeDefaultDir(FileType::PROFILE), base_name));
+}
+
 Path
 Profile::GetPath() noexcept
 {
   return startProfileFile;
+}
+
+void
+Profile::Clear() noexcept
+{
+  map.Clear();
+  SetModified(false);
+  loaded = false;
 }
 
 void
@@ -37,6 +56,7 @@ Profile::Load() noexcept
 
   LogString("Loading profiles");
   LoadFile(startProfileFile);
+  loaded = true;
   SetModified(false);
 }
 
@@ -54,6 +74,12 @@ Profile::LoadFile(Path path) noexcept
 void
 Profile::Save() noexcept
 {
+  if (!loaded) {
+    if (startProfileFile != nullptr)
+      LogString("Skipping profile save: profile was never loaded");
+    return;
+  }
+
   if (!IsModified())
     return;
 
@@ -80,18 +106,19 @@ Profile::SaveFile(Path path)
 void
 Profile::SetFiles(Path override_path) noexcept
 {
-  /* set the "modified" flag, because we are potentially saving to a
-     new file now */
-  SetModified(true);
+  /* only dirty the map after Load(): SetFiles() from -profile= runs
+     while the map is still empty, and Save() must not persist that */
+  if (loaded)
+    SetModified(true);
 
   if (override_path != nullptr) {
     if (override_path.IsBase()) {
       if (StringFind(override_path.c_str(), '.') != nullptr)
-        startProfileFile = LocalPath(override_path);
+        startProfileFile = BuildProfilePath(override_path);
       else {
         std::string t(override_path.c_str());
         t += ".prf";
-        startProfileFile = LocalPath(t.c_str());
+        startProfileFile = BuildProfilePath(Path(t.c_str()));
       }
     } else
       startProfileFile = Path(override_path);
@@ -99,29 +126,5 @@ Profile::SetFiles(Path override_path) noexcept
   }
 
   // Set the default profile file
-  startProfileFile = LocalPath(XCSPROFILE);
-}
-
-AllocatedPath
-Profile::GetPath(std::string_view key) noexcept
-{
-  return map.GetPath(key);
-}
-
-std::vector<AllocatedPath>
-Profile::GetMultiplePaths(std::string_view key, const char *patterns)
-{
-  return map.GetMultiplePaths(key, patterns);
-}
-
-bool
-Profile::GetPathIsEqual(std::string_view key, Path value) noexcept
-{
-  return map.GetPathIsEqual(key, value);
-}
-
-void
-Profile::SetPath(std::string_view key, Path value) noexcept
-{
-  map.SetPath(key, value);
+  startProfileFile = BuildProfilePath(Path(XCSPROFILE));
 }

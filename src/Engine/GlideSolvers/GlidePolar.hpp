@@ -60,6 +60,14 @@ class GlidePolar
 
   /** Maximum cruise speed (m/s) */
   double Vmax;
+
+  /**
+   * When true, the MacCready speed stops at #Vmax. The safety polar
+   * clears this so reach can fly faster than maximum cruise.
+   * Speed-to-fly leaves it set.
+   */
+  bool limit_mc_to_cruise = true;
+
   /** Sink rate at maximum cruise speed (m/s, positive down) */
   double Smax;
 
@@ -86,13 +94,16 @@ class GlidePolar
   /** Reference wing area, m^2 */
   double wing_area;
 
+  /** Air density ratio sqrt(rho0/rho); 1.0 at sea level, >1 at altitude */
+  double density_ratio;
+
   friend class GlidePolarTest;
 
 public:
   /**
    * Constructs an uninitialized object.
    */
-  constexpr GlidePolar() noexcept = default;
+  constexpr GlidePolar() noexcept : density_ratio(1.0) {}
 
   /**
    * Constructor.  Performs search for best LD at instantiation
@@ -326,6 +337,14 @@ public:
   void SetMC(const double _mc) noexcept;
 
   /**
+   * Stop the MacCready speed at maximum cruise speed when @p limited
+   * is true. Reach on the safety polar passes false so a higher
+   * Safety MC keeps selecting a steeper point. Speed-to-fly stays
+   * limited.
+   */
+  void SetMCLimitedByCruise(bool limited) noexcept;
+
+  /**
    * Accessor for MC setting
    *
    * @return The current MacCready ring setting (m/s)
@@ -498,6 +517,13 @@ public:
     wing_area = _wing_area;
   }
 
+  /** Sets the air density ratio and updates polar speeds/rates accordingly */
+  void SetDensityRatio(double dr) noexcept;
+
+  constexpr double GetDensityRatio() const noexcept {
+    return density_ratio;
+  }
+
   /** Returns the reference mass in kg */
   constexpr double GetReferenceMass() const noexcept {
     return reference_mass;
@@ -572,6 +598,23 @@ public:
       Update();
   }
 
+  /**
+   * The polar the constructor starts with.  It stands in while no
+   * valid polar has been set up, e.g. when the plane profile is
+   * missing or broken, so it is not the pilot's glider.
+   */
+  static constexpr PolarCoefficients FALLBACK_POLAR{0.00157, -0.0734, 1.48};
+
+  /**
+   * Is this still the constructor's #FALLBACK_POLAR rather than a polar
+   * that was set up for a glider?
+   */
+  constexpr bool IsFallback() const noexcept {
+    return reference_polar.a == FALLBACK_POLAR.a &&
+      reference_polar.b == FALLBACK_POLAR.b &&
+      reference_polar.c == FALLBACK_POLAR.c;
+  }
+
   /** Returns the ideal polar coefficients */
   constexpr const PolarCoefficients &GetCoefficients() const noexcept {
     return reference_polar;
@@ -608,4 +651,4 @@ private:
   void UpdateSMin() noexcept;
 };
 
-static_assert(std::is_trivial<GlidePolar>::value, "type is not trivial");
+static_assert(std::is_trivially_copyable<GlidePolar>::value, "type is not trivially copyable");

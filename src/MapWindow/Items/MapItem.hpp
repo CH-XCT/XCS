@@ -5,13 +5,15 @@
 
 #include "Geo/GeoPoint.hpp"
 #include "Geo/GeoVector.hpp"
+#include "Rough/RoughAngle.hpp"
 #include "FLARM/Id.hpp"
 #include "FLARM/Color.hpp"
-#include "NMEA/ThermalLocator.hpp"
+#include "Engine/Observation/Store.hpp"
 #include "Weather/Features.hpp"
 #include "Engine/Waypoint/Ptr.hpp"
 #include "Engine/Airspace/Ptr.hpp"
 #include "Engine/Route/ReachResult.hpp"
+#include "Engine/Route/WaypointReachability.hpp"
 #include "Tracking/SkyLines/Features.hpp"
 #include "util/StaticString.hxx"
 
@@ -39,9 +41,6 @@ struct MapItem
     THERMAL,
     WAYPOINT,
     TRAFFIC,
-#ifdef HAVE_SKYLINES_TRACKING
-    SKYLINES_TRAFFIC,
-#endif
     OVERLAY,
     RASP,
   } type;
@@ -168,8 +167,15 @@ struct WaypointMapItem: public MapItem
 {
   WaypointPtr waypoint;
 
-  WaypointMapItem(const WaypointPtr &_waypoint)
-    :MapItem(Type::WAYPOINT), waypoint(_waypoint) {}
+  /**
+   * The reachability of this waypoint, calculated the same way as on
+   * the map, so the icon in the dialog matches the one on the map.
+   */
+  WaypointReachability reachable;
+
+  WaypointMapItem(const WaypointPtr &_waypoint,
+                  WaypointReachability _reachable=WaypointReachability::INVALID)
+    :MapItem(Type::WAYPOINT), waypoint(_waypoint), reachable(_reachable) {}
 };
 
 #ifdef HAVE_NOAA
@@ -191,34 +197,10 @@ struct TrafficMapItem: public MapItem
     :MapItem(Type::TRAFFIC), id(_id), color(_color) {}
 };
 
-#ifdef HAVE_SKYLINES_TRACKING
-
-struct SkyLinesTrafficMapItem : public MapItem
-{
-  using Time = std::chrono::duration<uint_least32_t, std::chrono::milliseconds::period>;
-
-  uint32_t id;
-
-  Time time_of_day;
-
-  int altitude;
-
-  StaticString<40> name;
-
-  SkyLinesTrafficMapItem(uint32_t _id, Time _time_of_day_ms,
-                         int _altitude,
-                         const char *_name)
-    :MapItem(Type::SKYLINES_TRAFFIC), id(_id), time_of_day(_time_of_day_ms),
-     altitude(_altitude),
-     name(_name) {}
-};
-
-#endif
-
 struct ThermalMapItem: public MapItem
 {
-  ThermalSource thermal;
+  ObservedThermal thermal;
 
-  ThermalMapItem(const ThermalSource &_thermal)
+  ThermalMapItem(const ObservedThermal &_thermal)
     :MapItem(Type::THERMAL), thermal(_thermal) {}
 };

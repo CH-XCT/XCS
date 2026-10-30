@@ -6,18 +6,39 @@
 #include "LinkableWindow.hpp"
 #include "util/MarkdownParser.hpp"
 #include "ui/canvas/Bitmap.hpp"
+#include "ui/canvas/BufferCanvas.hpp"
 #include "ui/canvas/Color.hpp"
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 class Font;
+struct DialogLook;
 struct WrappedText;
 struct SegmentedLine;
 struct TextSegment;
-struct FocusItem;
+
+/**
+ * A focusable item (link or checkbox) for keyboard navigation in
+ * RichTextWindow.  Sorted by vertical position so UP/DOWN moves in
+ * document order.
+ */
+struct FocusItem {
+  int y_pos;          ///< Content-space Y coordinate
+  int height;         ///< Approximate item height
+  bool is_checkbox;
+  std::size_t index;  ///< style_index for checkboxes, link_index for links
+
+  bool operator<(const FocusItem &other) const noexcept {
+    if (y_pos != other.y_pos)
+      return y_pos < other.y_pos;
+    /* Checkboxes before links at the same position */
+    return is_checkbox && !other.is_checkbox;
+  }
+};
 
 /**
  * A window showing multi-line text with Markdown formatting.
@@ -28,12 +49,13 @@ struct FocusItem;
  * - Headings: # H1, ## H2, ### H3
  * - List items: - item or * item
  * - Markdown links: [display text](url)
- * - Raw URL detection: http://, https://, xcsoar://
+ * - Raw URL detection: http://, https://, xcsoar://, vhf:
  * - Keyboard and mouse navigation (inherited from LinkableWindow)
  *
  * Keyboard navigation:
- * - Up/Down: navigate between links or scroll text
- * - Enter: activate focused link
+ * - Up/Down: navigate between links/checkboxes or scroll text
+ * - Enter: toggle a focused checkbox (then advance like Down) or activate a
+ *   focused link
  *
  * Mouse:
  * - Click on link to activate
@@ -52,6 +74,14 @@ class RichTextWindow : public LinkableWindow {
   /** Background color (from DialogLook) */
   Color background_color = COLOR_WHITE;
 
+  /**
+   * When set, Markdown list checkboxes use the same `DrawCheckBox` styling
+   * as `CheckBoxControl` (e.g. quick guide, configuration).  Otherwise
+   * a simple outline is drawn.  The embedding `RichTextWidget` sets this
+   * from the dialog look.
+   */
+  const DialogLook *dialog_look = nullptr;
+
   /** Parsed text with links and styles extracted */
   ParsedMarkdown parsed;
 
@@ -60,6 +90,9 @@ class RichTextWindow : public LinkableWindow {
 
   /** Width used for cached height calculation */
   mutable unsigned cached_height_width = 0;
+
+  /** Last content height pushed to a parent #VScrollPanel (0 = none). */
+  mutable unsigned synced_scroll_height = 0;
 
   /** Wrapped lines from TextWrapper (opaque pointer to avoid header include) */
   mutable std::unique_ptr<WrappedText> wrapped_text;
@@ -76,24 +109,32 @@ class RichTextWindow : public LinkableWindow {
   /** Checkbox toggle states (non-zero = toggled from original) */
   mutable std::vector<uint8_t> checkbox_toggled;
 
-  /** Checkbox hit rectangles for click detection */
+  void (*checkbox_toggled_cb)(void *) noexcept = nullptr;
+  void *checkbox_toggled_ctx = nullptr;
+
+  /** Checkbox hit rectangles for click detection (window space). */
   struct CheckboxRect {
     PixelRect rect;
     std::size_t style_index;  ///< Index into parsed.styles
   };
   mutable std::vector<CheckboxRect> checkbox_rects;
 
+  /**
+   * Link/checkbox hit rectangles in content coordinates, filled with
+   * the painted strip.  Published to window space on each paint.
+   */
+  struct ContentHit {
+    PixelRect content_rect;
+    std::size_t index; ///< link index or checkbox style index
+    bool is_checkbox;
+    /** Link segment bytes in #parsed.text (ignored for checkboxes). */
+    std::size_t text_start = 0;
+    std::size_t text_length = 0;
+  };
+  std::vector<ContentHit> content_hits;
+
   /** Currently focused checkbox style_index (into parsed.styles), or nullopt */
   mutable std::optional<std::size_t> focused_checkbox_style;
-
-  /**
-   * Set when focus navigation reached the end (down) or start (up)
-   * of all focusable items.  While set, the next DOWN/UP returns
-   * false so the dialog can cycle focus to the next tab stop
-   * (e.g. pager buttons).  Cleared when the window receives focus.
-   */
-  mutable bool focus_exhausted_down = false;
-  mutable bool focus_exhausted_up = false;
 
   /** Cache of loaded bitmaps keyed by URL */
   mutable std::map<std::string, Bitmap> image_cache;
@@ -106,7 +147,30 @@ class RichTextWindow : public LinkableWindow {
   mutable std::vector<int> line_heights;
   mutable unsigned line_layout_width = 0;
 
+  /**
+   * Sliding offscreen strip of painted content.  Scroll pans by
+   * blitting; the strip is refilled only when the origin leaves it
+   * or #content_cache_dirty is set.
+   */
+  BufferCanvas content_cache;
+
+  /** Content-space Y of buffer row 0. */
+  int content_cache_top = 0;
+
+  bool content_cache_dirty = true;
+
+  /**
+   * True after checkbox "  " placeholders were widened to match
+   * #CheckboxBoxSize for the current font (wrap/paint alignment).
+   */
+  bool checkbox_placeholders_expanded = false;
+
 private:
+  /**
+   * Widen Markdown checkbox placeholders so WrapText measures the
+   * same width as the painted checkbox + gap.
+   */
+  void ExpandCheckboxPlaceholders() noexcept;
   /**
    * Load or retrieve a cached bitmap for the given image URL.
    * Supports "resource:IDB_NAME" for compiled-in resources.
@@ -147,6 +211,13 @@ private:
    */
   void EnsureLineLayout() const noexcept;
   /**
+   * Column width available for wrapping (content width minus slack for
+   * link spacing and list hanging indent).
+   */
+  [[gnu::pure]]
+  unsigned CalcWrapTextWidth(unsigned column_width) const noexcept;
+
+  /**
    * Ensure wrapped_text is populated for current width.
    */
   void EnsureWrappedText() const noexcept;
@@ -167,22 +238,57 @@ private:
    */
   void InvalidateLayout() noexcept;
 
+  /**
+   * Push exact #cached_content_height to a parent #VScrollPanel after
+   * layout (Show() may have sized the panel from the estimate).
+   */
+  void SyncParentScrollHeight() noexcept;
+
+  /**
+   * Paint lines whose content Y overlaps [clip_top, clip_bottom) into
+   * @a canvas.  Canvas Y = content Y - @a y_origin.
+   * Also records #content_hits in content space (canvas rect + y_origin).
+   */
+  void PaintContent(Canvas &canvas, int y_origin,
+                    int clip_top, int clip_bottom) noexcept;
+
+  /**
+   * Ensure #content_cache covers the viewport with prefetch margin.
+   */
+  void EnsureContentCache(int origin, int viewport_h) noexcept;
+
+  /** Mark the painted strip invalid (text, layout, checkbox, theme). */
+  void InvalidateContentCache() noexcept {
+    content_cache_dirty = true;
+    content_hits.clear();
+  }
+
+  /**
+   * Publish #content_hits into window-space link/checkbox rects for
+   * the visible band.
+   */
+  void PublishWindowHits(int origin, int viewport_h) noexcept;
+
+  /** Draw keyboard focus chrome for the focused link/checkbox. */
+  void DrawFocusOverlay(Canvas &canvas, int origin) noexcept;
+
   /** Render an inline image for a segment, if present.
    * @return true if an image was rendered (caller should skip text) */
   bool RenderInlineImage(Canvas &canvas, const TextSegment &seg,
                          int &x, int y, int cur_line_height,
                          int text_line_height) const noexcept;
 
-  /** Render an underlined link segment with hit-rect registration. */
+  /** Render an underlined link segment; record content-space hit. */
   void RenderLinkSegment(Canvas &canvas, const TextSegment &seg,
                          const char *text_data, int &x, int text_y,
-                         int visible_top,
-                         int text_line_height) noexcept;
+                         int text_line_height,
+                         int content_y_origin) noexcept;
 
-  /** Render a checkbox segment with hit-rect registration. */
+  /** Render a checkbox segment; record content-space hit. */
   void RenderCheckboxSegment(Canvas &canvas, const TextSegment &seg,
-                             int &x, int text_y, int visible_top,
-                             int text_line_height) noexcept;
+                             int &x, int y_line,
+                             int row_height,
+                             int content_y_origin) noexcept;
 
   /** Render a plain text segment (heading, bold, list item, normal). */
   void RenderPlainSegment(Canvas &canvas, const TextSegment &seg,
@@ -190,8 +296,7 @@ private:
                           int &x, int text_y) const noexcept;
 
   /** Set focus to a FocusItem and scroll to make it visible. */
-  void ScrollToFocusItem(const FocusItem &item,
-                         int text_line_height) noexcept;
+  void ScrollToFocusItem(const FocusItem &item) noexcept;
 
 public:
   RichTextWindow() noexcept;
@@ -216,6 +321,9 @@ public:
     bold_font = _bold_font ? _bold_font : &_font;
     heading1_font = _heading1_font ? _heading1_font : bold_font;
     heading2_font = _heading2_font ? _heading2_font : bold_font;
+    /* Placeholder expansion depends on font metrics. */
+    checkbox_placeholders_expanded = false;
+    InvalidateLayout();
   }
 
   /**
@@ -227,6 +335,12 @@ public:
                    Color _background_color = COLOR_WHITE) noexcept {
     dark_mode = _dark_mode;
     background_color = _background_color;
+    InvalidateContentCache();
+  }
+
+  void SetDialogLook(const DialogLook &look) noexcept {
+    dialog_look = &look;
+    InvalidateContentCache();
   }
 
   [[gnu::pure]]
@@ -256,6 +370,21 @@ public:
     }
   }
 
+  /** Font used when painting a span with the given Markdown style. */
+  [[gnu::pure]]
+  const Font &GetStyleFont(TextStyle style) const noexcept {
+    switch (style) {
+    case TextStyle::Heading1:
+    case TextStyle::Heading2:
+    case TextStyle::Heading3:
+      return GetHeadingFont(style);
+    case TextStyle::Bold:
+      return GetBoldFont();
+    default:
+      return GetFont();
+    }
+  }
+
   /**
    * Set the text content.
    *
@@ -268,12 +397,14 @@ public:
   void SetText(const char *text, bool parse_markdown = true);
 
   /**
-   * Get the total content height in pixels.
-   * This accounts for text wrapping at the current width.
-   * Used by VScrollWidget to set virtual height.
+   * Content height for scroll sizing.  May be a cheap estimate before
+   * the first wrap; exact after layout / #CalculateExactContentHeight.
    */
   [[gnu::pure]]
   unsigned GetContentHeight() const noexcept;
+
+  /** Force wrap + line layout; return exact content height. */
+  unsigned CalculateExactContentHeight() const noexcept;
 
   /**
    * Get the parsed links.
@@ -293,6 +424,25 @@ public:
    * Toggle a checkbox state.
    */
   void ToggleCheckbox(std::size_t style_index) noexcept;
+
+  /**
+   * Called after a checkbox toggle.  @p ctx is the pointer passed here.
+   */
+  void SetCheckboxToggledCallback(void (*callback)(void *) noexcept,
+                                  void *ctx) noexcept {
+    checkbox_toggled_cb = callback;
+    checkbox_toggled_ctx = ctx;
+  }
+
+  /** Checked state of each checkbox in document order (1 = checked). */
+  [[gnu::pure]]
+  std::vector<uint8_t> GetCheckboxCheckedStates() const noexcept;
+
+  /**
+   * Apply checked states in document order.  Ignored when the count
+   * does not match the current document.
+   */
+  void SetCheckboxCheckedStates(const std::vector<uint8_t> &checked) noexcept;
 
   /**
    * Find the style index of the checkbox span containing text_pos.
@@ -322,11 +472,12 @@ protected:
   void OnPaint(Canvas &canvas) noexcept override;
   bool OnKeyCheck(unsigned key_code) const noexcept override;
   bool OnKeyDown(unsigned key_code) noexcept override;
+  bool OnMouseDown(PixelPoint p) noexcept override;
   bool OnMouseUp(PixelPoint p) noexcept override;
 
   /**
    * Called when a link is activated (clicked or Enter pressed).
-   * Override to handle custom URI schemes (e.g., xcsoar://).
+   * Override to handle custom URI schemes (e.g., xcsoar://, vhf:).
    * Default implementation handles http:// and https:// only.
    * @return true if the link was handled
    */

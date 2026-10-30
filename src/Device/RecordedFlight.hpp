@@ -30,6 +30,12 @@ struct RecordedFlightInfo : FlightInfo {
        */
       char nano_filename[16];
 
+      /**
+       * File size in bytes from the Nano logbook, or 0 if the
+       * logger did not report it.
+       */
+      uint32_t nano_file_size;
+
       uint8_t start_address[3];
       uint8_t end_address[3];
     } lx;
@@ -38,6 +44,11 @@ struct RecordedFlightInfo : FlightInfo {
      * Flight number, used by the FLARM driver.
      */
     uint8_t flarm;
+
+    /**
+     * Flight index, used by the FLARM Hub REST API.
+     */
+    unsigned flarm_hub;
 
     /**
      * Flight number, used by Volkslogger driver
@@ -56,7 +67,16 @@ struct RecordedFlightInfo : FlightInfo {
       uint16_t flight_id;
       uint32_t file_size;
     } lx_eos;
-    
+
+    /**
+     * IGC download addressing for the BlueFly Vario logger.
+     */
+    struct {
+      unsigned start_sector;
+      uint16_t sector_count;
+      char filename[64];
+    } bluefly;
+
   } internal;
 };
 

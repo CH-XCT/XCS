@@ -2,7 +2,8 @@ ifeq ($(TARGET),ANDROID)
 # Android must use OpenGL
 ENABLE_SDL = n
 else ifeq ($(HAVE_WIN32),y)
-# Windows defaults to GDI
+# OpenGL Windows flavors set ENABLE_SDL=y in targets.mk first.
+# Bare TARGET=PC leaves SDL off and is rejected later.
 ENABLE_SDL ?= n
 else ifeq ($(TARGET_IS_KOBO),y)
 # the Kobo uses the frame buffer
@@ -30,6 +31,20 @@ FREETYPE = y
 endif
 
 $(eval $(call pkg-config-library,SDL,sdl2))
+
+ifeq ($(HAVE_WIN32),y)
+# For Windows/SDL: Remove SDL's -Dmain=SDL_main macro which conflicts with
+# XCSoar's code (e.g., PageLayout::main). We define SDL_MAIN_HANDLED instead
+# and call SDL_SetMainReady() in XCSoar.cpp.
+# Use lazy evaluation (=) to avoid triggering pkg-config errors at parse time
+# Uses SDL_CPPFLAGS_RAW constructed through pkgconfig.mk/thunk.mk
+SDL_CPPFLAGS = $(filter-out -Dmain=SDL_main,$(SDL_CPPFLAGS_RAW)) -DENABLE_SDL -DSDL_MAIN_HANDLED
+
+# Override the default "console" subsystem (set in targets.mk) to
+# "windows" for GUI programs, to avoid console pop-up
+SDL_LDLIBS += -Wl,-subsystem,windows
+else
 SDL_CPPFLAGS += -DENABLE_SDL
+endif
 
 endif

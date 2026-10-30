@@ -4,6 +4,8 @@
 #include "Logger/NMEALogger.hpp"
 #include "io/FileOutputStream.hxx"
 #include "LocalPath.hpp"
+#include "Repository/FileType.hpp"
+#include "system/FileUtil.hpp"
 #include "time/BrokenDateTime.hpp"
 #include "system/Path.hpp"
 #include "util/SpanCast.hxx"
@@ -26,11 +28,19 @@ NMEALogger::Start()
               dt.year, dt.month, dt.day,
               dt.hour, dt.minute);
 
-  const auto logs_path = MakeLocalPath("logs");
+  const auto logs_path = LocalPath(GetFileTypeDefaultDir(FileType::NMEA));
+  Directory::CreateRecursive(logs_path);
 
   const auto path = AllocatedPath::Build(logs_path, name);
   file = std::make_unique<FileOutputStream>(path,
                                             FileOutputStream::Mode::APPEND_OR_CREATE);
+}
+
+AllocatedPath
+NMEALogger::GetPath() const noexcept
+{
+  const std::lock_guard lock{mutex};
+  return file != nullptr ? AllocatedPath(file->GetPath()) : nullptr;
 }
 
 static void

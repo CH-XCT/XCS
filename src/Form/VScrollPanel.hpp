@@ -6,12 +6,25 @@
 #include "Panel.hpp"
 #include "ui/control/ScrollBar.hpp"
 #include "ui/event/PeriodicTimer.hpp"
+#include "Look/GestureLook.hpp"
 #include "UIUtil/KineticManager.hpp"
-#include "UIUtil/GestureManager.hpp"
+#include "UIUtil/TrackingGestureManager.hpp"
+
+#include <cstdint>
+#include <deque>
+
+class Canvas;
+struct DialogLook;
 
 class VScrollPanelListener {
 public:
   virtual void OnVScrollPanelChange() noexcept = 0;
+
+  /**
+   * The hosted content's height changed (a row was shown or hidden).
+   * The default does nothing; #VScrollWidget remeasures.
+   */
+  virtual void OnVScrollPanelContentHeightChanged() noexcept {}
 
   /**
    * Called when a touch gesture (e.g. swipe) is detected on the
@@ -22,6 +35,15 @@ public:
    */
   virtual bool OnVScrollPanelGesture(const char *gesture) noexcept {
     (void)gesture;
+    return false;
+  }
+
+  /**
+   * Returns true if this panel should track and display horizontal swipe
+   * gestures.
+   */
+  [[gnu::pure]]
+  virtual bool IsVScrollPanelGestureEnabled() const noexcept {
     return false;
   }
 };
@@ -74,10 +96,16 @@ class VScrollPanel final : public PanelControl {
   UI::PeriodicTimer kinetic_timer{[this]{ OnKineticTimer(); }};
 
   /**
-   * Detects swipe gestures (L/R/U/D) from mouse/touch movement.
-   * Only active when #gesture_tracking is true.
+   * Visual style for the swipe trail (same as map gesture feedback).
    */
-  GestureManager gestures;
+  GestureLook gesture_look;
+
+  /**
+   * Detects swipe gestures (L/R/U/D) from mouse/touch movement and
+   * records points for trail rendering.  Only active when
+   * #gesture_tracking is true.
+   */
+  TrackingGestureManager gestures;
 
   /**
    * True when gesture tracking has been started (i.e. the mouse-down
@@ -95,6 +123,21 @@ class VScrollPanel final : public PanelControl {
    */
   UI::PeriodicTimer smooth_scroll_timer{[this]{ OnSmoothScrollTimer(); }};
 
+  /**
+   * Horizontal swipe handling must not run synchronously from
+   * #OnMouseUp: listeners (e.g. pager page change) may hide this
+   * panel while it is still processing the mouse-up stack.
+   */
+  UI::PeriodicTimer defer_swipe_timer{[this]{ OnDeferredSwipeGesture(); }};
+
+  /**
+   * Queued horizontal swipes for deferred pager navigation.
+   * A queue avoids dropping a swipe if another is armed before the
+   * deferred timer runs.
+   */
+  enum class DeferredSwipeDirection : std::uint8_t { LEFT, RIGHT };
+  std::deque<DeferredSwipeDirection> defer_swipe_queue;
+
 public:
   VScrollPanel(ContainerWindow &parent, const DialogLook &look,
                const PixelRect &rc, const WindowStyle style,
@@ -108,8 +151,20 @@ public:
   void SetVirtualHeight(unsigned _virtual_height) noexcept;
 
   /**
+   * Current scroll offset in pixels (0 = top).
+   */
+  [[gnu::pure]]
+  unsigned GetOrigin() const noexcept {
+    return origin;
+  }
+
+  /**
    * Returns the position of the virtual rectangle within this window.
    * If the user has scrolled down, then its #top field is negative.
+   *
+   * Prefer #GetPhysicalRect for rich-text children that paint a
+   * viewport strip using #GetOrigin (avoids moving a full-height
+   * window on every scroll tick).
    */
   [[gnu::pure]]
   PixelRect GetVirtualRect() const noexcept {
@@ -134,11 +189,30 @@ public:
       }};
   }
 
+  /**
+   * #GetPhysicalRect for the panel's current size.
+   */
+  [[gnu::pure]]
+  PixelRect GetPhysicalRect() const noexcept {
+    return GetPhysicalRect(GetSize());
+  }
+
 private:
+  /**
+   * Begin watching the pointer for a swipe gesture.
+   *
+   * @param p the position of the press, relative to this window
+   */
+  void StartGestureTracking(PixelPoint p) noexcept;
+
   void SetupScrollBar() noexcept;
   void SetOriginClamped(int new_origin) noexcept;
   void OnKineticTimer() noexcept;
   void OnSmoothScrollTimer() noexcept;
+
+  void DrawGesture(Canvas &canvas) const noexcept;
+
+  void OnDeferredSwipeGesture() noexcept;
 
   /**
    * Start smooth scrolling to a target position with easing.
@@ -182,6 +256,7 @@ public:
 protected:
   /* virtual methods from class Window */
   void OnResize(PixelSize new_size) noexcept override;
+  void OnChildContentHeightChanged() noexcept override;
   void OnDestroy() noexcept override;
 
   bool OnKeyCheck(unsigned key_code) const noexcept override;

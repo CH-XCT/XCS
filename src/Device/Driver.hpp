@@ -100,6 +100,15 @@ public:
   virtual bool PutEmptyMass(double empty_mass, OperationEnvironment &env) = 0;
 
   /**
+   * Send the maximum takeoff weight to the device.
+   *
+   * @param max_takeoff_mass the new maximum takeoff weight [kg]
+   * @return true on success
+   */
+  virtual bool PutMaxTakeoffMass(double max_takeoff_mass,
+                                 OperationEnvironment &env) = 0;
+
+  /**
    * Send the glide polar to the device.
    *
    * The driver receives XCSoar's canonical GlidePolar and extracts
@@ -317,6 +326,8 @@ public:
                   OperationEnvironment &env) override;
   bool PutCrewMass(double crew_mass, OperationEnvironment &env) override;
   bool PutEmptyMass(double empty_mass, OperationEnvironment &env) override;
+  bool PutMaxTakeoffMass(double max_takeoff_mass,
+                         OperationEnvironment &env) override;
   bool PutPolar(const GlidePolar &polar, OperationEnvironment &env) override;
   bool PutTarget(const GeoPoint &location, const char *name,
                  std::optional<double> elevation,
@@ -426,6 +437,25 @@ struct DeviceRegister {
      * EnablePassThrough() is implemented.
      */
     PASS_THROUGH = 0x200,
+
+    /**
+     * Does this driver emit GPGGA/GPRMC position sentences to the
+     * device?  When set, the user can suppress that emission via
+     * #DeviceConfig::send_position.
+     */
+    SEND_POSITION = 0x400,
+
+    /**
+     * Can adopt a glide polar from the device into XCSoar (device
+     * configuration: PolarSync::RECEIVE).  Distinct from generic
+     * RECEIVE_SETTINGS (MC/bugs/ballast).
+     */
+    RECEIVE_POLAR = 0x800,
+
+    /**
+     * Can accept XCSoar's glide polar via PutPolar (PolarSync::SEND).
+     */
+    SEND_POLAR = 0x1000,
   };
 
   /**
@@ -522,5 +552,26 @@ struct DeviceRegister {
    */
   bool HasPassThrough() const {
     return (flags & PASS_THROUGH) != 0;
+  }
+
+  /**
+   * Does this driver emit GPGGA/GPRMC position sentences?
+   */
+  bool CanSendPosition() const {
+    return (flags & SEND_POSITION) != 0;
+  }
+
+  /**
+   * Does this driver support receiving a glide polar from the device?
+   */
+  bool CanReceivePolar() const {
+    return (flags & RECEIVE_POLAR) != 0;
+  }
+
+  /**
+   * Does this driver support PutPolar (send glide polar to device)?
+   */
+  bool CanSendPolar() const {
+    return (flags & SEND_POLAR) != 0;
   }
 };

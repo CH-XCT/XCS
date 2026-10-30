@@ -7,6 +7,7 @@
 #include "Terrain/RasterTerrain.hpp"
 #include "ThermalBase.hpp"
 #include "GlideSolvers/GlidePolar.hpp"
+#include "Atmosphere/AirDensity.hpp"
 #include "Math/SunEphemeris.hpp"
 #include "NMEA/Derived.hpp"
 #include "NMEA/MoreData.hpp"
@@ -135,13 +136,16 @@ GlideComputerAirData::NettoVario(const NMEAInfo &basic,
     ? basic.acceleration.g_load
     : 1;
 
-  vario.sink_rate =
-    flight.flying && basic.airspeed_available &&
-    settings_computer.polar.glide_polar_task.IsValid()
-    ? - settings_computer.polar.glide_polar_task.SinkRate(basic.indicated_airspeed,
-                                                          g_load)
+  if (flight.flying && basic.airspeed_available &&
+      settings_computer.polar.glide_polar_task.IsValid()) {
+    GlidePolar polar = settings_computer.polar.glide_polar_task;
+    if (const auto altitude = basic.GetAnyAltitude())
+      polar.SetDensityRatio(AirDensityRatio(*altitude));
+
+    vario.sink_rate = -polar.SinkRate(basic.true_airspeed, g_load);
+  } else
     /* the glider sink rate is useless when not flying */
-    : 0;
+    vario.sink_rate = 0;
 }
 
 inline void
@@ -408,6 +412,7 @@ GlideComputerAirData::NextLegEqThermal([[maybe_unused]] const NMEAInfo &basic,
       !calculated.wind_available) {
     // Assign a negative value to invalidate the result
     calculated.next_leg_eq_thermal = -1;
+    calculated.next_leg_eq_thermal_inverse = -1;
     return;
   }
 
@@ -419,4 +424,6 @@ GlideComputerAirData::NextLegEqThermal([[maybe_unused]] const NMEAInfo &basic,
 
   calculated.next_leg_eq_thermal =
       settings.polar.glide_polar_task.GetNextLegEqThermal(wind_comp, next_comp);
+  calculated.next_leg_eq_thermal_inverse =
+      settings.polar.glide_polar_task.GetNextLegEqThermal(next_comp, wind_comp);
 }

@@ -85,7 +85,9 @@ description of what is changed, followed by an empty line. Then write a
 longer description if needed, and explain why this change is needed.
 
 Each patch must compile and must not introduce a regression (as far as
-we know at the time).
+we know at the time). Before a pull request, compile with
+``everything`` so debug tools are included, not only the main binary
+(see :ref:`development-workflow` in :doc:`build`).
 
 Each patch must be self-contained and should only change one thing.
 Split larger patches into smaller pieces. Don’t refactor and
@@ -93,6 +95,54 @@ add/modify/remove features in the same patch.
 
 Don’t rewrite code unless you need to. Migrate incrementally to a new
 concept. Keep patches small and easy to understand.
+
+Reuse existing code. Search before adding a helper, wrapper, parser, or
+enum. Look in ``src/util``, ``Formatter/``, ``Math/``, ``Geo/``, and
+the same subsystem. Extend the existing class; do not introduce a
+parallel API or a new abstraction layer for a single call site.
+
+Keep the change as small as the problem. Avoid factories, managers, and
+extra files when a few functions next to the existing code would do.
+
+Unit tests. Add TAP tests under ``test/src/`` for new or changed logic
+that does not need a UI: parsers, formatters, protocol encode/decode,
+math and geo helpers, string/path helpers, and state-machine or policy
+functions. Extend an existing ``Test*.cpp`` when one already covers the
+area. Register new test binaries in ``build/test.mk``. Do not add unit
+tests for dialog layout, canvas drawing, JNI, or windowing. Run
+``make check``.
+
+Release notes (``NEWS.txt``)
+-----------------------------
+
+Add entries at the top of ``NEWS.txt`` (under the current unreleased version).
+
+**User-facing sections** (``* Windows``, ``* ui``, ``* android``, …): changes
+pilots or installers would notice. Prefer plain language in **new** bullets
+(“OpenGL Windows version”, “installer”); avoid build target names and internal
+terms (GDI, NSIS) where a user phrase exists.
+
+**``* documentation`` section**: updates to the user manual, installation
+guide, or other documentation end users read (see 7.43+ in ``NEWS.txt``).
+
+**``* development`` section**: build system, CI, contributor documentation
+(e.g. ``doc/build.rst``), and hacking APIs — technical wording and target names
+are appropriate. Prefix bullets with a topic (``build system:``,
+``documentation:``, …), as in the 7.44 block.
+
+- Append a GitHub issue reference (``#1234``) at the end of the bullet when
+  the change relates to an issue.
+- Omit pure refactors or CI tweaks that are not worth noting anywhere.
+- Section names in ``NEWS.txt`` are historically inconsistent (``* ui`` vs
+  ``* user interface``); match the current unreleased release block.
+
+See also ``.cursor/rules/news.txt.mdc`` for wording examples and a fuller
+checklist.
+
+User-facing behaviour must also update the English user manual under
+``doc/manual/en/`` (LaTeX chapters, not ``doc/*.rst``). See
+``.cursor/rules/user-manual.mdc``. Contributor-only docs stay in
+``doc/*.rst``.
 
 Code Style
 ==========

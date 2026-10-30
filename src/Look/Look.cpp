@@ -18,8 +18,13 @@ Look::Initialise(const Font &map_font)
 static bool
 GetDarkMode(const UISettings &settings) noexcept
 {
+#ifdef KOBO
+  (void)settings;
+  return false;
+#else
   switch (settings.dark_mode) {
   case UISettings::DarkMode::OFF:
+  case UISettings::DarkMode::COUNT:
     break;
 
   case UISettings::DarkMode::ON:
@@ -30,6 +35,7 @@ GetDarkMode(const UISettings &settings) noexcept
   }
 
   return false;
+#endif
 }
 
 [[gnu::pure]]
@@ -91,10 +97,12 @@ Look::InitialiseConfigured(const UISettings &settings,
 void
 Look::ReinitialiseLayout(unsigned infobox_width, unsigned scale_title_font)
 {
-  /* dialog fonts have an upper bound depending on the window size,
-     and thus they might need to be reloaded */
+  /* dialog fonts follow Layout::FontScale(); reload after DPI or
+     Text size changes */
   dialog.LoadFonts();
 
   info_box.ReinitialiseLayout(infobox_width, scale_title_font);
   vario.ReinitialiseLayout(infobox_width);
+  flarm_gauge.ReinitialiseLayout();
+  flarm_dialog.ReinitialiseLayout();
 }

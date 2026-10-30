@@ -5,16 +5,82 @@
 #include "ui/canvas/Canvas.hpp"
 
 #include <algorithm>
+#include <cmath>
+
+namespace {
+
+[[gnu::pure]]
+unsigned
+MinDimension(const PixelRect &rc) noexcept
+{
+  return std::min(rc.GetWidth(), rc.GetHeight());
+}
+
+/** One fifth of the shorter rc side; used for arrows and bar symbols. */
+[[gnu::pure]]
+unsigned
+DrawSize(const PixelRect &rc, unsigned max_draw_size) noexcept
+{
+  unsigned size = std::max(1u, MinDimension(rc) / 5);
+  if (max_draw_size > 0)
+    size = std::min(size, max_draw_size);
+
+  return size;
+}
+
+/**
+ * Horizontal bar half-extents (WithMargin size).
+ * @param min_dim_for_width if non-zero, bar is 75% of this (menu icon)
+ */
+[[gnu::pure]]
+PixelSize
+BarMargin(unsigned draw_size, unsigned min_dim_for_width) noexcept
+{
+  const unsigned width = min_dim_for_width > 0
+    ? std::max(1u, min_dim_for_width * 3 / 8)
+    : draw_size;
+  return {width, std::max(1u, draw_size / 3)};
+}
+
+void
+DrawBarAt(Canvas &canvas, PixelPoint center, PixelSize margin) noexcept
+{
+  canvas.DrawRectangle(PixelRect{center}.WithMargin(margin));
+}
+
+/** Filled arm between two nodes.  The brush is already selected. */
+void
+DrawArm(Canvas &canvas, PixelPoint a, PixelPoint b, int half) noexcept
+{
+  const int dx = b.x - a.x;
+  const int dy = b.y - a.y;
+  const int len = std::max(1, (int)std::lround(std::hypot(dx, dy)));
+  const int px = -dy * half / len;
+  const int py = dx * half / len;
+  if (px == 0 && py == 0)
+    return;
+
+  const BulkPixelPoint arm[] = {
+    {a.x + px, a.y + py},
+    {a.x - px, a.y - py},
+    {b.x - px, b.y - py},
+    {b.x + px, b.y + py},
+  };
+  canvas.DrawPolygon(arm, 4);
+}
+
+} // namespace
 
 void
 SymbolRenderer::DrawArrow(Canvas &canvas, PixelRect rc,
-                          Direction direction) noexcept
+                          Direction direction,
+                          unsigned max_draw_size) noexcept
 {
   assert(direction == UP || direction == DOWN ||
          direction == LEFT || direction == RIGHT);
 
-  auto size = std::min(rc.GetWidth(), rc.GetHeight()) / 5;
-  auto center = rc.GetCenter();
+  const unsigned size = DrawSize(rc, max_draw_size);
+  const auto center = rc.GetCenter();
   BulkPixelPoint arrow[3];
 
   if (direction == LEFT || direction == RIGHT) {
@@ -37,19 +103,84 @@ SymbolRenderer::DrawArrow(Canvas &canvas, PixelRect rc,
 }
 
 void
-SymbolRenderer::DrawSign(Canvas &canvas, PixelRect rc, bool plus) noexcept
+SymbolRenderer::DrawSign(Canvas &canvas, PixelRect rc, bool plus,
+                         unsigned max_draw_size) noexcept
 {
-  unsigned size = std::min(rc.GetWidth(), rc.GetHeight()) / 5;
-  const auto horizontal_rect = PixelRect{rc.GetCenter()}
-    .WithMargin({size, size / 3});
+  if (MinDimension(rc) == 0)
+    return;
 
-  // Draw horizontal bar
-  canvas.DrawRectangle(horizontal_rect);
+  const unsigned draw_size = DrawSize(rc, max_draw_size);
+  const auto center = rc.GetCenter();
+  const PixelSize margin = BarMargin(draw_size, 0);
 
-  if (plus) {
-    // Draw vertical bar
-    const auto vertical_rect = PixelRect{rc.GetCenter()}
-      .WithMargin({size / 3, size});
-    canvas.DrawRectangle(vertical_rect);
-  }
+  DrawBarAt(canvas, center, margin);
+
+  if (plus)
+    DrawBarAt(canvas, center, {margin.height, margin.width});
+}
+
+void
+SymbolRenderer::DrawHamburger(Canvas &canvas, PixelRect rc) noexcept
+{
+  const unsigned min_dim = MinDimension(rc);
+  if (min_dim == 0)
+    return;
+
+  const unsigned draw_size = DrawSize(rc, 0);
+  const auto center = rc.GetCenter();
+  const PixelSize margin = BarMargin(draw_size, min_dim);
+  const int step = int(2 * margin.height + std::max(1u, draw_size / 3));
+
+  DrawBarAt(canvas, {center.x, center.y - step}, margin);
+  DrawBarAt(canvas, center, margin);
+  DrawBarAt(canvas, {center.x, center.y + step}, margin);
+}
+
+void
+SymbolRenderer::DrawBolt(Canvas &canvas, PixelRect rc) noexcept
+{
+  const unsigned min_dim = MinDimension(rc);
+  if (min_dim == 0)
+    return;
+
+  /* Material-style lightning bolt (filled zigzag), sized like the
+     hamburger icon so it reads clearly on map overlay buttons. */
+  const int s = int(std::max(1u, min_dim * 3 / 8));
+  const auto c = rc.GetCenter();
+
+  const BulkPixelPoint bolt[] = {
+    {c.x + s * 2 / 10, c.y - s},
+    {c.x - s * 5 / 10, c.y + s / 10},
+    {c.x - s / 10, c.y + s / 10},
+    {c.x - s * 2 / 10, c.y + s},
+    {c.x + s * 5 / 10, c.y - s / 10},
+    {c.x + s / 10, c.y - s / 10},
+  };
+
+  canvas.DrawPolygon(bolt, 6);
+}
+
+void
+SymbolRenderer::DrawShare(Canvas &canvas, PixelRect rc) noexcept
+{
+  const unsigned min_dim = MinDimension(rc);
+  if (min_dim == 0)
+    return;
+
+  /* Material share icon on a 24-grid.  The glyph is 20 units
+     tall, so dividing by 40 leaves about half the button as
+     margin around it. */
+  const int u = std::max(1, int(min_dim) / 40);
+  const auto c = rc.GetCenter();
+  const PixelPoint left{c.x - 6 * u, c.y};
+  const PixelPoint upper{c.x + 6 * u, c.y - 7 * u};
+  const PixelPoint lower{c.x + 6 * u, c.y + 7 * u};
+  const unsigned radius = std::max(2u, unsigned(3 * u));
+  const int half = std::max(1, u);
+
+  DrawArm(canvas, left, upper, half);
+  DrawArm(canvas, left, lower, half);
+  canvas.DrawCircle(left, radius);
+  canvas.DrawCircle(upper, radius);
+  canvas.DrawCircle(lower, radius);
 }

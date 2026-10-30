@@ -2,18 +2,20 @@
 // Copyright The XCSoar Project
 
 #include "Internal.hpp"
+#include "Parsers.hpp"
 #include "NMEA/Checksum.hpp"
 #include "NMEA/InputLine.hpp"
 #include "NMEA/Info.hpp"
 #include "Geo/SpeedVector.hpp"
-#include "RadioFrequency.hpp"
-#include "TransponderCode.hpp"
-#include "TransponderMode.hpp"
+#include "Radio/RadioFrequency.hpp"
+#include "Radio/TransponderCode.hpp"
+#include "Radio/TransponderMode.hpp"
 #include "Units/System.hpp"
 #include "util/Macros.hpp"
 #include "util/StringCompare.hxx"
 #include "Math/Util.hpp"
 #include "util/NumberParser.hpp"
+#include "util/NumberParser.hxx"
 #include "LogFile.hpp"
 
 #include <optional>
@@ -53,8 +55,53 @@ ShouldSwitchHostBaudForNinc(const DeviceInfo &device_info) noexcept
           device_info.hardware_version.equals("8"));
 }
 
-static bool
-LXWP0(NMEAInputLine &line, NMEAInfo &info)
+namespace LX {
+
+bool
+ReadFilteredLXWP0Vario(NMEAInputLine &line, double &vario)
+{
+  static constexpr double fir_coefficients[] = {
+    -0.0421, 0.1628, 0.3793, 0.3793, 0.1628, -0.0421,
+  };
+  static constexpr unsigned N = ARRAY_SIZE(fir_coefficients);
+
+  double samples[N];
+  unsigned n_valid = 0;
+
+  /* Always consume six fields so heading/wind stay aligned. */
+  for (unsigned i = 0; i < N; ++i) {
+    double value;
+    if (line.ReadChecked(value))
+      samples[n_valid++] = value;
+  }
+
+  if (n_valid == 0)
+    return false;
+
+  if (n_valid == N) {
+    vario = 0;
+    for (unsigned i = 0; i < N; ++i)
+      vario += samples[i] * fir_coefficients[i];
+    return true;
+  }
+
+  /* Partial sentence (e.g. BlueFly LX output): restore 7.44 behaviour
+     and take the first successfully parsed sample. */
+  vario = samples[0];
+  return true;
+}
+
+/**
+ * @param provide_altitude_vario When false ($PLXVF already received, or
+ * this is an LXNAV vario), skip pressure altitude and TE vario from
+ * $LXWP0.  On LXNAV S8x/S10x, $LXWP0 altitude includes ALTOFF (QNH /
+ * calibration) while $PLXVF PressAlt is raw pressure altitude above
+ * 1013.25 hPa; alternating both into ProvidePressureAltitude() spikes
+ * gps_vario and corrupts T Avg (#2754).  Airspeed and wind are still
+ * taken from $LXWP0.
+ */
+bool
+LXWP0(NMEAInputLine &line, NMEAInfo &info, bool provide_altitude_vario)
 {
   /*
   $LXWP0,Y,222.3,1665.5,1.71,,,,,,239,174,10.1
@@ -62,7 +109,7 @@ LXWP0(NMEAInputLine &line, NMEAInfo &info)
    0 loger_stored (Y/N)
    1 IAS (kph) ----> Condor uses TAS!
    2 baroaltitude (m)
-   3-8 vario (m/s) (last 6 measurements in last second)
+   3-8 vario (m/s) (last 6 measurements in last second, FIR filtered)
    9 heading of plane
   10 windcourse (deg)
   11 windspeed (kph)
@@ -75,23 +122,37 @@ LXWP0(NMEAInputLine &line, NMEAInfo &info)
   if (tas_available && (airspeed < -50 || airspeed > 250))
     /* implausible */
     return false;
+
   double value;
-  if (line.ReadChecked(value))
-    /* a dump on a LX7007 has confirmed that the LX sends uncorrected
-       altitude above 1013.25hPa here */
-    info.ProvidePressureAltitude(value);
+  if (line.ReadChecked(value)) {
+    if (provide_altitude_vario)
+      /* Without $PLXVF, treat as pressure altitude above 1013.25 hPa
+         (confirmed on LX7007).  With $PLXVF, the value may include
+         ALTOFF — ignore it and keep $PLXVF PressAlt. */
+      info.ProvidePressureAltitude(value);
+  }
 
   if (tas_available)
     /*
-     * Call ProvideTrueAirspeed() after ProvidePressureAltitude() to use
-     * the provided altitude (if available)
+     * Prefer providing TAS after any pressure altitude update so
+     * density correction can use it when available.
      */
     info.ProvideTrueAirspeed(Units::ToSysUnit(airspeed, Unit::KILOMETER_PER_HOUR));
 
-  if (line.ReadChecked(value))
-    info.ProvideTotalEnergyVario(value);
+  if (provide_altitude_vario) {
+    if (ReadFilteredLXWP0Vario(line, value)) {
+      /* Real LXNAV fills IAS/TAS and the vario slots are TE.  Partial
+         LX emitters (BlueFly LX mode) leave airspeed blank and put
+         uncompensated climb/sink in those slots — do not label as TE. */
+      if (tas_available)
+        info.ProvideTotalEnergyVario(value);
+      else
+        info.ProvideNoncompVario(value);
+    }
+  } else
+    line.Skip(6);
 
-  line.Skip(6);
+  line.Skip(1); // heading
 
   if (SpeedVector wind; line.ReadSpeedVectorKPH(wind))
     info.ProvideExternalWind(wind);
@@ -100,7 +161,7 @@ LXWP0(NMEAInputLine &line, NMEAInfo &info)
 }
 
 void
-LXDevice::LXWP1(NMEAInputLine &line, DeviceInfo &device)
+LXWP1(NMEAInputLine &line, DeviceInfo &device)
 {
   /*
    * $LXWP1,
@@ -118,7 +179,7 @@ LXDevice::LXWP1(NMEAInputLine &line, DeviceInfo &device)
   device.license = line.ReadView();
 }
 
-static bool
+bool
 LXWP2(NMEAInputLine &line, NMEAInfo &info)
 {
   /*
@@ -165,8 +226,9 @@ LXWP2(NMEAInputLine &line, NMEAInfo &info)
   return true;
 }
 
-static bool
-LXWP3(NMEAInputLine &line, NMEAInfo &info)
+bool
+LXWP3(NMEAInputLine &line, NMEAInfo &info, LXWP3QNH qnh_mode,
+      bool *qnh_updated)
 {
   /*
    * $LXWP3,
@@ -186,16 +248,37 @@ LXWP3(NMEAInputLine &line, NMEAInfo &info)
    */
 
   double value;
+  bool updated = false;
 
   // Altitude offset -> QNH
-  if (line.ReadChecked(value)) {
-    value = Units::ToSysUnit(-value, Unit::FEET);
-    auto qnh = AtmosphericPressure::PressureAltitudeToStaticPressure(value);
-    info.settings.ProvideQNH(qnh, info.clock);
+  if (line.ReadChecked(value) && qnh_mode != LXWP3QNH::SKIP) {
+    const double offset = Units::ToSysUnit(value, Unit::FEET);
+
+    /* An S series vario (S10, firmware 9.41) derives the offset from
+       its QNH at 8.5 m per hPa: 1020.00 hPa gives 57.4 m, reported as
+       188 ft, and 1010.00 hPa gives -27.6 m (-91 ft).  The standard
+       atmosphere turns those back into 1020.15 and 1009.92 hPa, and
+       XCSoar sent that error back to the vario on every connect, so
+       the QNH crept (#3261). */
+    const auto qnh = qnh_mode == LXWP3QNH::LINEAR
+      ? AtmosphericPressure::HectoPascal(
+          AtmosphericPressure::Standard().GetHectoPascal() + offset / 8.5)
+      : AtmosphericPressure::PressureAltitudeToStaticPressure(-offset);
+    updated = info.settings.ProvideQNH(qnh, info.clock);
   }
+
+  if (qnh_updated != nullptr)
+    *qnh_updated = updated;
+
+  line.Skip(); // scmode
+
+  if (line.ReadChecked(value))
+    info.settings.ProvideVarioFilterPeriod(value, info.clock);
 
   return true;
 }
+
+} // namespace LX
 
 /**
  * Parse double from a string_view value field.
@@ -213,51 +296,13 @@ ParseDoubleValue(std::string_view sv) noexcept
 }
 
 /**
- * Parse the POLAR value from a PLXV0 sentence.
- *
- * Format: <a>,<b>,<c>,<polar_load>,<polar_weight>,
- *         <max_weight>,<empty_weight>,<pilot_weight>,<name>,<stall>
- *
- * Coefficients arrive in LX units (v=1 corresponds to 100 km/h)
- * and are converted to SI (m/s) before storing.
- */
-static void
-ParsePLXV0Polar(std::string_view value, NMEAInfo &info) noexcept
-{
-  const std::string value_str{value};
-  NMEAInputLine polar_line{value_str.c_str()};
-  double a_lx, b_lx, c, polar_load, polar_weight,
-    max_weight, empty_weight, pilot_weight;
-  if (polar_line.ReadChecked(a_lx) &&
-      polar_line.ReadChecked(b_lx) &&
-      polar_line.ReadChecked(c) &&
-      polar_line.ReadChecked(polar_load) &&
-      polar_line.ReadChecked(polar_weight) &&
-      polar_line.ReadChecked(max_weight) &&
-      polar_line.ReadChecked(empty_weight) &&
-      polar_line.ReadChecked(pilot_weight)) {
-
-    const double a = a_lx / (LX_POLAR_V * LX_POLAR_V);
-    const double b = b_lx / LX_POLAR_V;
-
-    info.settings.ProvidePolarCoefficients(a, b, c, info.clock);
-    info.settings.ProvidePolarLoad(polar_load, info.clock);
-    info.settings.ProvidePolarReferenceMass(polar_weight, info.clock);
-    info.settings.ProvidePolarMaximumMass(max_weight, info.clock);
-    info.settings.ProvidePolarPilotWeight(pilot_weight, info.clock);
-    info.settings.ProvidePolarEmptyWeight(empty_weight, info.clock);
-  } else {
-    LogFmt("LXNAV: Failed to parse POLAR values from: {}", value);
-  }
-}
-
-/**
  * Parse the $PLXV0 sentence (LXNAV sVarios (including V7)).
  */
 static bool
 PLXV0(NMEAInputLine &line, DeviceSettingsMap<std::string> &settings,
-      NMEAInfo &info)
+      NMEAInfo &info, LXDevice &device, bool &exact_qnh)
 {
+  exact_qnh = false;
   const auto name = line.ReadView();
   if (name.empty())
     return true;
@@ -269,20 +314,117 @@ PLXV0(NMEAInputLine &line, DeviceSettingsMap<std::string> &settings,
   if (!type.starts_with('W'))
     return true;
 
-  const std::lock_guard<Mutex> lock{settings};
-  settings.Set(std::string{name}, value);
+  {
+    const std::lock_guard<Mutex> lock{settings};
+    settings.Set(std::string{name}, value);
+  }
 
-  if (name == "ELEVATION"sv) {
+  if (name == "QNH"sv) {
+    /* hPa times 100 as a whole number, sent on a change; more exact
+       than the $LXWP3 offset.  ProvideQNH() keeps a value within
+       0.5 hPa, so clear the one derived from the offset first; a
+       later $LXWP3 then leaves this one alone.  Read as an integer: a
+       floating point parser would take "nan", which -ffast-math lets
+       past every range check. */
+    if (unsigned hundredths; ParseIntegerTo(value, hundredths)) {
+      /* ProvideQNH() rejects an implausible value; keep the one
+         there was then */
+      const auto previous = info.settings.qnh;
+      const auto previous_available = info.settings.qnh_available;
+      info.settings.qnh_available.Clear();
+      if (!info.settings.ProvideQNH(
+            AtmosphericPressure::HectoPascal(hundredths / 100.),
+            info.clock)) {
+        info.settings.qnh = previous;
+        info.settings.qnh_available = previous_available;
+      } else
+        exact_qnh = true;
+    }
+  } else if (name == "ELEVATION"sv) {
     if (auto d = ParseDoubleValue(value))
       info.settings.ProvideElevation(iround(*d), info.clock);
   } else if (name == "MC"sv) {
     if (auto d = ParseDoubleValue(value))
       info.settings.ProvideMacCready(*d, info.clock);
   } else if (name == "POLAR"sv || name == "POL"sv) {
-    ParsePLXV0Polar(value, info);
+    device.StoreReceivedPolar(value, info);
   }
 
   return true;
+}
+
+void
+LXDevice::StoreReceivedPolar(std::string_view value,
+                             NMEAInfo &info) noexcept
+{
+  /*
+   * Format: <a>,<b>,<c>,<polar_load>,<polar_weight>,
+   *         <max_weight>,<empty_weight>,<pilot_weight>,<name>,<stall>
+   *
+   * Coefficients arrive in LX units (v=1 corresponds to 100 km/h)
+   * and are converted to SI (m/s) before storing.
+   */
+  const std::string value_str{value};
+  NMEAInputLine polar_line{value_str.c_str()};
+  double a_lx, b_lx, c, polar_load, polar_weight,
+    max_weight, empty_weight, pilot_weight;
+  if (!polar_line.ReadChecked(a_lx) ||
+      !polar_line.ReadChecked(b_lx) ||
+      !polar_line.ReadChecked(c) ||
+      !polar_line.ReadChecked(polar_load) ||
+      !polar_line.ReadChecked(polar_weight) ||
+      !polar_line.ReadChecked(max_weight) ||
+      !polar_line.ReadChecked(empty_weight) ||
+      !polar_line.ReadChecked(pilot_weight)) {
+    LogFmt("LXNAV: Failed to parse POLAR values from: {}", value);
+    return;
+  }
+
+  const PolarCoefficients pc = LXNAVPolar::FromNmeaPolar(a_lx, b_lx, c);
+  const auto name = std::string{polar_line.ReadView()};
+  double stall = 0;
+  polar_line.ReadChecked(stall);
+
+  {
+    const std::lock_guard lock{mutex};
+    device_polar.a = pc.a;
+    device_polar.b = pc.b;
+    device_polar.c = pc.c;
+    device_polar.polar_load = polar_load;
+    device_polar.polar_weight = polar_weight;
+    device_polar.max_weight = max_weight;
+    device_polar.empty_weight = empty_weight;
+    device_polar.pilot_weight = pilot_weight;
+    device_polar.name = name;
+    device_polar.stall = stall;
+    device_polar.valid = true;
+
+    /* A send that waited for this cache must win over the mass in
+       the reply, or PolarProcessTimer writes the vario's old mass
+       into the plane file (#3353). */
+    if (pending_empty_mass &&
+        (*pending_empty_mass > empty_weight + 0.1 ||
+         *pending_empty_mass < empty_weight - 0.1)) {
+      empty_weight = *pending_empty_mass;
+      device_polar.empty_weight = empty_weight;
+    } else
+      pending_empty_mass.reset();
+
+    if (pending_max_takeoff_mass &&
+        (*pending_max_takeoff_mass > max_weight + 0.1 ||
+         *pending_max_takeoff_mass < max_weight - 0.1)) {
+      max_weight = *pending_max_takeoff_mass;
+      device_polar.max_weight = max_weight;
+    } else
+      pending_max_takeoff_mass.reset();
+  }
+
+  info.settings.ProvidePolarCoefficients(pc.a, pc.b, pc.c, info.clock);
+  info.settings.ProvidePolarLoad(polar_load, info.clock);
+  info.settings.ProvidePolarReferenceMass(polar_weight, info.clock);
+  info.settings.ProvidePolarMaximumMass(max_weight, info.clock);
+  info.settings.ProvidePolarPilotWeight(pilot_weight, info.clock);
+  info.settings.ProvidePolarEmptyWeight(empty_weight, info.clock);
 }
 
 static void
@@ -479,7 +621,7 @@ PLXVC(NMEAInputLine &line, NMEAInfo &info,
 
     const auto name = line.ReadView();
     if (name == "LXWP1"sv) {
-      LXDevice::LXWP1(line, info.secondary_device);
+      LX::LXWP1(line, info.secondary_device);
     } else if (name == "INFO"sv) {
       const auto type2 = line.ReadView();
       if (type2.starts_with('A'))
@@ -493,13 +635,15 @@ PLXVC(NMEAInputLine &line, NMEAInfo &info,
 }
 
 /**
- * Parse the $PLXVF sentence (LXNAV sVarios (including V7)).
+ * Parse the $PLXVF sentence (LXNAV sVarios (including V7, S80)).
  *
  * $PLXVF,time ,AccX,AccY,AccZ,Vario,IAS,PressAlt*CS<CR><LF>
  *
  * Example: $PLXVF,,1.00,0.87,-0.12,-0.25,90.2,244.3,*CS<CR><LF>
  *
- * @see http://www.xcsoar.org/trac/raw-attachment/ticket/1666/V7%20dataport%20specification%201.97.pdf
+ * The Vario field carries total-energy vario at the configured rate
+ * (typically 10–20 Hz).  $LXWP0 still sends six TE samples per second,
+ * but those are only used when $PLXVF is unavailable.
  */
 static bool
 PLXVF(NMEAInputLine &line, NMEAInfo &info)
@@ -518,7 +662,7 @@ PLXVF(NMEAInputLine &line, NMEAInfo &info)
 
   double vario;
   if (line.ReadChecked(vario))
-    info.ProvideNettoVario(vario);
+    info.ProvideTotalEnergyVario(vario);
 
   double ias;
   bool have_ias = line.ReadChecked(ias);
@@ -629,6 +773,9 @@ LXDevice::IdDeviceByNameLocked(const StaticString<16> &product_name,
   is_sVario = new_sVario;
   is_nano = new_nano;
   is_lx16xx = new_lx16xx;
+
+  if (!product_name.empty())
+    NoteQnhModelLocked(new_sVario);
 }
 
 void
@@ -679,7 +826,40 @@ LXDevice::UpdateDeviceFlags(const DeviceInfo &device_info,
 
     if (!was_vario && (saw_v7 || saw_sVario))
       vario_just_detected = true;
+
+    if (!device_info.product.empty()) {
+      /* In pass-through the $LXWP1 product is the forwarded device.
+         Do not forget an S series vario because of that. */
+      if (!pass_through)
+        NoteQnhModelLocked(saw_sVario);
+      else if (saw_sVario)
+        NoteQnhModelLocked(true);
+    }
   }
+}
+
+void
+LXDevice::NoteQnhModelLocked(bool linear) noexcept
+{
+  const auto next = linear ? QnhModel::LINEAR : QnhModel::STANDARD;
+  if (qnh_model == next)
+    return;
+
+  qnh_model = next;
+  /* Nothing derived from the old model yet: the next offset can be
+     stored normally. */
+  if (qnh_from_lxwp3)
+    replace_lxwp3_qnh = true;
+}
+
+void
+LXDevice::RememberReceivedQNH(const ExternalSettings &settings) noexcept
+{
+  if (!settings.qnh_available)
+    return;
+
+  const std::lock_guard lock{mutex};
+  last_received_qnh = settings.qnh.GetHectoPascal();
 }
 
 bool
@@ -692,26 +872,80 @@ LXDevice::ParseNMEA(const char *String, NMEAInfo &info)
 
   const auto type = line.ReadView();
   if (type == "$LXWP0"sv)
-    return LXWP0(line, info);
+    return LX::LXWP0(line, info,
+                      !(plxvf_received || IsLXNAVVario()));
 
   if (type == "$LXWP1"sv) {
     DeviceInfo &device_info = mode == Mode::PASS_THROUGH
       ? info.secondary_device
       : info.device;
-    LXWP1(line, device_info);
+    LX::LXWP1(line, device_info);
     UpdateDeviceFlags(device_info, mode == Mode::PASS_THROUGH);
     return true;
   }
 
   if (type == "$LXWP2"sv)
-    return LXWP2(line, info);
+    return LX::LXWP2(line, info);
 
-  if (type == "$LXWP3"sv)
-    return LXWP3(line, info);
+  if (type == "$LXWP3"sv) {
+    LX::LXWP3QNH mode = LX::LXWP3QNH::SKIP;
+    bool replace = false;
+    {
+      const std::lock_guard lock{mutex};
+      switch (qnh_model) {
+      case QnhModel::LINEAR:
+        mode = LX::LXWP3QNH::LINEAR;
+        break;
+      case QnhModel::STANDARD:
+        mode = LX::LXWP3QNH::STANDARD;
+        break;
+      case QnhModel::UNKNOWN:
+        mode = LX::LXWP3QNH::SKIP;
+        break;
+      }
+
+      /* A value derived with the other model is within 0.5 hPa of
+         the right one, so ProvideQNH() would keep it.  An exact
+         $PLXV0,QNH stays. */
+      replace = replace_lxwp3_qnh && qnh_from_lxwp3 &&
+                mode != LX::LXWP3QNH::SKIP;
+      if (mode != LX::LXWP3QNH::SKIP)
+        replace_lxwp3_qnh = false;
+    }
+
+    const auto previous = info.settings.qnh;
+    const auto previous_available = info.settings.qnh_available;
+    if (replace)
+      info.settings.qnh_available.Clear();
+
+    bool updated = false;
+    const bool result = LX::LXWP3(line, info, mode, &updated);
+    if (replace && !info.settings.qnh_available) {
+      info.settings.qnh = previous;
+      info.settings.qnh_available = previous_available;
+    }
+
+    if (updated) {
+      const std::lock_guard lock{mutex};
+      qnh_from_lxwp3 = true;
+    }
+
+    RememberReceivedQNH(info.settings);
+    return result;
+  }
 
   if (type == "$PLXV0"sv) {
     is_colibri = false;
-    return PLXV0(line, lxnav_vario_settings, info);
+    bool exact_qnh = false;
+    const bool result = PLXV0(line, lxnav_vario_settings, info, *this,
+                              exact_qnh);
+    if (exact_qnh) {
+      const std::lock_guard lock{mutex};
+      qnh_from_lxwp3 = false;
+      replace_lxwp3_qnh = false;
+    }
+    RememberReceivedQNH(info.settings);
+    return result;
   }
 
   if (type == "$PLXVC"sv) {
@@ -732,6 +966,7 @@ LXDevice::ParseNMEA(const char *String, NMEAInfo &info)
 
   if (type == "$PLXVF"sv) {
     is_colibri = false;
+    plxvf_received = true;
     return PLXVF(line, info);
   }
 

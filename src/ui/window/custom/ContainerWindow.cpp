@@ -71,6 +71,17 @@ ContainerWindow::FocusFirstControl() noexcept
 }
 
 bool
+ContainerWindow::FocusLastControl() noexcept
+{
+  Window *control = children.FindLastControl();
+  if (control == nullptr)
+    return false;
+
+  control->SetFocus();
+  return true;
+}
+
+bool
 ContainerWindow::FocusNextControl() noexcept
 {
   Window *focused = GetFocusedWindow();
@@ -127,7 +138,10 @@ ContainerWindow::OnMouseMove(PixelPoint p, unsigned keys) noexcept
 {
   Window *child = EventChildAt(p);
   if (child != nullptr)
-    return child->OnMouseMove(p - child->GetTopLeft(), keys);
+    /* a disabled child swallows the event: it must reach neither
+       the window underneath nor this one */
+    return !child->IsEnabled() ||
+      child->OnMouseMove(p - child->GetTopLeft(), keys);
 
   return PaintWindow::OnMouseMove(p, keys);
 }
@@ -137,7 +151,8 @@ ContainerWindow::OnMouseDown(PixelPoint p) noexcept
 {
   Window *child = EventChildAt(p);
   if (child != nullptr)
-    return child->OnMouseDown(p - child->GetTopLeft());
+    return !child->IsEnabled() ||
+      child->OnMouseDown(p - child->GetTopLeft());
 
   return PaintWindow::OnMouseDown(p);
 }
@@ -147,7 +162,8 @@ ContainerWindow::OnMouseUp(PixelPoint p) noexcept
 {
   Window *child = EventChildAt(p);
   if (child != nullptr)
-    return child->OnMouseUp(p - child->GetTopLeft());
+    return !child->IsEnabled() ||
+      child->OnMouseUp(p - child->GetTopLeft());
 
   return PaintWindow::OnMouseUp(p);
 }
@@ -157,7 +173,8 @@ ContainerWindow::OnMouseDouble(PixelPoint p) noexcept
 {
   Window *child = EventChildAt(p);
   if (child != nullptr)
-    return child->OnMouseDouble(p - child->GetTopLeft());
+    return !child->IsEnabled() ||
+      child->OnMouseDouble(p - child->GetTopLeft());
 
   return PaintWindow::OnMouseDouble(p);
 }
@@ -167,7 +184,8 @@ ContainerWindow::OnMouseWheel(PixelPoint p, int delta) noexcept
 {
   Window *child = EventChildAt(p);
   if (child != nullptr)
-    return child->OnMouseWheel(p - child->GetTopLeft(), delta);
+    return !child->IsEnabled() ||
+      child->OnMouseWheel(p - child->GetTopLeft(), delta);
 
   return PaintWindow::OnMouseWheel(p, delta);
 }
@@ -181,6 +199,17 @@ ContainerWindow::OnMultiTouchDown() noexcept
     return capture_child->OnMultiTouchDown();
 
   return PaintWindow::OnMultiTouchDown();
+}
+
+bool
+ContainerWindow::OnMultiTouchMove(PixelPoint a, PixelPoint b) noexcept
+{
+  if (!capture && capture_child != nullptr) {
+    const auto origin = capture_child->GetTopLeft();
+    return capture_child->OnMultiTouchMove(a - origin, b - origin);
+  }
+
+  return PaintWindow::OnMultiTouchMove(a, b);
 }
 
 bool
@@ -221,6 +250,11 @@ ContainerWindow::RemoveChild(Window &child) noexcept
 
   if (active_child == &child)
     active_child = nullptr;
+
+  /* never leave capture_child dangling at a window that is going
+     away */
+  if (capture_child == &child)
+    ReleaseChildCapture(&child);
 }
 
 Window *
@@ -340,6 +374,22 @@ ContainerWindow::ReleaseChildCapture(Window *window) noexcept
     parent->ReleaseChildCapture(this);
   else
     DisableCapture();
+}
+
+void
+ContainerWindow::CancelChildCapture() noexcept
+{
+  Window *child = capture_child;
+  if (child == nullptr)
+    return;
+
+  /* OnCancelMode() makes the child release the capture, which clears
+     capture_child through ReleaseChildCapture(); clear it explicitly
+     as well, in case the child does not */
+  child->OnCancelMode();
+
+  if (capture_child == child)
+    capture_child = nullptr;
 }
 
 void

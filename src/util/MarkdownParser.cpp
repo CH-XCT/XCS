@@ -2,9 +2,12 @@
 // Copyright The XCSoar Project
 
 #include "MarkdownParser.hpp"
+#include "Radio/RadioFrequency.hpp"
+#include "util/StringCompare.hxx"
 #include "util/UriSchemes.hpp"
 
 #include <cstring>
+#include <string_view>
 
 /**
  * Check if character can be part of a URL.
@@ -172,6 +175,151 @@ SkipListMarker(const char *str) noexcept
   return str;
 }
 
+/**
+ * Indented line continuing the previous list item (CommonMark-style soft
+ * break inside one list paragraph).  Requires at least two spaces of
+ * indent; not a new list marker or heading.
+ */
+[[gnu::pure]]
+static bool
+IsListItemContinuation(const char *line_start) noexcept
+{
+  const char *str = line_start;
+  unsigned indent = 0;
+  while (*str == ' ' || *str == '\t') {
+    ++indent;
+    ++str;
+  }
+  if (indent < 2 || *str == '\0' || *str == '\n')
+    return false;
+  if (GetHeadingLevel(str) > 0)
+    return false;
+  return !IsListItem(line_start);
+}
+
+/**
+ * Join a list item's first line and indented continuations into one
+ * paragraph body (spaces, no newlines).  @p str_inout advances past
+ * the last consumed source line (still pointing at its trailing
+ * newline or NUL).
+ */
+static std::string
+CollectListItemBody(const char *content, const char *&str_inout)
+{
+  std::string body;
+  const char *line_end = FindLineEnd(content);
+  body.append(content, line_end);
+  str_inout = line_end;
+
+  while (*str_inout == '\n' && str_inout[1] != '\0') {
+    const char *next = str_inout + 1;
+    if (*next == '\n')
+      break;
+    if (!IsListItemContinuation(next))
+      break;
+
+    const char *q = next;
+    while (*q == ' ' || *q == '\t')
+      ++q;
+    line_end = FindLineEnd(q);
+    if (!body.empty() && body.back() != ' ')
+      body += ' ';
+    body.append(q, line_end);
+    str_inout = line_end;
+  }
+
+  return body;
+}
+
+[[gnu::const]]
+static constexpr bool
+IsLeadLabelChar(char c) noexcept
+{
+  return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+         (c >= '0' && c <= '9');
+}
+
+[[gnu::const]]
+static constexpr bool
+IsLabelChar(char c) noexcept
+{
+  return IsLeadLabelChar(c) || c == '/' || c == '.' || c == '_' || c == '-';
+}
+
+/**
+ * If @p p is at "label: " (after optional spaces), append "label:" as bold and
+ * advance @p past whitespace following the colon.
+ */
+static void
+MaybeAppendBoldListLeadLabel(std::string &text, std::vector<StyledSpan> &styles,
+                             const char *&p, const char *line_end)
+{
+  const char *q = p;
+  while (q < line_end && (*q == ' ' || *q == '\t'))
+    ++q;
+  const char *const label_start = q;
+  if (label_start >= line_end || !IsLeadLabelChar(*label_start))
+    return;
+
+  const char *r = label_start + 1;
+  while (r < line_end && IsLabelChar(*r))
+    ++r;
+
+  if (r >= line_end || *r != ':' || r + 1 >= line_end)
+    return;
+  if (r[1] != ' ' && r[1] != '\t')
+    return;
+
+  const std::size_t bold_start = text.size();
+  text.append(label_start, r + 1);
+  styles.push_back({bold_start, text.size(), TextStyle::Bold});
+  /* One space after the bold "label:" (not bold); source spaces are skipped. */
+  text += ' ';
+  p = r + 1;
+  while (p < line_end && (*p == ' ' || *p == '\t'))
+    ++p;
+}
+
+/**
+ * For vhf: links, replace display_text with "name - MHz" or "MHz" only;
+ * keeps url unchanged. Sets link.end from display length.
+ */
+static void
+FinishVhfMarkdownLink(MarkdownLink &link)
+{
+  if (!StringStartsWith(link.url.c_str(), "vhf:")) {
+    link.end = link.start + link.display_text.size();
+    return;
+  }
+
+  const char *u = link.url.c_str();
+  const char *hash = std::strchr(u, '#');
+  if (hash == nullptr) {
+    link.end = link.start + link.display_text.size();
+    return;
+  }
+
+  const std::string_view mhz_part(u + 4, std::size_t(hash - (u + 4)));
+  RadioFrequency rf = RadioFrequency::Parse(mhz_part);
+  if (!rf.IsDefined()) {
+    link.end = link.start + link.display_text.size();
+    return;
+  }
+
+  char buf[32];
+  if (rf.Format(buf, sizeof(buf)) == nullptr) {
+    link.end = link.start + link.display_text.size();
+    return;
+  }
+
+  if (!link.station_name.empty())
+    link.display_text = link.station_name + " - " + buf + " MHz";
+  else
+    link.display_text = std::string(buf) + " MHz";
+
+  link.end = link.start + link.display_text.size();
+}
+
 ParsedMarkdown
 ParseMarkdown(const char *input)
 {
@@ -238,7 +386,6 @@ ParseMarkdown(const char *input)
       // Check for list item
       if (IsListItem(str)) {
         const char *content = SkipListMarker(str);
-        const char *line_end = FindLineEnd(str);
 
         // Check for checkbox: [ ] or [x]
         int checkbox_state = GetCheckboxState(content);
@@ -260,11 +407,12 @@ ParseMarkdown(const char *input)
           result.styles.push_back({marker_start, marker_start + 2, TextStyle::ListItem});
         }
 
-        // Find line end from content start
-        line_end = FindLineEnd(content);
+        /* One list item = one paragraph: fold indented continuations. */
+        const std::string item_body = CollectListItemBody(content, str);
+        const char *p = item_body.c_str();
+        const char *line_end = p + item_body.size();
 
-        // Now process the content for inline formatting (bold, links)
-        const char *p = content;
+        MaybeAppendBoldListLeadLabel(result.text, result.styles, p, line_end);
 
         while (p < line_end) {
           // Check for bold marker
@@ -305,10 +453,9 @@ ParseMarkdown(const char *input)
                 image.url.assign(img_url_begin, img_url_end);
                 image.is_block = false; // inline in list item
 
-                if (!image.alt_text.empty())
-                  result.text.append(image.alt_text);
-                else
-                  result.text += ' ';
+                /* Single-character placeholder so wrap cannot split
+                   alt text across lines; alt stays in #alt_text. */
+                result.text += ' ';
 
                 result.images.push_back(std::move(image));
                 p = img_url_end + 1;
@@ -339,7 +486,9 @@ ParseMarkdown(const char *input)
                 link.start = result.text.size();
                 link.display_text.assign(link_text_begin, link_text_end);
                 link.url.assign(url_begin, url_end);
-                link.end = link.start + link.display_text.size();
+                if (StringStartsWith(link.url.c_str(), "vhf:"))
+                  link.station_name.assign(link_text_begin, link_text_end);
+                FinishVhfMarkdownLink(link);
 
                 result.text.append(link.display_text);
                 result.links.push_back(std::move(link));
@@ -377,7 +526,7 @@ ParseMarkdown(const char *input)
               link.start = result.text.size();
               link.display_text.assign(url_start, url_end);
               link.url.assign(url_start, url_end);
-              link.end = link.start + link.display_text.size();
+              FinishVhfMarkdownLink(link);
 
               result.text.append(link.display_text);
               result.links.push_back(std::move(link));
@@ -390,7 +539,8 @@ ParseMarkdown(const char *input)
           result.text += *p++;
         }
 
-        str = line_end;
+        /* #CollectListItemBody left #str at the end of the last source
+           line; emit a single paragraph break after the item. */
         if (*str == '\n') {
           result.text += '\n';
           ++str;
@@ -460,11 +610,9 @@ ParseMarkdown(const char *input)
           image.url.assign(img_url_begin, img_url_end);
           image.is_block = is_block;
 
-          // Add placeholder text (alt text or single space)
-          if (!image.alt_text.empty())
-            result.text.append(image.alt_text);
-          else
-            result.text += ' ';
+          /* Single-character placeholder so wrap cannot split alt
+             text across lines; alt stays in #alt_text. */
+          result.text += ' ';
 
           result.images.push_back(std::move(image));
 
@@ -500,7 +648,9 @@ ParseMarkdown(const char *input)
           link.start = result.text.size();
           link.display_text.assign(link_text_begin, link_text_end);
           link.url.assign(url_begin, url_end);
-          link.end = link.start + link.display_text.size();
+          if (StringStartsWith(link.url.c_str(), "vhf:"))
+            link.station_name.assign(link_text_begin, link_text_end);
+          FinishVhfMarkdownLink(link);
 
           // Add display text to processed text
           result.text.append(link.display_text);
@@ -541,7 +691,7 @@ ParseMarkdown(const char *input)
         link.start = result.text.size();
         link.display_text.assign(url_start, url_end);
         link.url.assign(url_start, url_end);
-        link.end = link.start + link.display_text.size();
+        FinishVhfMarkdownLink(link);
 
         result.text.append(link.display_text);
         result.links.push_back(std::move(link));
@@ -562,4 +712,51 @@ ParseMarkdown(const char *input)
   }
 
   return result;
+}
+
+std::vector<uint8_t>
+ReadMarkdownCheckboxStates(const ParsedMarkdown &parsed,
+                           const std::vector<uint8_t> &toggled) noexcept
+{
+  std::vector<uint8_t> out;
+  for (std::size_t i = 0; i < parsed.styles.size(); ++i) {
+    if (!IsMarkdownCheckboxStyle(parsed.styles[i].style))
+      continue;
+
+    const bool original =
+      parsed.styles[i].style == TextStyle::CheckboxChecked;
+    const bool flipped = i < toggled.size() && toggled[i] != 0;
+    out.push_back(original != flipped);
+  }
+  return out;
+}
+
+bool
+ApplyMarkdownCheckboxStates(const ParsedMarkdown &parsed,
+                            std::vector<uint8_t> &toggled,
+                            const std::vector<uint8_t> &checked) noexcept
+{
+  std::size_t count = 0;
+  for (const auto &span : parsed.styles)
+    if (IsMarkdownCheckboxStyle(span.style))
+      ++count;
+
+  if (count != checked.size())
+    return false;
+
+  if (toggled.size() < parsed.styles.size())
+    toggled.resize(parsed.styles.size(), 0);
+
+  std::size_t n = 0;
+  for (std::size_t i = 0; i < parsed.styles.size(); ++i) {
+    if (!IsMarkdownCheckboxStyle(parsed.styles[i].style))
+      continue;
+
+    const bool original =
+      parsed.styles[i].style == TextStyle::CheckboxChecked;
+    const bool want = checked[n++] != 0;
+    toggled[i] = original != want;
+  }
+
+  return true;
 }

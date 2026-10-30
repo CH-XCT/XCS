@@ -10,6 +10,7 @@
 #include "Navigation/Aircraft.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 #include <cassert>
 
@@ -22,13 +23,14 @@ GlidePolar::GlidePolar(double _mc, double _bugs,
    VbestLD(0),
    Vmax(75),
    Vmin(0),
-   reference_polar(0.00157, -0.0734, 1.48),
+   reference_polar(FALLBACK_POLAR),
    max_ballast(90),
    ballast_ratio(0.3),
    reference_mass(300),
    empty_mass(reference_mass),
    crew_mass(90.),
-   wing_area(0)
+   wing_area(0),
+   density_ratio(1)
 {
   Update();
 
@@ -138,6 +140,29 @@ GlidePolar::SetMC(const double _mc) noexcept
     UpdateBestLD();
 }
 
+void
+GlidePolar::SetMCLimitedByCruise(const bool limited) noexcept
+{
+  if (limit_mc_to_cruise == limited)
+    return;
+
+  limit_mc_to_cruise = limited;
+
+  if (IsValid())
+    UpdateBestLD();
+}
+
+void
+GlidePolar::SetDensityRatio(const double dr) noexcept
+{
+  const double safe_dr = (dr > 0.0 && std::isfinite(dr)) ? dr : 1.0;
+  if (safe_dr == density_ratio)
+    return;
+
+  density_ratio = safe_dr;
+  Update();
+}
+
 double
 GlidePolar::MSinkRate(const double V) const noexcept
 {
@@ -149,7 +174,8 @@ GlidePolar::SinkRate(const double V) const noexcept
 {
   assert(polar.IsValid());
 
-  return V * (V * polar.a + polar.b) + polar.c;
+  const double v_ias = V / density_ratio;
+  return density_ratio * (v_ias * (v_ias * polar.a + polar.b) + polar.c);
 }
 
 double
@@ -210,7 +236,18 @@ GlidePolar::UpdateBestLD() noexcept
   assert(polar.IsValid());
   assert(mc >= 0);
 
-  VbestLD = std::clamp(sqrt((polar.c + mc) / polar.a), Vmin, Vmax);
+  /* density-scaled polar: w'(v) = (a/DR) v^2 + b v + c DR; the
+     MacCready setting is a true vertical speed and must not be
+     scaled, so the optimum is sqrt((c DR + mc) DR / a) -- consistent
+     with GlidePolarSpeedToFly and GetBestGlideRatioSpeed() */
+  const double vbld = sqrt((polar.c * density_ratio + mc) *
+                           density_ratio / polar.a);
+  /* Speed-to-fly stops at maximum cruise. Reach on the safety polar
+     does not, so a Safety MC whose speed lies past that cap still
+     steepens the glide. */
+  VbestLD = std::max(vbld, Vmin);
+  if (limit_mc_to_cruise)
+    VbestLD = std::min(VbestLD, Vmax);
   SbestLD = SinkRate(VbestLD);
   bestLD = VbestLD / SbestLD;
 #endif
@@ -256,7 +293,7 @@ GlidePolar::UpdateSMin() noexcept
 #else
   assert(polar.IsValid());
 
-  Vmin = std::min(Vmax, -0.5 * polar.b / polar.a);
+  Vmin = std::min(Vmax, -0.5 * polar.b / polar.a * density_ratio);
   Smin = SinkRate(Vmin);
 #endif
 
@@ -420,8 +457,11 @@ GlidePolar::GetBestGlideRatioSpeed(double head_wind) const noexcept
 {
   assert(polar.IsValid());
 
+  // altitude-corrected ground-speed polar: a'=a/DR, b'=b, c'=c*DR
+  const auto a_alt = polar.a / density_ratio;
+  const auto c_alt = polar.c * density_ratio;
   auto s = head_wind * head_wind +
-    (mc + polar.c + polar.b * head_wind) / polar.a;
+    (mc + c_alt + polar.b * head_wind) / a_alt;
   if (s < 0)
     /* should never happen, but just in case */
     return GetVMax();
@@ -474,7 +514,7 @@ GlidePolar::GetNextLegEqThermal(double current_wind,
   /* calculate coefficients of the polar shifted to the right
      by an amount equal to head wind (ground speed polar) */
   const PolarCoefficients s_polar(polar.a,
-                                  polar.b - 2 * next_wind * polar.a,
+                                  polar.b + 2 * next_wind * polar.a,
                                   polar.c + next_wind *
                                   (next_wind * polar.a + polar.b));
 

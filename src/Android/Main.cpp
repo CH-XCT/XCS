@@ -2,7 +2,7 @@
 // Copyright The XCSoar Project
 
 #include "Main.hpp"
-#include "ReceiveTask.hpp"
+#include "Task/ReceiveTask.hpp"
 #include "Environment.hpp"
 #include "Components.hpp"
 #include "Context.hpp"
@@ -13,6 +13,7 @@
 #include "InternalSensors.hpp"
 #include "GliderLink.hpp"
 #include "Sensor.hpp"
+#include "SystemGesture.hpp"
 #include "PortBridge.hpp"
 #include "BluetoothHelper.hpp"
 #include "UsbSerialHelper.hpp"
@@ -55,13 +56,17 @@
 #include "util/Exception.hxx"
 #include "util/ScopeExit.hxx"
 #include "GlobalSettings.hpp"
+#include "Hardware/DisplayDPI.hpp"
 
 #include "IOIOHelper.hpp"
 #include "BMP085Device.hpp"
 #include "I2CbaroDevice.hpp"
 #include "NunchuckDevice.hpp"
 #include "VoltageDevice.hpp"
+#include "SAFHelper.hpp"
+#include "Storage/android/SAFOutputStream.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <mutex>
 
@@ -73,11 +78,21 @@ Context *context;
 
 NativeView *native_view;
 
+int
+Android::GetTopGestureClearance() noexcept
+{
+  if (native_view == nullptr)
+    return 0;
+
+  return native_view->GetTopGestureClearance(Java::GetEnv());
+}
+
 Vibrator *vibrator;
 
 BluetoothHelper *bluetooth_helper;
 UsbSerialHelper *usb_serial_helper;
 IOIOHelper *ioio_helper;
+SAFHelper *saf_helper;
 
 /**
  * This mutex protects shutdown against other JNI calls, to avoid
@@ -116,6 +131,9 @@ InitNative(JNIEnv *env) noexcept
   VoltageDevice::Initialise(env);
   AndroidTextEntryDialog::Initialise(env);
   CertificateUtil::Initialise(env);
+
+  SAFHelper::Initialise(env);
+  SAFOutputStream::Initialise(env);
 }
 
 gcc_visibility_default
@@ -132,6 +150,7 @@ void
 Java_org_xcsoar_NativeView_deinitNative(JNIEnv *env,
                                         [[maybe_unused]] jclass cls)
 {
+  SAFHelper::Deinitialise(env);
   AndroidTextEntryDialog::Deinitialise(env);
   CertificateUtil::Deinitialise(env);
   BMP085Device::Deinitialise(env);
@@ -199,6 +218,18 @@ try {
 }
 
 gcc_visibility_default
+JNIEXPORT jstring JNICALL
+Java_org_xcsoar_NativeView_onReceiveTaskQRCode(JNIEnv *env,
+                                               [[maybe_unused]] jclass cls,
+                                               jstring text)
+try {
+  ReceiveTaskQRCode(Java::String::GetUTFChars(env, text).c_str());
+  return nullptr;
+} catch (...) {
+  return env->NewStringUTF(GetFullMessage(std::current_exception()).c_str());
+}
+
+gcc_visibility_default
 jboolean
 Java_org_xcsoar_NativeView_isSimulatorNative([[maybe_unused]] JNIEnv *env,
                                              [[maybe_unused]] jclass cls)
@@ -216,7 +247,8 @@ Java_org_xcsoar_NativeView_runNative(JNIEnv *env, jobject obj,
                                      jobject _context,
                                      jobject _permission_manager,
                                      jint width, jint height,
-                                     jint xdpi, jint ydpi,
+                                     jint display_width, jint display_height,
+                                     jint xdpi, jint ydpi, jint density_dpi,
                                      jstring product)
 try {
   const std::scoped_lock shutdown_lock{shutdown_mutex};
@@ -226,6 +258,16 @@ try {
   const bool have_bluetooth = BluetoothHelper::Initialise(env);
   const bool have_usb_serial = UsbSerialHelper::Initialise(env);
   const bool have_ioio = IOIOHelper::Initialise(env);
+
+  /* These class globals must be cleared before runNative can be
+     entered again in the same process (e.g. surface recreate before
+     System.exit).  Helper instances below are destroyed first because
+     AtScopeExit runs in reverse registration order. */
+  AtScopeExit(env) {
+    IOIOHelper::Deinitialise(env);
+    UsbSerialHelper::Deinitialise(env);
+    BluetoothHelper::Deinitialise(env);
+  };
 
   context = new Context(env, _context);
   AtScopeExit() {
@@ -248,8 +290,9 @@ try {
   AtScopeExit(env) { TextUtil::Deinitialise(env); };
 
   assert(native_view == nullptr);
-  native_view = new NativeView(env, obj, width, height, xdpi, ydpi,
-                               product);
+  native_view = new NativeView(env, obj, width, height,
+                               display_width, display_height,
+                               xdpi, ydpi, density_dpi, product);
   AtScopeExit() {
     delete native_view;
     native_view = nullptr;
@@ -306,6 +349,17 @@ try {
     ioio_helper = nullptr;
   };
 
+  try {
+    saf_helper = new SAFHelper(env, *context);
+  } catch (...) {
+    LogError(std::current_exception(), "Failed to initialise SAF helper");
+  }
+
+  AtScopeExit() {
+    delete saf_helper;
+    saf_helper = nullptr;
+  };
+
   ScreenGlobalInit screen_init;
   AtScopeExit() { Fonts::Deinitialize(); };
 
@@ -343,21 +397,26 @@ JNIEXPORT void JNICALL
 Java_org_xcsoar_NativeView_resizedNative(JNIEnv *env, jobject obj,
                                          jint width, jint height,
                                          jint inset_left, jint inset_top,
-                                         jint inset_right, jint inset_bottom)
+                                         jint inset_right, jint inset_bottom,
+                                         jint shape_left, jint shape_top,
+                                         jint shape_right, jint shape_bottom)
 {
-  (void)inset_left;
-  (void)inset_top;
-  (void)inset_right;
-  (void)inset_bottom;
-
   const std::scoped_lock shutdown_lock{shutdown_mutex};
+
+  if (auto *main_window = NativeView::GetPointer(env, obj)) {
+    main_window->AnnounceSafeAreaInsets(std::max(inset_left, 0),
+                                        std::max(inset_top, 0),
+                                        std::max(inset_right, 0),
+                                        std::max(inset_bottom, 0),
+                                        std::max(shape_left, 0),
+                                        std::max(shape_top, 0),
+                                        std::max(shape_right, 0),
+                                        std::max(shape_bottom, 0));
+    main_window->AnnounceResize({width, height});
+  }
 
   if (event_queue == nullptr)
     return;
-
-  if (auto *main_window = NativeView::GetPointer(env, obj)) {
-    main_window->AnnounceResize({width, height});
-  }
 
   event_queue->Purge(UI::Event::RESIZE);
 

@@ -6,11 +6,18 @@
 #include "Look/MapLook.hpp"
 #include "Weather/Rasp/RaspRenderer.hpp"
 #include "Weather/Rasp/RaspCache.hpp"
+#include "Weather/Rasp/RaspStore.hpp"
+#ifdef HAVE_HTTP
+#include "DataGlobals.hpp"
+#include "Weather/SkySight/SkySightClient.hpp"
+#endif
 #include "Topography/CachedTopographyRenderer.hpp"
 #include "Renderer/AircraftRenderer.hpp"
 #include "Renderer/WaveRenderer.hpp"
 #include "Operation/Operation.hpp"
-#include "Tracking/SkyLines/Data.hpp"
+#include "Observation/Database.hpp"
+#include "Engine/Observation/Store.hpp"
+#include "Geo/GeoClip.hpp"
 
 #ifdef HAVE_NOAA
 #include "Weather/NOAAStore.hpp"
@@ -39,7 +46,10 @@ MapWindow::RenderRasp(Canvas &canvas) noexcept
     return;
 
   const WeatherUIState &state = GetUIState().weather;
-  if (rasp_renderer && state.map != (int)rasp_renderer->GetParameter()) {
+  if (rasp_renderer &&
+      (state.map < 0 ||
+       unsigned(state.map) >= rasp_store->GetItemCount() ||
+       state.map != (int)rasp_renderer->GetParameter())) {
 #ifndef ENABLE_OPENGL
     const std::lock_guard lock{mutex};
 #endif
@@ -47,7 +57,22 @@ MapWindow::RenderRasp(Canvas &canvas) noexcept
     rasp_renderer.reset();
   }
 
-  if (state.map < 0)
+  if (state.map < 0 ||
+      unsigned(state.map) >= rasp_store->GetItemCount())
+    return;
+
+  BrokenTime auto_local_time = BrokenTime::Invalid();
+  if (state.time_auto_advance) {
+    const BrokenDateTime &utc = Basic().date_time_utc;
+    if (utc.IsPlausible()) {
+      const auto quarter = utc.ToLocal().FloorToQuarterHour();
+      auto_local_time = BrokenTime(quarter.hour, quarter.minute);
+    }
+  }
+
+  if (!rasp_store->HasSelectedTimeData(unsigned(state.map),
+                                       state.time_auto_advance,
+                                       state.time, auto_local_time))
     return;
 
   if (!rasp_renderer) {
@@ -64,9 +89,11 @@ MapWindow::RenderRasp(Canvas &canvas) noexcept
     rasp_renderer->Update(Calculated().date_time_local, operation);
   }
 
-  const auto &terrain_settings = GetMapSettings().terrain;
-  if (rasp_renderer->Generate(render_projection, terrain_settings))
-    rasp_renderer->Draw(canvas, render_projection);
+  const auto &map_settings = GetMapSettings();
+  if (rasp_renderer->Generate(render_projection, map_settings.terrain,
+                              map_settings.rasp_contour_density))
+    rasp_renderer->Draw(canvas, render_projection,
+                        map_settings.rasp_layer_opacity / 100.f);
 }
 
 inline void
@@ -87,8 +114,14 @@ inline void
 MapWindow::RenderOverlays([[maybe_unused]] Canvas &canvas) noexcept
 {
 #ifdef ENABLE_OPENGL
+#if defined(HAVE_HTTP)
+  for (const auto &i : overlay)
+    if (i)
+      i->Draw(canvas, render_projection);
+#else
   if (overlay)
     overlay->Draw(canvas, render_projection);
+#endif
 #endif
 }
 
@@ -117,7 +150,8 @@ MapWindow::RenderAirspace(Canvas &canvas) noexcept
                                  render_projection,
                                  Basic(), Calculated(),
                                  GetComputerSettings().airspace,
-                                 GetMapSettings().airspace);
+                                 GetMapSettings().airspace,
+                                 &label_block);
   }
 }
 
@@ -140,16 +174,19 @@ MapWindow::RenderNOAAStations(Canvas &canvas) noexcept
 inline void
 MapWindow::DrawWaves(Canvas &canvas) noexcept
 {
+  if (observations == nullptr)
+    return;
+
+  WaveRows waves;
+  observations->CopyWaves(waves);
+
   const WaveRenderer renderer(look.wave);
-
-#ifdef HAVE_SKYLINES_TRACKING
-  if (skylines_data != nullptr) {
-    const std::lock_guard lock{skylines_data->mutex};
-    renderer.Draw(canvas, render_projection, *skylines_data);
+  const GeoClip clip(render_projection.GetScreenBounds().Scale(1.1));
+  for (const auto &wave : waves) {
+    if (!wave.a.IsValid() || !wave.b.IsValid())
+      continue;
+    renderer.Draw(canvas, render_projection, clip, wave.a, wave.b);
   }
-#endif
-
-  renderer.Draw(canvas, render_projection, Calculated().wave);
 }
 
 inline void
@@ -168,9 +205,17 @@ MapWindow::Render(Canvas &canvas, const PixelRect &rc) noexcept
   // reset label over-write preventer
   label_block.reset();
 
+#ifndef ENABLE_OPENGL
+  {
+    const std::lock_guard lock{frame_projection_mutex};
+    render_projection = published_projection;
+  }
+#else
   render_projection = visible_projection;
+#endif
 
-  if (!render_projection.IsValid()) {
+  if (!render_projection.IsValid() ||
+      !render_projection.GetScreenBounds().IsValid()) {
     canvas.ClearWhite();
     return;
   }
@@ -195,6 +240,11 @@ MapWindow::Render(Canvas &canvas, const PixelRect &rc) noexcept
   draw_sw.Mark("RenderRasp");
   RenderRasp(canvas);
 
+#ifdef HAVE_HTTP
+  if (auto skysight = DataGlobals::GetSkySight())
+    skysight->Render();
+#endif
+
   draw_sw.Mark("RenderTopography");
   RenderTopography(canvas);
 
@@ -214,6 +264,11 @@ MapWindow::Render(Canvas &canvas, const PixelRect &rc) noexcept
   // Render airspace
   draw_sw.Mark("RenderAirspace");
   RenderAirspace(canvas);
+
+  //////////////////////////////////////////////// distance rings
+
+  draw_sw.Mark("DrawDistanceRings");
+  DrawDistanceRings(canvas);
 
   //////////////////////////////////////////////// task
 
@@ -254,22 +309,25 @@ MapWindow::Render(Canvas &canvas, const PixelRect &rc) noexcept
   draw_sw.Mark("RenderMisc1");
   DrawTaskOffTrackIndicator(canvas);
 
+  // Draw the Turn Back Marker (TBM) on the track line
+  DrawTurnBackMarker(canvas);
+
   draw_sw.Mark("RenderMisc2");
   DrawBestCruiseTrack(canvas, aircraft_pos);
 
+  /* the HUD elements stay clear of the areas covered by system UI
+     (display cutout, status bar, home indicator) */
+  const PixelRect hud_rc = GetHudRect(rc);
+
   // Draw wind vector at aircraft
   if (basic.location_available)
-    DrawWind(canvas, aircraft_pos, rc);
+    DrawWind(canvas, aircraft_pos, hud_rc);
 
   // Render compass
-  DrawCompass(canvas, rc);
+  DrawCompass(canvas, hud_rc);
 
   //////////////////////////////////////////////// traffic
   // Draw traffic
-
-#ifdef HAVE_SKYLINES_TRACKING
-  DrawSkyLinesTraffic(canvas);
-#endif
 
   DrawGLinkTraffic(canvas);
 

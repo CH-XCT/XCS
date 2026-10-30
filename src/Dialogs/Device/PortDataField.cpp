@@ -51,6 +51,8 @@ static constexpr struct {
   { DeviceConfig::PortType::TCP_LISTENER, N_("TCP port") },
   { DeviceConfig::PortType::UDP_LISTENER, N_("UDP port") },
 
+  { DeviceConfig::PortType::SPECTATE_FILE, N_("Condor 3 Spectate file") },
+
   { DeviceConfig::PortType::SERIAL, nullptr } /* sentinel */
 };
 
@@ -288,7 +290,6 @@ SetPort(DataFieldEnum &df, const DeviceConfig &config) noexcept
 {
   switch (config.port_type) {
   case DeviceConfig::PortType::DISABLED:
-  case DeviceConfig::PortType::AUTO:
   case DeviceConfig::PortType::INTERNAL:
   case DeviceConfig::PortType::DROIDSOAR_V2:
   case DeviceConfig::PortType::NUNCHUCK:
@@ -300,6 +301,7 @@ SetPort(DataFieldEnum &df, const DeviceConfig &config) noexcept
   case DeviceConfig::PortType::PTY:
   case DeviceConfig::PortType::RFCOMM_SERVER:
   case DeviceConfig::PortType::GLIDER_LINK:
+  case DeviceConfig::PortType::SPECTATE_FILE:
     break;
 
   case DeviceConfig::PortType::SERIAL:
@@ -308,7 +310,7 @@ SetPort(DataFieldEnum &df, const DeviceConfig &config) noexcept
     return;
 
   case DeviceConfig::PortType::BLE_SENSOR:
-  case DeviceConfig::PortType::BLE_HM10:
+  case DeviceConfig::PortType::BLE_SERIAL:
   case DeviceConfig::PortType::RFCOMM:
     SetBluetoothPort(df, config.port_type, config.bluetooth_mac);
     return;

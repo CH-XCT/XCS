@@ -32,7 +32,7 @@ install_base() {
     git quilt zip \
     m4 automake wget \
     pkg-config cmake ninja-build ccache \
-    ca-certificates
+    ca-certificates sqlite3
   echo
 }
 
@@ -45,7 +45,8 @@ install_manual() {
     texlive-lang-polish \
     texlive-lang-portuguese \
     texlive-lang-german \
-    liblocale-po-perl
+    liblocale-po-perl \
+    graphviz
   echo
 }
 
@@ -54,12 +55,13 @@ install_linux() {
   apt-get install "${APTOPTS[@]}" make g++ \
     binutils-gold \
     zlib1g-dev \
+    libbz2-dev \
     libfmt-dev \
     libdbus-1-dev \
     libsodium-dev \
     libfreetype-dev \
     libpng-dev libjpeg-dev \
-    libtiff5-dev libgeotiff-dev \
+    libtiff5-dev libgeotiff-dev libnetcdf-dev \
     libssl-dev \
     libcurl4-openssl-dev \
     libc-ares-dev \
@@ -69,7 +71,7 @@ install_linux() {
     libsdl2-dev \
     librsvg2-bin xsltproc \
     imagemagick gettext \
-    mesa-common-dev libgl1-mesa-dev libegl1-mesa-dev \
+    mesa-common-dev libegl1-mesa-dev libgles2-mesa-dev \
     fonts-dejavu \
     ttf-bitstream-vera \
     fonts-roboto-unhinted \
@@ -92,7 +94,8 @@ install_debian() {
     libio-captureoutput-perl \
     build-essential \
     xvfb \
-    xauth
+    xauth \
+    curl
   echo
 }
 
@@ -104,7 +107,8 @@ install_llvm() {
 
 install_libinput_gbm() {
   echo Installing dependencies for compiling targets which need libinput or GBM...
-  apt-get install "${APTOPTS[@]}" libinput-dev libgbm-dev
+  apt-get install "${APTOPTS[@]}" libinput-dev libgbm-dev libdrm-dev \
+    libgles2-mesa-dev
   echo
 }
 
@@ -116,9 +120,25 @@ install_arm() {
   echo
 }
 
+install_pi_host() {
+  echo Installing host tools for Raspberry Pi cross-compilation and sysroot...
+  apt-get install "${APTOPTS[@]}" debootstrap qemu-user-static binfmt-support \
+    g++-arm-linux-gnueabihf g++-aarch64-linux-gnu \
+    libmpc-dev ca-certificates pkg-config
+  echo
+}
+
 install_win() {
   echo Installing PC/WIN64 dependencies...
-  apt-get install "${APTOPTS[@]}" g++-mingw-w64
+  apt-get install "${APTOPTS[@]}" g++-mingw-w64 \
+      mingw-w64-tools \
+      libtool \
+      curl \
+      unzip \
+      zip \
+      meson \
+      nsis \
+      fonts-dejavu
   echo
 }
 
@@ -171,6 +191,9 @@ for section in "${sections_to_install[@]}"; do
       ;;
     ARM)
       install_arm
+      ;;
+    PI_HOST)
+      install_pi_host
       ;;
     WIN)
       install_win

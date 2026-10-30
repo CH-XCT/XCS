@@ -19,8 +19,11 @@ enum ControlIndex {
   Port, EngineTypes, BaudRate, BulkBaudRate,
   IP_ADDRESS,
   TCPPort,
+  SpectatePath,
+  OwnCallsign,
   I2CBus, I2CAddr, PressureUsage, Driver, UseSecondDriver, SecondDriver,
-  SyncFromDevice, SyncToDevice, PolarSyncMode,
+  SyncFromDevice, SyncToDevice, SendPosition, PolarSyncMode,
+  InstrumentAlignment,
   K6Bt,
 };
 
@@ -46,6 +49,7 @@ FillBaudRates(DataFieldEnum &dfe) noexcept
 static void
 FillTCPPorts(DataFieldEnum &dfe) noexcept
 {
+  dfe.addEnumText("55278 (Condor UDP)", 55278);
   dfe.addEnumText("4353", 4353);
   dfe.addEnumText("10110", 10110);
   dfe.addEnumText("4352", 4352);
@@ -116,6 +120,17 @@ FillPolarSync(DataFieldEnum &dfe,
                     static_cast<unsigned>(DeviceConfig::PolarSync::SEND));
 }
 
+static void
+FillInstrumentAlignment(DataFieldEnum &dfe) noexcept
+{
+  dfe.addEnumText(_("Don't use"),
+                  (unsigned)DeviceConfig::InstrumentAlignment::NONE);
+  dfe.addEnumText(_("Not aligned"),
+                  (unsigned)DeviceConfig::InstrumentAlignment::NOT_ALIGNED);
+  dfe.addEnumText(_("Fixed & aligned"),
+                  (unsigned)DeviceConfig::InstrumentAlignment::FIXED_AND_ALIGNED);
+}
+
 static bool
 EditPortCallback(const char *caption, DataField &df,
                  [[maybe_unused]] const char *help_text) noexcept
@@ -137,6 +152,9 @@ DeviceEditWidget::SetConfig(const DeviceConfig &_config) noexcept
        flag and re-enable the device */
     config.enabled = true;
 
+  if (config.port_type == DeviceConfig::PortType::SPECTATE_FILE)
+    config.ApplySpectateDefaults();
+
   WndProperty &port_control = GetControl(Port);
   DataFieldEnum &port_df = *(DataFieldEnum *)port_control.GetDataField();
   SetPort(port_df, config);
@@ -146,15 +164,19 @@ DeviceEditWidget::SetConfig(const DeviceConfig &_config) noexcept
   LoadValueEnum(BulkBaudRate, config.bulk_baud_rate);
   LoadValueEnum(IP_ADDRESS, config.ip_address);
   LoadValueEnum(TCPPort, config.tcp_port);
+  LoadValue(SpectatePath, config.path);
+  LoadValue(OwnCallsign, config.port_name);
   LoadValueEnum(I2CBus, config.i2c_bus);
   LoadValueEnum(I2CAddr, config.i2c_addr);
   LoadValueEnum(PressureUsage, config.press_use);
   LoadValueEnum(Driver, config.driver_name);
   LoadValue(SyncFromDevice, config.sync_from_device);
   LoadValue(SyncToDevice, config.sync_to_device);
+  LoadValue(SendPosition, config.send_position);
   LoadValueEnum(PolarSyncMode, config.polar_sync);
   LoadValue(K6Bt, config.k6bt);
   LoadValueEnum(EngineTypes, config.engine_type);
+  LoadValueEnum(InstrumentAlignment, config.instrument_alignment);
 
   UpdateVisibilities();
 }
@@ -206,6 +228,21 @@ CanSendSettings(const DataField &df) noexcept
 
 [[gnu::pure]]
 static bool
+CanSendPosition(const DataField &df) noexcept
+{
+  const char *driver_name = df.GetAsString();
+  if (driver_name == nullptr)
+    return false;
+
+  const struct DeviceRegister *driver = FindDriverByName(driver_name);
+  if (driver == nullptr)
+    return false;
+
+  return driver->CanSendPosition();
+}
+
+[[gnu::pure]]
+static bool
 CanPassThrough(const DataField &df) noexcept
 {
   const char *driver_name = df.GetAsString();
@@ -217,6 +254,36 @@ CanPassThrough(const DataField &df) noexcept
     return false;
 
   return driver->HasPassThrough();
+}
+
+[[gnu::pure]]
+static bool
+CanReceivePolar(const DataField &df) noexcept
+{
+  const char *driver_name = df.GetAsString();
+  if (driver_name == nullptr)
+    return false;
+
+  const struct DeviceRegister *driver = FindDriverByName(driver_name);
+  if (driver == nullptr)
+    return false;
+
+  return driver->CanReceivePolar();
+}
+
+[[gnu::pure]]
+static bool
+CanSendPolar(const DataField &df) noexcept
+{
+  const char *driver_name = df.GetAsString();
+  if (driver_name == nullptr)
+    return false;
+
+  const struct DeviceRegister *driver = FindDriverByName(driver_name);
+  if (driver == nullptr)
+    return false;
+
+  return driver->CanSendPolar();
 }
 
 void
@@ -238,6 +305,8 @@ DeviceEditWidget::UpdateVisibilities() noexcept
                 SupportsBulkBaudRate(GetDataField(Driver)));
   SetRowAvailable(IP_ADDRESS, DeviceConfig::UsesIPAddress(type));
   SetRowAvailable(TCPPort, DeviceConfig::UsesTCPPort(type));
+  SetRowAvailable(SpectatePath, type == DeviceConfig::PortType::SPECTATE_FILE);
+  SetRowAvailable(OwnCallsign, type == DeviceConfig::PortType::SPECTATE_FILE);
   SetRowAvailable(I2CBus, DeviceConfig::UsesI2C(type));
   SetRowAvailable(I2CAddr, DeviceConfig::UsesI2C(type) &&
                 type != DeviceConfig::PortType::NUNCHUCK);
@@ -252,16 +321,27 @@ DeviceEditWidget::UpdateVisibilities() noexcept
 
   const bool can_receive = CanReceiveSettings(GetDataField(Driver));
   const bool can_send = CanSendSettings(GetDataField(Driver));
+  const bool can_send_position = CanSendPosition(GetDataField(Driver));
   SetRowVisible(SyncFromDevice, DeviceConfig::UsesDriver(type) &&
                 can_receive);
   SetRowVisible(SyncToDevice, DeviceConfig::UsesDriver(type) &&
                 can_send);
-  SetRowVisible(PolarSyncMode, DeviceConfig::UsesDriver(type) &&
-                (can_receive || can_send));
-  if (can_receive || can_send) {
+  SetRowVisible(SendPosition, DeviceConfig::UsesDriver(type) &&
+                can_send_position);
+  const bool can_receive_polar = CanReceivePolar(GetDataField(Driver));
+  const bool can_send_polar = CanSendPolar(GetDataField(Driver));
+  const bool polar_row_applicable = DeviceConfig::UsesDriver(type) &&
+                                    (can_receive_polar || can_send_polar);
+  const bool is_internal = (type == DeviceConfig::PortType::INTERNAL);
+  SetRowAvailable(InstrumentAlignment, is_internal);
+  SetRowVisible(InstrumentAlignment, is_internal);
+  /* Hide when the driver does not register polar receive/send capability. */
+  SetRowAvailable(PolarSyncMode, polar_row_applicable);
+  SetRowVisible(PolarSyncMode, polar_row_applicable);
+  if (can_receive_polar || can_send_polar) {
     auto &polar_df = (DataFieldEnum &)GetDataField(PolarSyncMode);
     const auto prev = polar_df.GetValue();
-    FillPolarSync(polar_df, can_receive, can_send);
+    FillPolarSync(polar_df, can_receive_polar, can_send_polar);
     polar_df.SetValue(prev);
   }
   SetRowAvailable(K6Bt, maybe_bluetooth);
@@ -305,6 +385,20 @@ DeviceEditWidget::Prepare(ContainerWindow &parent,
   FillTCPPorts(*tcp_port_df);
   tcp_port_df->SetValue(config.tcp_port);
   Add(_("TCP port"), nullptr, tcp_port_df);
+
+  DataFieldString *spectate_path_df = new DataFieldString("", this);
+  spectate_path_df->SetValue(config.path);
+  Add(C_("Setting", "Spectate file"),
+      _("Full path to Condor 3 Spectate.json. "
+        "Default: c:\\condor3\\logs\\spectate.json"),
+      spectate_path_df);
+
+  DataFieldString *own_callsign_df = new DataFieldString("", this);
+  own_callsign_df->SetValue(config.port_name);
+  Add(C_("Setting", "Own callsign"),
+      _("Competition number of your glider in Spectate.json "
+        "(excluded from traffic, used as position reference)."),
+      own_callsign_df);
 
   DataFieldEnum *i2c_bus_df = new DataFieldEnum(this);
   FillI2CBus(*i2c_bus_df);
@@ -366,17 +460,35 @@ DeviceEditWidget::Prepare(ContainerWindow &parent,
              config.sync_to_device, this);
   SetExpertRow(SyncToDevice);
 
+  AddBoolean(C_("Setting", "Emit GPGGA/GPRMC"),
+             _("Tells XCSoar to send its current GPS position to the "
+               "device as $GPGGA and $GPRMC sentences. Turn off when "
+               "another GPS source is already feeding the device on "
+               "the same line. Changes take effect after reconnecting "
+               "the device."),
+             config.send_position, this);
+  SetExpertRow(SendPosition);
+
   DataFieldEnum *polar_sync_df = new DataFieldEnum(this);
   FillPolarSync(*polar_sync_df,
-                CanReceiveSettings(*driver_df),
-                CanSendSettings(*driver_df));
+                CanReceivePolar(*driver_df),
+                CanSendPolar(*driver_df));
   polar_sync_df->SetValue(config.polar_sync);
   Add(_("Polar sync"),
-      _("Synchronize the glide polar between XCSoar and the device. "
-        "'Receive' adopts the polar from the device (e.g. for club "
-        "gliders). 'Send' pushes XCSoar's polar to the device."),
+      _("Synchronize the glide polar between XCSoar and the device "
+        "(LXNAV varios). 'Receive' adopts the polar from the device "
+        "(e.g. for club gliders). 'Send' pushes XCSoar's polar to the "
+        "device."),
       polar_sync_df);
-  SetExpertRow(PolarSyncMode);
+
+  DataFieldEnum *instrument_alignment_df = new DataFieldEnum(this);
+  FillInstrumentAlignment(*instrument_alignment_df);
+  instrument_alignment_df->SetValue((unsigned)config.instrument_alignment);
+  Add(_("Built-in IMU"),
+      _("Whether the instrument housing the IMU is permanently fixed and its axes "
+        "are aligned to the aircraft axes. Set to 'Fixed & aligned' only "
+        "when the device is rigidly mounted. If in doubt, use 'Not aligned'."),
+      instrument_alignment_df);
 
   AddBoolean("K6Bt",
              _("Whether you use a K6Bt to connect the device."),
@@ -401,7 +513,6 @@ FinishPortField(DeviceConfig &config, const DataFieldEnum &df) noexcept
     (DeviceConfig::PortType)(value >> 16);
   switch (new_type) {
   case DeviceConfig::PortType::DISABLED:
-  case DeviceConfig::PortType::AUTO:
   case DeviceConfig::PortType::INTERNAL:
   case DeviceConfig::PortType::DROIDSOAR_V2:
   case DeviceConfig::PortType::NUNCHUCK:
@@ -412,10 +523,18 @@ FinishPortField(DeviceConfig &config, const DataFieldEnum &df) noexcept
   case DeviceConfig::PortType::UDP_LISTENER:
   case DeviceConfig::PortType::RFCOMM_SERVER:
   case DeviceConfig::PortType::GLIDER_LINK:
+  case DeviceConfig::PortType::SPECTATE_FILE:
     if (new_type == config.port_type)
       return false;
 
+    /* Drop a stale serial path (e.g. COMx:) before applying Spectate
+       defaults; otherwise ApplySpectateDefaults leaves it unchanged. */
+    if (new_type == DeviceConfig::PortType::SPECTATE_FILE)
+      config.path.clear();
+
     config.port_type = new_type;
+    if (new_type == DeviceConfig::PortType::SPECTATE_FILE)
+      config.ApplySpectateDefaults();
     return true;
 
   case DeviceConfig::PortType::SERIAL:
@@ -431,7 +550,7 @@ FinishPortField(DeviceConfig &config, const DataFieldEnum &df) noexcept
     return true;
 
   case DeviceConfig::PortType::RFCOMM:
-  case DeviceConfig::PortType::BLE_HM10:
+  case DeviceConfig::PortType::BLE_SERIAL:
   case DeviceConfig::PortType::BLE_SENSOR:
     /* Bluetooth */
     if (new_type == config.port_type &&
@@ -483,6 +602,11 @@ DeviceEditWidget::Save(bool &_changed) noexcept
   if (config.UsesTCPPort())
     changed |= SaveValueEnum(TCPPort, config.tcp_port);
 
+  if (config.port_type == DeviceConfig::PortType::SPECTATE_FILE) {
+    changed |= SaveValue(SpectatePath, config.path);
+    changed |= SaveValue(OwnCallsign, config.port_name);
+  }
+
   if (config.UsesI2C()) {
     changed |= SaveValueEnum(I2CBus, config.i2c_bus);
     changed |= SaveValueEnum(I2CAddr, config.i2c_addr);
@@ -498,8 +622,11 @@ DeviceEditWidget::Save(bool &_changed) noexcept
     if (CanSendSettings(GetDataField(Driver)))
       changed |= SaveValue(SyncToDevice, config.sync_to_device);
 
-    if (CanReceiveSettings(GetDataField(Driver)) ||
-        CanSendSettings(GetDataField(Driver)))
+    if (CanSendPosition(GetDataField(Driver)))
+      changed |= SaveValue(SendPosition, config.send_position);
+
+    if (CanReceivePolar(GetDataField(Driver)) ||
+        CanSendPolar(GetDataField(Driver)))
       changed |= SaveValueEnum(PolarSyncMode, config.polar_sync);
 
     if (CanPassThrough(GetDataField(Driver))) {
@@ -509,8 +636,15 @@ DeviceEditWidget::Save(bool &_changed) noexcept
     }
   }
 
-  if (CommonInterface::Basic().sensor_calibration_available)
+  if (config.port_type == DeviceConfig::PortType::INTERNAL)
+    changed |= SaveValueEnum(InstrumentAlignment, config.instrument_alignment);
+
+  const auto &basic = CommonInterface::Basic();
+  if (basic.sensor_calibration_available) {
+    config.sensor_offset = basic.sensor_calibration_offset;
+    config.sensor_factor = basic.sensor_calibration_factor;
     changed = true;
+  }
 
   _changed |= changed;
   return true;
@@ -519,6 +653,16 @@ DeviceEditWidget::Save(bool &_changed) noexcept
 void
 DeviceEditWidget::OnModified(DataField &df) noexcept
 {
+  if (IsDataField(Port, df)) {
+    const auto type = GetPortType((const DataFieldEnum &)df);
+    if (type == DeviceConfig::PortType::SPECTATE_FILE) {
+      if (config.port_type != DeviceConfig::PortType::SPECTATE_FILE)
+        config.path.clear();
+      config.ApplySpectateDefaults();
+      LoadValue(SpectatePath, config.path);
+    }
+  }
+
   if (IsDataField(Port, df) || IsDataField(Driver, df) ||
       IsDataField(UseSecondDriver, df) || IsDataField(K6Bt, df))
     UpdateVisibilities();

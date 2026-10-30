@@ -47,9 +47,19 @@ Window::IsMaximised() const noexcept
 {
   assert(IsDefined());
 
-  return parent != nullptr &&
-    GetSize().width >= parent->GetSize().width &&
-    GetSize().height >= parent->GetSize().height;
+  if (parent == nullptr)
+    return false;
+
+  /* compare with the parent's client rect, not with its raw size: a
+     #TopWindow may reserve space at the edges (e.g. the iOS safe
+     area), and a window which fills that client area is "maximised",
+     even though it is smaller than the parent window itself.  For all
+     other windows, GetClientRect() is PixelRect{GetSize()}, so this is
+     equivalent to comparing the sizes. */
+  const PixelSize parent_size = parent->GetClientRect().GetSize();
+
+  return GetSize().width >= parent_size.width &&
+    GetSize().height >= parent_size.height;
 }
 
 void
@@ -175,6 +185,14 @@ Window::Hide() noexcept
     return;
 
   visible = false;
+
+  /* a window that is no longer on screen must not keep the mouse
+     capture: every further event would be routed to it instead of to
+     what the user can actually see.  Both calls are cheap no-ops
+     unless this window, or a descendant, is capturing. */
+  parent->ReleaseChildCapture(this);
+  ClearCapture();
+
   parent->Invalidate();
 }
 
@@ -192,4 +210,12 @@ Window::BringToBottom() noexcept
   AssertThread();
 
   parent->BringChildToBottom(*this);
+}
+
+void
+Window::PlaceBelow(Window &sibling) noexcept
+{
+  AssertThread();
+  assert(parent == sibling.parent);
+  parent->PlaceChildBelow(*this, sibling);
 }

@@ -7,7 +7,7 @@
 #include "TraceComputer.hpp"
 #include "ContestComputer.hpp"
 #include "Engine/Navigation/Aircraft.hpp"
-#include "NMEA/Validity.hpp"
+#include "time/Validity.hpp"
 
 struct NMEAInfo;
 class ProtectedTaskManager;
@@ -49,6 +49,10 @@ public:
   }
 
   const TraceComputer &GetTraceComputer() const {
+    return trace;
+  }
+
+  TraceComputer &GetTraceComputer() noexcept {
     return trace;
   }
 

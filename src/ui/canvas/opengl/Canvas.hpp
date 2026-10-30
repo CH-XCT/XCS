@@ -13,7 +13,7 @@
 
 #include <string_view>
 
-/* Workaround: Some Win32 headers define OPAQUE and TRANSPARENT as preprocessor
+/* Workaround: Some Win32 headers define OPAQUE, TRANSPARENT and DrawText as preprocessor
  * defines. Undefine them to avoid name conflict. */
 #ifdef OPAQUE
 #undef OPAQUE
@@ -21,6 +21,10 @@
 
 #ifdef TRANSPARENT
 #undef TRANSPARENT
+#endif
+
+#ifdef DrawText
+#undef DrawText
 #endif
 
 
@@ -229,6 +233,20 @@ public:
    * origin of the fan.
    */
   void DrawTriangleFan(const BulkPixelPoint *points, unsigned num_points) noexcept;
+
+  /**
+   * Draw a filled triangle fan with sub-pixel coordinates.  The selected pen
+   * is ignored.
+   */
+  void DrawFilledTriangleFan(const FloatPoint2D *points,
+                             unsigned num_points) noexcept;
+
+  /**
+   * Draw independent filled triangles with sub-pixel coordinates.  The
+   * selected pen is ignored.
+   */
+  void DrawFilledTriangles(const FloatPoint2D *points,
+                           unsigned num_points) noexcept;
 
   /**
    * Draw a solid thin horizontal line.

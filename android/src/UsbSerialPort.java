@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright The XCSoar Project
 
 package org.xcsoar;
@@ -131,6 +131,14 @@ public final class UsbSerialPort
 
     serialDevice.setBaudRate(baud);
     return true;
+  }
+
+  @Override public boolean setConnectionPriority(int priority) {
+    return false;
+  }
+
+  @Override public boolean requestMtu(int mtu) {
+    return false;
   }
 
   @Override

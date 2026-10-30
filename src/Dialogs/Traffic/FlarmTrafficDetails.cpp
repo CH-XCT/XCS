@@ -20,6 +20,7 @@
 #include "FLARM/Details.hpp"
 #include "FLARM/Friends.hpp"
 #include "FLARM/Glue.hpp"
+#include "Geo/GeoVector.hpp"
 #include "Renderer/ColorButtonRenderer.hpp"
 #include "UIGlobals.hpp"
 #include "Components.hpp"
@@ -77,8 +78,8 @@ private:
   void OnFriendColorClicked(FlarmColor color);
 
   /* virtual methods from BlackboardListener */
-  void OnGPSUpdate(const MoreData &basic) override {
-    UpdateChanging(basic);
+  void OnGPSUpdate([[maybe_unused]] const MoreData &basic) override {
+    Update();
   }
 };
 
@@ -160,10 +161,20 @@ FlarmTrafficDetailsWidget::UpdateChanging(const MoreData &basic)
 
   // Fill distance/direction field
   if (target_ok) {
-    FormatUserDistanceSmart(target->distance, tmp, true, 20, 1000);
+    RoughDistance distance = target->distance;
+    Angle bearing = target->Bearing();
+
+    if (target->absolute_location && target->location.IsValid() &&
+        basic.location_available) {
+      const GeoVector vec{basic.location, target->location};
+      distance = vec.distance;
+      bearing = vec.bearing;
+    }
+
+    FormatUserDistanceSmart(distance, tmp, true, 20, 1000);
     char *p = tmp + strlen(tmp);
     *p++ = ' ';
-    FormatAngleDelta(p, 20, target->Bearing() - basic.track);
+    FormatAngleDelta(p, 20, bearing - basic.track);
     value = tmp;
   } else
     value = "--";
@@ -179,7 +190,19 @@ FlarmTrafficDetailsWidget::UpdateChanging(const MoreData &basic)
       *p++ = ' ';
     }
 
-    Angle dir = Angle::FromXY(target->distance, target->relative_altitude);
+    RoughAltitude relative_altitude = target->relative_altitude;
+    if (target->absolute_altitude && target->altitude_available) {
+      if (const auto ownship_altitude = basic.GetAnyAltitude())
+        relative_altitude =
+          target->altitude - RoughAltitude(*ownship_altitude);
+    }
+
+    RoughDistance distance = target->distance;
+    if (target->absolute_location && target->location.IsValid() &&
+        basic.location_available)
+      distance = GeoVector{basic.location, target->location}.distance;
+
+    Angle dir = Angle::FromXY(distance, relative_altitude);
     FormatVerticalAngleDelta(p, 20, dir);
 
     value = tmp;
@@ -211,7 +234,7 @@ FlarmTrafficDetailsWidget::Update()
 
   // Set the dialog caption
   StringFormatUnsafe(tmp, "%s (%s)",
-                     _("FLARM Traffic Details"), target_id.Format(tmp_id));
+                     _("Traffic Details"), target_id.Format(tmp_id));
   dialog.SetCaption(tmp);
 
   const FlarmTraffic* target =
@@ -220,30 +243,33 @@ FlarmTrafficDetailsWidget::Update()
   const ResolvedInfo info = FlarmDetails::ResolveInfo(target_id);
 
   // Shared fields: pilot/plane/airfield direct from resolver
-  SetText(PILOT, info.pilot != nullptr ? info.pilot : "--");
+  SetText(PILOT, !info.pilot.empty() ? info.pilot.c_str() : "--");
 
-  const char *plane_value = info.plane_type;
+  const char *plane_value = !info.plane_type.empty() ? info.plane_type.c_str() : nullptr;
   if (plane_value == nullptr && target != nullptr)
     plane_value = FlarmTraffic::GetTypeString(target->type);
   SetText(PLANE, plane_value != nullptr ? plane_value : "--");
 
-  SetText(AIRPORT, info.airfield != nullptr ? info.airfield : "--");
+  SetText(AIRPORT, !info.airfield.empty() ? info.airfield.c_str() : "--");
 
   char fbuf[16];
   const char *freq = info.frequency.Format(fbuf, 16);
   value = freq != nullptr ? UnsafeBuildString(tmp, freq, " MHz") : "--";
   SetText(RADIO, value);
 
-  // Fill the callsign field (+ registration)
-  // note: don't use target->Name here since it is not updated
-  //       yet if it was changed
-  const char* cs = info.callsign;
+  // Fill the callsign field (+ registration). Prefer resolved
+  // callsign; fall back to live traffic name (e.g. ADS-B).
+  const char *cs = !info.callsign.empty() ? info.callsign.c_str() : nullptr;
+  if (cs == nullptr &&
+      target != nullptr && target->HasName() && !StringIsEmpty(target->name))
+    cs = target->name.c_str();
+
   if (cs != nullptr && cs[0] != 0) {
     try {
       BasicStringBuilder<char> builder(tmp, ARRAY_SIZE(tmp));
       builder.Append(cs);
-      if (info.registration != nullptr)
-        builder.Append(" (", info.registration, ")");
+      if (!info.registration.empty())
+        builder.Append(" (", info.registration.c_str(), ")");
       value = tmp;
     } catch (BasicStringBuilder<char>::Overflow) {
       value = cs;
@@ -252,7 +278,10 @@ FlarmTrafficDetailsWidget::Update()
     value = "--";
   SetText(CALLSIGN, value);
 
-  SetText(SOURCE, FlarmDetails::ToString(info.source));
+  const char *data_source = FlarmDetails::ToString(info.source);
+  if (info.source == ResolvedSource::NONE && target != nullptr)
+    data_source = FlarmTraffic::GetSourceString(target->source);
+  SetText(SOURCE, data_source);
 
   // Traffic source type (FLARM, ADS-B, Mode-S, etc.) and signal strength
   if (target != nullptr) {
@@ -338,18 +367,18 @@ FlarmTrafficDetailsWidget::OnFriendColorClicked(FlarmColor color)
 /**
  * The function opens the FLARM Traffic Details dialog
  */
-void
-dlgFlarmTrafficDetailsShowModal(FlarmId id)
+bool
+dlgFlarmTrafficDetailsShowModal(FlarmId id) noexcept
 {
   const DialogLook &look = UIGlobals::GetDialogLook();
 
   WidgetDialog dialog(WidgetDialog::Full{}, UIGlobals::GetMainWindow(),
-                      look, _("FLARM Traffic Details"));
+                      look, _("Traffic Details"));
 
   FlarmTrafficDetailsWidget *widget =
     new FlarmTrafficDetailsWidget(dialog, id);
   widget->CreateButtons(dialog);
   dialog.AddButton(_("Close"), mrCancel);
   dialog.FinishPreliminary(widget);
-  dialog.ShowModal();
+  return dialog.ShowModal() == mrOK;
 }

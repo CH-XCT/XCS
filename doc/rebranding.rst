@@ -58,6 +58,16 @@ Android Configuration
 ``ANDROID_PACKAGE``
   Android package name in reverse domain notation (e.g., ``"org.xcsoar"``).
 
+Web URLs
+--------
+
+``PRODUCT_WEB_SITE_URL``
+  Project home page (default ``https://xcsoar.org/``), used e.g. in command-line
+  ``--help`` footers.
+
+``PRODUCT_BUGS_URL``
+  Bug tracker or contact URL (default XCSoar GitHub issues), same use cases.
+
 Data Directory Paths
 --------------------
 
@@ -129,6 +139,12 @@ Android Files
 
 - :file:`android/res/values/strings.xml` - App display name
 - :file:`android/AndroidManifest.xml.template` - Android manifest template
+
+Windows Files
+-------------
+
+- :file:`Data/XCSoar.manifest.in` - application manifest (identity
+  name and version come from ``PRODUCT_NAME`` / :file:`VERSION.txt`)
 
 
 What Needs Manual Changes

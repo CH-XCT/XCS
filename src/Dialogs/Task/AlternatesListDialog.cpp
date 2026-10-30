@@ -4,6 +4,7 @@
 #include "TaskDialogs.hpp"
 #include "Dialogs/WidgetDialog.hpp"
 #include "Dialogs/Waypoint/WaypointDialogs.hpp"
+#include "Dialogs/Waypoint/GetWaypointReachability.hpp"
 #include "Form/Form.hpp"
 #include "InfoBoxes/Content/Alternate.hpp"
 #include "Widget/ListWidget.hpp"
@@ -29,8 +30,6 @@
 #include <cassert>
 #include <optional>
 
-static constexpr int DETAILS_MODAL_RESULT = 100;
-
 class AlternatesListWidget final
   : public ListWidget {
   const DialogLook &dialog_look;
@@ -43,7 +42,7 @@ class AlternatesListWidget final
   Button *cancel_button = nullptr;
   Button *goto_button = nullptr;
   Button *select_button = nullptr;
-  Button *mode_button = nullptr;
+  Button *auto_button = nullptr;
   Button *manual_button = nullptr;
   Button *set_active_freq_button = nullptr;
   Button *set_standby_freq_button = nullptr;
@@ -52,7 +51,7 @@ public:
   AlternateList alternates;
 
 public:
-  void CreateButtons(WidgetDialog &dialog);
+  void CreateButtons(WidgetDialog &dialog, Waypoints *waypoints_for_details = nullptr) noexcept;
 
 public:
   explicit
@@ -117,12 +116,21 @@ public:
     const ComputerSettings &settings = CommonInterface::GetComputerSettings();
     const Waypoint &waypoint = *alternates[index].waypoint;
     const GlideResult& solution = alternates[index].solution;
+    const auto reach = GetWaypointReach(waypoint);
+
+    double arrival_altitude =
+      solution.SelectAltitudeDifference(settings.task.glide);
+    if (reach.result.terrain_valid == ReachResult::Validity::VALID)
+      arrival_altitude = reach.result.terrain;
+    else if (reach.reachability != WaypointReachability::INVALID)
+      arrival_altitude = reach.result.direct;
 
     WaypointListRenderer::Draw(canvas, rc, waypoint, solution.vector.distance,
-                               solution.SelectAltitudeDifference(settings.task.glide),
+                               arrival_altitude,
                                row_renderer,
                                UIGlobals::GetMapLook().waypoint,
-                               CommonInterface::GetMapSettings().waypoint);
+                               CommonInterface::GetMapSettings().waypoint,
+                               reach.reachability);
   }
 
   bool CanActivateItem([[maybe_unused]] unsigned index) const noexcept override {
@@ -145,11 +153,9 @@ private:
     if (set_active_freq_button == nullptr || set_standby_freq_button == nullptr)
       return;
 
-    if (mode_button != nullptr) {
-      mode_button->SetCaption(GetAlternateInfoBoxMode(GetConfiguredSlot()) ==
-                                  AlternateInfoBoxMode::MANUAL
-                                ? _("Altn mode: MANUAL")
-                                : _("Altn mode: AUTO"));
+    if (auto_button != nullptr) {
+      auto_button->SetEnabled(GetAlternateInfoBoxMode(GetConfiguredSlot()) ==
+                              AlternateInfoBoxMode::MANUAL);
     }
 
     if (!HasValidSelection()) {
@@ -172,18 +178,17 @@ private:
       details_button->SetEnabled(true);
     set_active_freq_button->SetEnabled(has_freq);
     set_standby_freq_button->SetEnabled(has_freq);
-    if (manual_button != nullptr) {
-      manual_button->SetEnabled(GetAlternateInfoBoxMode(GetConfiguredSlot()) ==
-                                  AlternateInfoBoxMode::MANUAL);
-    }
+    if (manual_button != nullptr)
+      manual_button->SetEnabled(true);
   }
 };
 
 void
-AlternatesListWidget::CreateButtons(WidgetDialog &dialog)
+AlternatesListWidget::CreateButtons(WidgetDialog &dialog,
+                                    Waypoints *waypoints_for_details) noexcept
 {
   if (!select_mode) {
-    goto_button = dialog.AddButton(_("Goto"), [this](){
+    goto_button = dialog.AddButton(_("GoTo"), [this](){
       if (!HasValidSelection())
         return;
 
@@ -204,17 +209,19 @@ AlternatesListWidget::CreateButtons(WidgetDialog &dialog)
   }
 
   if (!select_mode && slot.has_value()) {
-    mode_button = dialog.AddButton("", [this](){
+    /* Alternate Mode: Auto returns a MANUAL slot to the computed
+       list. Pinning is Select as Alternate, which is always
+       available and sets MANUAL. */
+    auto_button = dialog.AddButton(C_("Button", "Alternate Mode: Auto"), [this](){
       const auto slot = GetConfiguredSlot();
-      const auto new_mode = GetAlternateInfoBoxMode(slot) ==
-        AlternateInfoBoxMode::MANUAL
-        ? AlternateInfoBoxMode::AUTO
-        : AlternateInfoBoxMode::MANUAL;
-      SetAlternateInfoBoxMode(slot, new_mode);
+      if (GetAlternateInfoBoxMode(slot) != AlternateInfoBoxMode::MANUAL)
+        return;
+
+      SetAlternateInfoBoxMode(slot, AlternateInfoBoxMode::AUTO);
       UpdateButtons();
     });
 
-    manual_button = dialog.AddButton(_("Select as Alternate"), [this](){
+    manual_button = dialog.AddButton(C_("Button", "Select as Alternate"), [this](){
       if (!HasValidSelection())
         return;
 
@@ -225,8 +232,31 @@ AlternatesListWidget::CreateButtons(WidgetDialog &dialog)
     });
   }
 
-  if (!select_mode)
-    details_button = dialog.AddButton(_("Details"), DETAILS_MODAL_RESULT);
+  if (!select_mode) {
+    details_button = dialog.AddButton(
+      _("Details"),
+      [this, &dialog, waypoints_for_details]() noexcept {
+        if (!HasValidSelection())
+          return;
+
+        Waypoints *wpts = waypoints_for_details;
+        if (wpts == nullptr && data_components != nullptr)
+          wpts = data_components->waypoints.get();
+        if (wpts == nullptr)
+          return;
+
+        WaypointPtr w(GetSelectedWaypointPtr());
+        if (w == nullptr)
+          return;
+
+        /* allow_navigation + allow_edit: like the persistent list;
+         * alternates are task-adjacent; editing user waypoints
+         * (e.g. user.cup) stays available from this entry point. */
+        if (dlgWaypointDetailsShowModalForBrowseParent(
+              wpts, std::move(w), true, true))
+          dialog.SetModalResult(mrOK);
+      });
+  }
 
   set_active_freq_button = dialog.AddButton(_("Set Active Frequency"), [this](){
     if (!HasValidSelection())
@@ -293,28 +323,19 @@ dlgAlternatesListShowModal(Waypoints *waypoints,
 
   const auto *title = _("Alternates");
   if (slot.has_value()) {
-    title = _("Alternates 1");
+    title = C_("Menu", "Alternates 1");
     if (*slot == AlternateInfoBoxSlot::SECOND)
-      title = _("Alternates 2");
+      title = C_("Menu", "Alternates 2");
   }
 
   TWidgetDialog<AlternatesListWidget>
     dialog(WidgetDialog::Full{}, UIGlobals::GetMainWindow(), dialog_look,
            title);
-  widget->CreateButtons(dialog);
+  widget->CreateButtons(dialog, waypoints);
   dialog.FinishPreliminary(std::move(widget));
   dialog.EnableCursorSelection();
 
-  const int result = dialog.ShowModal();
-  if (result != DETAILS_MODAL_RESULT)
-    return;
-
-  int i = (int)dialog.GetWidget().GetCursorIndex();
-  if (i < 0 || (unsigned)i >= dialog.GetWidget().alternates.size())
-    return;
-
-  dlgWaypointDetailsShowModal(waypoints,
-                              dialog.GetWidget().alternates[i].waypoint, true);
+  dialog.ShowModal();
 }
 
 WaypointPtr

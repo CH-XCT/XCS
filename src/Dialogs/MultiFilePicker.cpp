@@ -2,6 +2,7 @@
 // Copyright The XCSoar Project
 
 #include "MultiFilePicker.hpp"
+#include "Repository/Glue.hpp"
 #include "Form/DataField/MultiFile.hpp"
 #include "Language/Language.hpp"
 #include "UIGlobals.hpp"
@@ -15,7 +16,6 @@
 
 #ifdef HAVE_DOWNLOAD_MANAGER
 #include "DownloadFilePicker.hpp"
-#include "net/http/DownloadManager.hpp"
 #endif
 
 static const char *
@@ -29,7 +29,7 @@ GetFileName(const FileMultiSelectWidget::FileItem &item) noexcept
 
   /* file configured in profile but not found on disk */
   static StaticString<256> buffer;
-  buffer.Format("%s [%s]", name, _("not found"));
+  buffer.Format("%s [%s]", name, _("Not found"));
   return buffer.c_str();
 }
 
@@ -54,16 +54,19 @@ MultiFilePicker(const char *caption, MultiFileDataField &df,
   dialog.AddButton(_("OK"), mrOK);
 
 #ifdef HAVE_DOWNLOAD_MANAGER
-  if (Net::DownloadManager::IsAvailable()) {
-    dialog.AddButton(_("Download"), [file_widget, &df]() {
-      const auto path = DownloadFilePicker(df.GetFileDataField().GetFileType());
-      if (path != nullptr) {
-        df.ForceModify(path);
+  if (FileTypeSupportsDownload(df.GetFileDataField().GetFileType())) {
+    const auto download = [file_widget, &df]() {
+      const auto paths = DownloadFilePicker(df.GetFileDataField().GetFileType());
+      if (!paths.empty()) {
+        for (const auto &path : paths)
+          df.ForceModify(path);
         df.GetFileDataField().Sort();
 
         file_widget->Refresh();
       }
-    });
+    };
+    dialog.AddButton(_("Download"), download);
+    file_widget->EnableEmptyDownloadHint(download);
   }
 #endif
 
@@ -72,12 +75,12 @@ MultiFilePicker(const char *caption, MultiFileDataField &df,
 
   std::function<void()> UpdateButtons = [file_widget, select_button]() {
     select_button->SetCaption(file_widget->GetSelectedPaths().empty()
-                               ? _("Select all") : _("Select none"));
+                               ? C_("Button", "Select all") : C_("Button", "Select none"));
   };
 
   select_button->SetCallback([file_widget, UpdateButtons]() mutable {
     if (file_widget->GetSelectedPaths().empty())
-      file_widget->SetAllSelected(true);
+      file_widget->SelectAll();
     else
       file_widget->ClearSelection();
     UpdateButtons();
@@ -88,6 +91,9 @@ MultiFilePicker(const char *caption, MultiFileDataField &df,
   UpdateButtons();
   file_widget->SetSelectionChangedCallback(UpdateButtons);
 
+  /* No EnableCursorSelection: an armed action-bar button plus the list
+     cursor reads as dual focus.  Up/Down walk list ↔ buttons; Enter/Space
+     on the list toggles (MultiSelectListWidget::KeyPress). */
   dialog.FinishPreliminary(std::move(widget));
 
   int result = dialog.ShowModal();

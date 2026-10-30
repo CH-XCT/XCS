@@ -1,0 +1,174 @@
+; XCSoar NSIS Installer Script for WIN64OPENGL and WIN32OPENGL
+; This script creates a Windows installer for the ANGLE (OpenGL ES) builds
+; Including XCSoar.exe and the required ANGLE DLLs (libEGL.dll and libGLESv2.dll)
+
+; Product name can be overridden from command line with -DPRODUCT_NAME=name
+!ifndef PRODUCT_NAME
+!define PRODUCT_NAME "XCSoar"
+!endif
+
+; Version should be coming via override from command line with -DPRODUCT_VERSION=x.y.z
+!ifndef PRODUCT_VERSION
+!define PRODUCT_VERSION "dev"
+!endif
+
+; Four-component PE version (major.minor.patch.build) for file properties
+!ifndef VI_PRODUCT_VERSION
+!define VI_PRODUCT_VERSION "0.0.0.0"
+!endif
+
+; Installer label (e.g., "XCSoar" or "XCSoar Testing")
+!ifndef INSTALLER_LABEL
+!define INSTALLER_LABEL "${PRODUCT_NAME}"
+!endif
+
+; Binary directory passed from the Makefile via -DBIN_DIR
+!ifndef BIN_DIR
+!define BIN_DIR "..\output\WIN64OPENGL\bin"
+!endif
+
+; Target flavor passed from the Makefile via -DTARGET_FLAVOR
+!ifndef TARGET_FLAVOR
+!define TARGET_FLAVOR "WIN64OPENGL"
+!endif
+
+!define PRODUCT_PUBLISHER "XCSoar Development Team"
+!define PRODUCT_WEB_SITE "https://xcsoar.org"
+!define PRODUCT_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
+
+; Include Modern UI
+!include "MUI2.nsh"
+
+; General settings
+Name "${INSTALLER_LABEL} ${PRODUCT_VERSION}"
+
+; Output file can be overridden from command line
+!ifndef OUTPUT_FILE
+OutFile "..\output\${TARGET_FLAVOR}\XCSoar-Installer.exe"
+!else
+OutFile "${OUTPUT_FILE}"
+!endif
+
+VIProductVersion "${VI_PRODUCT_VERSION}"
+VIAddVersionKey /LANG=1033 "ProductName" "${PRODUCT_NAME}"
+VIAddVersionKey /LANG=1033 "CompanyName" "The XCSoar Project"
+VIAddVersionKey /LANG=1033 "FileDescription" "${INSTALLER_LABEL} installer"
+VIAddVersionKey /LANG=1033 "FileVersion" "${PRODUCT_VERSION}"
+VIAddVersionKey /LANG=1033 "ProductVersion" "${PRODUCT_VERSION}"
+VIAddVersionKey /LANG=1033 "LegalCopyright" "Copyright The XCSoar Project"
+
+!if "${TARGET_FLAVOR}" == "WIN32OPENGL"
+InstallDir "$PROGRAMFILES\XCSoar"
+!else
+InstallDir "$PROGRAMFILES64\XCSoar"
+!endif
+InstallDirRegKey HKLM "${PRODUCT_UNINST_KEY}" "InstallLocation"
+RequestExecutionLevel admin
+
+; Interface Settings
+!define MUI_ABORTWARNING
+!ifndef APP_ICON
+!define APP_ICON "..\output\data\graphics\logo.ico"
+!endif
+!define MUI_ICON "${APP_ICON}"
+!define MUI_UNICON "${APP_ICON}"
+
+; Pages
+!insertmacro MUI_PAGE_WELCOME
+!insertmacro MUI_PAGE_LICENSE "..\COPYING"
+!insertmacro MUI_PAGE_DIRECTORY
+!insertmacro MUI_PAGE_COMPONENTS
+!insertmacro MUI_PAGE_INSTFILES
+!define MUI_FINISHPAGE_RUN "$INSTDIR\XCSoar.exe"
+!define MUI_FINISHPAGE_RUN_TEXT "Launch ${PRODUCT_NAME}"
+!insertmacro MUI_PAGE_FINISH
+
+!insertmacro MUI_UNPAGE_CONFIRM
+!insertmacro MUI_UNPAGE_INSTFILES
+!insertmacro MUI_UNPAGE_FINISH
+
+; Languages
+!insertmacro MUI_LANGUAGE "English"
+
+; Component descriptions
+LangString DESC_MainSection ${LANG_ENGLISH} "Core application files (required)"
+LangString DESC_StartMenuShortcut ${LANG_ENGLISH} "Create a shortcut in the Start Menu"
+LangString DESC_DesktopShortcut ${LANG_ENGLISH} "Create a shortcut on the Desktop"
+
+; Installer Sections
+Section "!${PRODUCT_NAME}" SEC01
+  SectionIn RO  ; Read-only, cannot be deselected
+  SetOutPath "$INSTDIR"
+  SetOverwrite on
+
+  ; Install main executable
+  File "${BIN_DIR}\XCSoar.exe"
+
+  ; Install ANGLE DLLs
+  File "${BIN_DIR}\libEGL.dll"
+  File "${BIN_DIR}\libGLESv2.dll"
+
+  ; Install bundled fonts (wildcard picks up whatever build/fonts.mk copied)
+  SetOutPath "$INSTDIR\fonts"
+  File "${BIN_DIR}\fonts\*.ttf"
+  SetOutPath "$INSTDIR"
+
+  ; Write uninstaller
+  WriteUninstaller "$INSTDIR\Uninstall.exe"
+
+  ; Write registry keys for Add/Remove Programs
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayName" "${PRODUCT_NAME}"
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayVersion" "${PRODUCT_VERSION}"
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "Publisher" "${PRODUCT_PUBLISHER}"
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "URLInfoAbout" "${PRODUCT_WEB_SITE}"
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "InstallLocation" "$INSTDIR"
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayIcon" "$INSTDIR\XCSoar.exe,0"
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "UninstallString" "$INSTDIR\Uninstall.exe"
+  WriteRegDWORD HKLM "${PRODUCT_UNINST_KEY}" "NoModify" 1
+  WriteRegDWORD HKLM "${PRODUCT_UNINST_KEY}" "NoRepair" 1
+SectionEnd
+
+Section "Start Menu Shortcut" SEC02
+  CreateDirectory "$SMPROGRAMS\${PRODUCT_NAME}"
+  CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME}.lnk" "$INSTDIR\XCSoar.exe"
+  CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\Uninstall.lnk" "$INSTDIR\Uninstall.exe"
+SectionEnd
+
+Section "Desktop Shortcut" SEC03
+  CreateShortCut "$DESKTOP\${PRODUCT_NAME}.lnk" "$INSTDIR\XCSoar.exe"
+SectionEnd
+
+; Section descriptions
+!insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
+  !insertmacro MUI_DESCRIPTION_TEXT ${SEC01} $(DESC_MainSection)
+  !insertmacro MUI_DESCRIPTION_TEXT ${SEC02} $(DESC_StartMenuShortcut)
+  !insertmacro MUI_DESCRIPTION_TEXT ${SEC03} $(DESC_DesktopShortcut)
+!insertmacro MUI_FUNCTION_DESCRIPTION_END
+
+; Uninstaller Section
+Section "Uninstall"
+  ; Remove files
+  Delete "$INSTDIR\XCSoar.exe"
+  Delete "$INSTDIR\libEGL.dll"
+  Delete "$INSTDIR\libGLESv2.dll"
+  Delete "$INSTDIR\Uninstall.exe"
+
+  ; Remove bundled fonts
+  Delete "$INSTDIR\fonts\*.ttf"
+  RMDir "$INSTDIR\fonts"
+
+  ; Remove shortcuts (if they exist)
+  Delete "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME}.lnk"
+  Delete "$SMPROGRAMS\${PRODUCT_NAME}\Uninstall.lnk"
+  RMDir "$SMPROGRAMS\${PRODUCT_NAME}"
+  Delete "$DESKTOP\${PRODUCT_NAME}.lnk"
+
+  ; Remove installation directory
+  RMDir "$INSTDIR"
+
+  ; Remove registry keys
+  DeleteRegKey HKLM "${PRODUCT_UNINST_KEY}"
+
+  ; Display completion message
+  MessageBox MB_OK "${PRODUCT_NAME} has been successfully removed from your computer."
+SectionEnd

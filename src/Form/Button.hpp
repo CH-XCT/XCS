@@ -3,12 +3,14 @@
 
 #pragma once
 
+#include "Hardware/Vibrator.hpp"
 #include "ui/window/PaintWindow.hpp"
 
 #include <functional>
 #include <memory>
 enum class ButtonState : int;
 struct ButtonLook;
+class ButtonPanel;
 class ContainerWindow;
 class ButtonRenderer;
 
@@ -34,6 +36,13 @@ private:
    * #ButtonPanel.
    */
   bool selected;
+
+  /**
+   * If non-null, #ButtonPanel::OnButtonGainedFocus keeps
+   * #SetSelected in sync with focus when the user tabs between
+   * #Button s.
+   */
+  ButtonPanel *cursor_key_group{nullptr};
 
 public:
   Button(ContainerWindow &parent, const PixelRect &rc,
@@ -87,7 +96,15 @@ public:
    */
   void SetCaption(const char *caption);
 
+  /**
+   * Update a menu bar button: symbol captions (+, -, arrows, …) use
+   * #SymbolButtonRenderer; other captions use #TextButtonRenderer.
+   */
+  void SetMenuCaption(const ButtonLook &look, const char *caption) noexcept;
+
   void SetSelected(bool _selected);
+
+  void SetCursorKeyGroup(ButtonPanel *p) noexcept { cursor_key_group = p; }
 
   [[gnu::pure]]
   unsigned GetMinimumWidth() const;
@@ -123,3 +140,11 @@ private:
   [[gnu::pure]]
   ButtonState GetState() const noexcept;
 };
+
+/**
+ * Vibrate if the user setting allows it.  Hardware/Vibrator must
+ * not read those settings; every press that should click goes
+ * through here.
+ */
+void PlayHapticFeedback(HapticFeedbackType type =
+                       HapticFeedbackType::PRESS) noexcept;

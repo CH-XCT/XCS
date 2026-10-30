@@ -2,6 +2,8 @@
 // Copyright The XCSoar Project
 
 #include "Device/Parser.hpp"
+#include "Atmosphere/Pressure.hpp"
+#include "Atmosphere/Temperature.hpp"
 #include "Geo/Geoid.hpp"
 #include "NMEA/Info.hpp"
 #include "NMEA/Checksum.hpp"
@@ -35,7 +37,7 @@ NMEAParser::ParseLine(const char *string, NMEAInfo &info)
   if (string[0] != '$')
     return false;
 
-  if (!NMEAChecksum(string))
+  if (!VerifyNMEAChecksum(string))
     return false;
 
   NMEAInputLine line(string);
@@ -43,6 +45,9 @@ NMEAParser::ParseLine(const char *string, NMEAInfo &info)
   const auto type = line.ReadView();
   if (type.size() < 6)
     return false;
+
+  if (type == "$LK8EX1"sv)
+    return LK8EX1(line, info);
 
   if (IsAlphaASCII(type[1]) && IsAlphaASCII(type[2])) {
     const auto type2 = type.substr(3);
@@ -613,7 +618,7 @@ NMEAParser::GGA(NMEAInputLine &line, NMEAInfo &info)
     info.gps_altitude_available.Clear();
 
   double geoid_separation;
-  if (ReadAltitude(line, geoid_separation)) {
+  if (ReadAltitude(line, geoid_separation) && (geoid_separation != 0)) {
     // No real need to parse this value,
     // but we do assume that no correction is required in this case
 
@@ -623,21 +628,29 @@ NMEAParser::GGA(NMEAInputLine &line, NMEAInfo &info)
          column.  That sucks! */
       info.gps_altitude = geoid_separation;
       info.gps_altitude_available.Update(info.clock);
+      if (use_geoid && info.location_available)
+          geoid_separation = EGM96::LookupSeparation(info.location);
+      else
+          geoid_separation = 0;
     }
+    info.gps_ellipsoid_altitude = info.gps_altitude + geoid_separation;
+    info.gps_ellipsoid_altitude_available.Update(info.clock);
   } else {
-    // need to estimate Geoid Separation internally (optional)
-    // FLARM uses MSL altitude
-    //
-    // Some others don't.
-    //
+    // FLARM reports MSL altitude & geoid separation in GGA sentence.
+    // Some others don't, or always report zero.
     // If the separation doesn't appear in the sentence,
-    // we can assume the GPS unit is giving ellipsoid height
-    //
+    // we can assume the GPS unit is giving ellipsoid height.
+    // Need to estimate Geoid Separation internally.
+    info.gps_ellipsoid_altitude = info.gps_altitude;
     if (use_geoid && info.location_available) {
       // JMW TODO really need to know the actual device..
       geoid_separation = EGM96::LookupSeparation(info.location);
       info.gps_altitude -= geoid_separation;
     }
+    if (altitude_available)
+      info.gps_ellipsoid_altitude_available.Update(info.clock);
+    else
+      info.gps_ellipsoid_altitude_available.Clear();
   }
 
   return true;
@@ -656,7 +669,15 @@ NMEAParser::RMZ(NMEAInputLine &line, NMEAInfo &info)
          altitude above 1013.25 hPa - since the don't have a "FLARM"
          device driver, we use the auto-detected "isFlarm" flag
          here */
+      info.igc_pressure_altitude = value;
+      info.igc_pressure_altitude_available.Update(info.clock);
       info.ProvideWeakPressureAltitude(value);
+      if (!info.pressure_altitude_weak)
+        info.igc_pressure_altitude_available.Clear();
+
+      /* One parsed value: logger igc + weak pressure_altitude; strong pressure
+         skips weak (see NMEAInfo::ProvidePressureAltitude). Complement merge:
+         first valid igc wins across devices. */
 
       /* when a FLARM gets detected too late, the previous call to
          this function may have filled the PGRMZ value into
@@ -670,12 +691,6 @@ NMEAParser::RMZ(NMEAInputLine &line, NMEAInfo &info)
   }
 
   return true;
-}
-
-bool
-NMEAParser::NMEAChecksum(const char *string)
-{
-  return VerifyNMEAChecksum(string);
 }
 
 bool
@@ -720,6 +735,59 @@ NMEAParser::PTAS1(NMEAInputLine &line, NMEAInfo &info)
   double vtas;
   if (line.ReadChecked(vtas))
     info.ProvideTrueAirspeed(Units::ToSysUnit(vtas, Unit::KNOTS));
+
+  return true;
+}
+
+bool
+NMEAParser::LK8EX1(NMEAInputLine &line, NMEAInfo &info)
+{
+  /*
+   * $LK8EX1,pressure,altitude,vario,temperature,battery*CS
+   *
+   * pressure: Pa (hPa×100), or 999999 if missing
+   * altitude: m QNE (ignored if pressure present), or 99999 if missing
+   * vario: cm/s, or 9999 if missing
+   * temperature: °C, or 99 if missing
+   * battery: volts, or 1000+percent, or 999 if missing
+   *
+   * @see https://github.com/LK8000/LK8000/blob/master/Docs/LK8EX1.txt
+   */
+
+  bool have_pressure = false;
+
+  double pressure;
+  if (line.ReadChecked(pressure) && pressure != 999999) {
+    info.ProvideStaticPressure(AtmosphericPressure::Pascal(pressure));
+    have_pressure = true;
+  }
+
+  double altitude;
+  if (line.ReadChecked(altitude)) {
+    if (!have_pressure && altitude != 99999)
+      info.ProvidePressureAltitude(altitude);
+  }
+
+  double vario_cm;
+  if (line.ReadChecked(vario_cm) && vario_cm != 9999)
+    info.ProvideNoncompVario(vario_cm / 100);
+
+  double temperature;
+  if (line.ReadChecked(temperature) && temperature != 99) {
+    info.temperature = Temperature::FromCelsius(temperature);
+    info.temperature_available.Update(info.clock);
+  }
+
+  double battery;
+  if (line.ReadChecked(battery) && battery != 999) {
+    if (battery >= 1000 && battery <= 1100) {
+      info.battery_level = battery - 1000;
+      info.battery_level_available.Update(info.clock);
+    } else {
+      info.voltage = battery;
+      info.voltage_available.Update(info.clock);
+    }
+  }
 
   return true;
 }

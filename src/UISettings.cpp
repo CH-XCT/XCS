@@ -2,6 +2,7 @@
 // Copyright The XCSoar Project
 
 #include "UISettings.hpp"
+#include "Asset.hpp"
 
 void
 UISettings::SetDefaults() noexcept
@@ -11,6 +12,12 @@ UISettings::SetDefaults() noexcept
   menu_timeout = std::chrono::seconds{8 * 4};
 
   scale = 100;
+
+#ifdef KOBO
+  viewing_distance = Layout::ViewingDistance::HANDHELD;
+#else
+  viewing_distance = Layout::ViewingDistance::AUTO;
+#endif
 
   custom_dpi = 0;  // automatic
 
@@ -27,9 +34,14 @@ UISettings::SetDefaults() noexcept
 #else
   show_menu_button = false;
 #endif
-  show_zoom_button = false;
+  show_zoom_button = show_menu_button;
+  show_quickmenu_button = HasTouchScreen();
 
+#ifdef KOBO
+  dark_mode = DarkMode::OFF;
+#else
   dark_mode = DarkMode::AUTO;
+#endif
 
   format.SetDefaults();
   map.SetDefaults();

@@ -28,12 +28,11 @@ public:
   }
 
   void ClearSelection() noexcept {
-    if (selected_.empty())
-      return;
+    SetAllSelected(false);
+  }
 
-    std::fill(selected_.begin(), selected_.end(), false);
-    GetList().Invalidate();
-    OnSelectionChanged();
+  void SelectAll() noexcept {
+    SetAllSelected(true);
   }
 
   /**
@@ -74,15 +73,6 @@ public:
                          [](uint8_t v) { return v != 0; });
   }
 
-  /** Select or deselect all items. */
-  void SetAllSelected(bool value) noexcept {
-    if (selected_.empty())
-      return;
-    std::fill(selected_.begin(), selected_.end(), value);
-    GetList().Invalidate();
-    OnSelectionChanged();
-  }
-
   /** Set selection for a single item (no toggle). */
   void SetSelected(unsigned idx, bool value) noexcept {
     if (idx >= selected_.size())
@@ -103,6 +93,23 @@ public:
     GetList().SetActivateOnFirstClick(true);
   }
 
+  /**
+   * When the list has focus, Return/Space toggle the cursor row before
+   * #ButtonPanel::KeyPress can fire the armed action (OK / Select all)
+   * under #WidgetDialog::EnableCursorSelection.
+   */
+  bool KeyPress(unsigned key_code) noexcept override;
+
+private:
+  /** Select or deselect all items. */
+  void SetAllSelected(bool value) noexcept {
+    if (selected_.empty())
+      return;
+    std::fill(selected_.begin(), selected_.end(), value);
+    GetList().Invalidate();
+    OnSelectionChanged();
+  }
+
 protected:
   /* ListCursorHandler hooks: activate toggles selection */
   bool CanActivateItem(unsigned index) const noexcept override {
@@ -115,9 +122,10 @@ protected:
 
   /**
    * Draw a checkbox at the left of the row and clipped text to the right.
+   * The text keeps the colour ListControl set for this row.
    */
   void DrawCheckboxText(Canvas &canvas, const PixelRect &rc,
-                        const char *text, bool selected) noexcept;
+                        const char *text, bool checked) noexcept;
 
   /** Optional hook for derived classes to react to selection changes. */
   virtual void OnSelectionChanged() noexcept {}

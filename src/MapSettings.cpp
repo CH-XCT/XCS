@@ -13,9 +13,9 @@ MapItemListSettings::SetDefaults() noexcept
 void
 TrailSettings::SetDefaults() noexcept
 {
-  wind_drift_enabled = true;
+  wind_drift_enabled = false;
   scaling_enabled = true;
-  type = Type::VARIO_1;
+  type = Type::VARIO_2;
   length = Length::LONG;
 }
 
@@ -43,12 +43,15 @@ MapSettings::SetDefaults() noexcept
   show_flarm_alarm_level = true;
   fade_traffic = true;
   show_thermal_profile = true;
+  distance_rings_enabled = false;
   final_glide_bar_mc0_enabled = true;
   final_glide_bar_display_mode = FinalGlideBarDisplayMode::ON;
   vario_bar_enabled = false;
   show_fai_triangle_areas = false;
-  skylines_traffic_map_mode = DisplaySkyLinesTrafficMapMode::SYMBOL;
+  online_traffic_map_mode = DisplayOnlineTrafficMapMode::SYMBOL;
   show_95_percent_rule_helpers = false;
+  rasp_layer_opacity = 70;
+  rasp_contour_density = ContourDensity::OFF;
 
   trail.SetDefaults();
   item_list.SetDefaults();

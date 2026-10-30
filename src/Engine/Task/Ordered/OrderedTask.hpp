@@ -7,6 +7,7 @@
 #include "Task/AbstractTask.hpp"
 #include "SmartTaskAdvance.hpp"
 #include "Waypoint/Ptr.hpp"
+#include "time/RoughTime.hpp"
 #include "util/DereferenceIterator.hxx"
 #include "util/StaticString.hxx"
 
@@ -75,6 +76,9 @@ private:
 
   StaticString<64> name;
 
+  /** Snapshot from #TaskManager for PEV offset at start recording. */
+  TimeSpan pilot_pev_window_snapshot{TimeSpan::Invalid()};
+
 public:
   /**
    * Constructor.
@@ -88,6 +92,14 @@ public:
    */
   explicit OrderedTask(const TaskBehaviour &tb) noexcept;
   ~OrderedTask() noexcept;
+
+  /**
+   * Copy the current PEV window from #CommonStats before each
+   * #Update(); used when recording start offset at crossing.
+   */
+  void SetPilotPevWindowSnapshot(const TimeSpan &span) noexcept {
+    pilot_pev_window_snapshot = span;
+  }
 
   /**
    * Accessor for factory system for constructing tasks
@@ -424,6 +436,13 @@ public:
   bool ScanStartFinish() noexcept;
 
 private:
+  /**
+   * Update the point navigation aims at while the start or the finish
+   * is the active task point.
+   *
+   * @param location the current aircraft location
+   */
+  void UpdateNearestPoint(const GeoPoint &location) noexcept;
 
   /**
    * @return true if a solution was found (and applied)
@@ -666,6 +685,9 @@ public:
   void SetActiveTaskPoint(unsigned desired) noexcept override;
   TaskWaypoint *GetActiveTaskPoint() const noexcept override;
   bool IsValidTaskPoint(const int index_offset=0) const noexcept override;
+  bool Update(const AircraftState &state_now,
+              const AircraftState &state_last,
+              const GlidePolar &glide_polar) noexcept override;
   bool UpdateIdle(const AircraftState& state_now,
                   const GlidePolar &glide_polar) noexcept override;
 

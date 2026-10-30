@@ -8,9 +8,9 @@
 #include "Language/Language.hpp"
 #include "LogFile.hpp"
 #include "Operation/Operation.hpp"
-#include "Patterns.hpp"
 #include "Profile/Keys.hpp"
 #include "Profile/Profile.hpp"
+#include "Repository/FileType.hpp"
 #include "io/BufferedReader.hxx"
 #include "io/FileReader.hxx"
 #include "io/MapFile.hpp"
@@ -55,7 +55,7 @@ try {
   BufferedReader buffered_reader{progress_reader};
 
   try {
-    ParseAirspaceFile(airspaces, buffered_reader);
+    ParseAirspaceFile(airspaces, buffered_reader, AirspaceOrigin::MAP);
   } catch (...) {
     // TODO translate this?
     std::throw_with_nested(FmtRuntimeError("Error in file {}", path));
@@ -80,7 +80,7 @@ ReadAirspace(Airspaces &airspaces,
 
   // Read the airspace filenames from the registry
   const auto paths = Profile::GetMultiplePaths(ProfileKeys::AirspaceFileList,
-                                               AIRSPACE_FILE_PATTERNS);
+                                               GetFileTypePatterns(FileType::AIRSPACE));
   for (const auto& path : paths) {
   airspace_ok |= ParseAirspaceFile(airspaces, path, operation);
   }
@@ -98,9 +98,11 @@ ReadAirspace(Airspaces &airspaces,
   if (airspace_ok) {
     airspaces.Optimise();
     airspaces.SetFlightLevels(press);
-  } else
-    // there was a problem
-    airspaces.Clear();
+  } else {
+    /* Drop a partial read. Other origins stay. */
+    airspaces.EraseOrigin(AirspaceOrigin::FILE);
+    airspaces.EraseOrigin(AirspaceOrigin::MAP);
+  }
 }
 
 void

@@ -3,7 +3,8 @@
 
 #pragma once
 
-struct PageLayout;
+#include "PageSettings.hpp"
+
 class GlueMapWindow;
 class Widget;
 
@@ -21,6 +22,13 @@ namespace PageActions
    */
   [[gnu::pure]]
   const PageLayout &GetCurrentLayout();
+
+  /**
+   * True after pan was disabled without Restore(), leaving the transient
+   * FullScreen layout active while a different page is configured.
+   */
+  [[gnu::pure]]
+  bool IsStuckPanFullScreenLayout() noexcept;
 
   /**
    * Opens the next page.
@@ -56,9 +64,26 @@ namespace PageActions
   void Update();
 
   /**
+   * Like Update(), but runs on the next event-loop iteration.
+   */
+  void ScheduleUpdate() noexcept;
+
+  /**
    * Restore the current page as it was configured.
    */
   void Restore();
+
+  /**
+   * The map's projection has been edited -- the pilot zoomed, panned
+   * or rotated, or the map followed the aircraft.
+   *
+   * Overlays that fetch imagery for the visible area need to know, or
+   * they would keep showing the section that was on screen when they
+   * last looked.  Called from GlueMapWindow, which knows nothing about
+   * the individual providers; each decides for itself whether it is on
+   * the map at all.
+   */
+  void OnMapProjectionModified() noexcept;
 
   /**
    * Schedule a call to Restore().  The function returns immediately,
@@ -98,8 +123,32 @@ namespace PageActions
   void ShowThermalAssistant();
 
   /**
+   * Show the dedicated weather map page.
+   */
+  void ShowWeatherPage();
+
+  /**
+   * Preserve active weather overlays across a temporary pan full-screen.
+   */
+  void SuspendWeatherOverlaysForPan() noexcept;
+
+  /**
+   * Clear temporary pan suspension flags for all weather overlays.
+   */
+  void ResumeWeatherOverlaysAfterPan() noexcept;
+
+  /**
    * Use a custom widget for the "bottom" area.  This is a wrapper for
    * MainWindow::SetBottomWidget().  Call RestoreBottom() to undo this.
    */
   void SetCustomBottom(Widget *widget);
+
+  /**
+   * Whether map overlay buttons (menu, QuickMenu, zoom) should be
+   * shown.  False for most special pages (e.g. pan fullscreen); true
+   * when #special_page is only a #SetCustomBottom() overlay such as a
+   * QuestionWidget on an otherwise normal map page.
+   */
+  [[gnu::pure]]
+  bool AllowMapOverlayButtons() noexcept;
 };

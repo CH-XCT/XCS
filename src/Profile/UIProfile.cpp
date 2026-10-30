@@ -27,6 +27,10 @@ Profile::Load(const ProfileMap &map, DisplaySettings &settings)
   map.Get(ProfileKeys::CursorSize, settings.cursor_size);
   map.Get(ProfileKeys::CursorColorsInverted, settings.invert_cursor_colors);
   map.Get(ProfileKeys::FullScreen, settings.full_screen);
+  map.Get(ProfileKeys::InfoBoxAreaStretch, settings.infobox_area_stretch);
+  settings.infobox_area_stretch &= DisplaySettings::INFOBOX_AREA_STRETCH_ALL;
+  map.GetEnum(ProfileKeys::StatusBar, settings.status_bar);
+  map.GetEnum(ProfileKeys::DisplayType, settings.display_type);
 }
 
 void
@@ -59,6 +63,7 @@ Profile::Load(const ProfileMap &map, TrafficSettings &settings)
   map.GetEnum(ProfileKeys::FlarmLocation, settings.gauge_location);
   map.Get(ProfileKeys::FlarmRadarZoom, settings.radar_zoom);
   map.Get(ProfileKeys::NoPositionTargetDistanceRing, settings.no_position_target_distance_ring);
+  map.Get(ProfileKeys::FlarmSpokenAlerts, settings.spoken_alerts);
 }
 
 void
@@ -74,6 +79,7 @@ Profile::Load(const ProfileMap &map, VarioSoundSettings &settings)
 {
   map.Get(ProfileKeys::SoundAudioVario, settings.enabled);
   map.Get(ProfileKeys::SoundVolume, settings.volume);
+  map.GetEnum(ProfileKeys::VarioSoundSwitchingMode, settings.switching_mode);
   map.Get(ProfileKeys::VarioDeadBandEnabled, settings.dead_band_enabled);
 
   map.Get(ProfileKeys::VarioMinFrequency, settings.min_frequency);
@@ -110,6 +116,12 @@ Profile::Load(const ProfileMap &map, UISettings &settings)
   if (settings.scale < 50 || settings.scale > 200)
     settings.scale = 100;
 
+  const auto viewing_distance = settings.viewing_distance;
+  if (!map.GetEnum(ProfileKeys::ViewingDistance, settings.viewing_distance) ||
+      unsigned(settings.viewing_distance) >
+      unsigned(Layout::ViewingDistance::PANEL))
+    settings.viewing_distance = viewing_distance;
+
   map.Get(ProfileKeys::CustomDPI, settings.custom_dpi);
   if (settings.custom_dpi < 120 || settings.custom_dpi > 520)
     settings.custom_dpi = 0;
@@ -133,6 +145,7 @@ Profile::Load(const ProfileMap &map, UISettings &settings)
 
   map.Get(ProfileKeys::ShowMenuButton, settings.show_menu_button);
   map.Get(ProfileKeys::ShowZoomButton, settings.show_zoom_button);
+  map.Get(ProfileKeys::ShowQuickMenuButton, settings.show_quickmenu_button);
 
   if (!map.GetEnum(ProfileKeys::DarkMode, settings.dark_mode)) {
     /* migrate the old AppInverseInfoBox setting */
@@ -142,6 +155,11 @@ Profile::Load(const ProfileMap &map, UISettings &settings)
         ? UISettings::DarkMode::ON
         : UISettings::DarkMode::OFF;
   }
+
+#ifdef KOBO
+  /* Dark mode is not supported on e-paper displays. */
+  settings.dark_mode = UISettings::DarkMode::OFF;
+#endif
 
   Load(map, settings.format);
   Load(map, settings.map);

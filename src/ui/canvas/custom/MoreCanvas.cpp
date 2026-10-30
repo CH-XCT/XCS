@@ -2,22 +2,15 @@
 // Copyright The XCSoar Project
 
 #include "ui/canvas/Canvas.hpp"
+#include "ui/canvas/TextFormat.hpp"
 #include "util/StringAPI.hxx"
-
-#ifndef NDEBUG
 #include "util/UTF8.hpp"
-#endif
-
-#ifndef UNICODE
-#include "util/UTF8.hpp"
-#endif
 
 #include <algorithm>
 #include <cassert>
 
 #include <limits.h>
 #include <string.h>
-#include <winuser.h>
 
 void
 Canvas::DrawRaisedEdge(PixelRect &rc) noexcept
@@ -54,7 +47,12 @@ Canvas::DrawFormattedText(const PixelRect r, const std::string_view text,
     ? UINT_MAX
     : (r.GetHeight() + skip - 1) / skip;
 
-  char *const duplicated = new char[text.size() + 1], *p = duplicated;
+  /*
+   * Word wrapping below inserts NUL separators between lines.  In the
+   * worst case, every UTF-8 character needs its own line, so reserve
+   * enough space for one separator per input byte.
+   */
+  char *const duplicated = new char[text.size() * 2 + 1], *p = duplicated;
   unsigned lines = 1;
   for (char ch : text) {
     if (ch == '\n') {
@@ -75,7 +73,7 @@ Canvas::DrawFormattedText(const PixelRect r, const std::string_view text,
   }
 
   *p = '\0';
-  const size_t len = p - duplicated;
+  size_t len = p - duplicated;
 
   // simple wordbreak algorithm. looks for single spaces only, no tabs,
   // no grouping of multiple spaces. If a line has no spaces and is too
@@ -100,42 +98,26 @@ Canvas::DrawFormattedText(const PixelRect r, const std::string_view text,
       size_t line_start = i;
       const char *line_ptr = duplicated + line_start;
       size_t line_len_bytes = strlen(line_ptr);
-      
-#ifndef UNICODE
-      // On non-Unicode platforms, get actual UTF-8 character count
-      size_t line_len_chars = LengthUTF8(
-        reinterpret_cast<const char *>(line_ptr));
-#else
-      // On Unicode platforms, character count equals byte count
-      size_t line_len_chars = line_len_bytes;
-#endif
-      
+      size_t line_len_chars = LengthUTF8(line_ptr);
+
       // find the maximum number of characters that fit using binary search
       size_t chars_that_fit = 0;
       size_t low = 1;
       size_t high = line_len_chars;
-      
+
       while (low <= high) {
         size_t mid = (low + high) / 2;
-        
-#ifndef UNICODE
-        // On non-Unicode platforms (char=char), use UTF-8 character boundaries
         size_t byte_pos = TruncateStringUTF8(
-          std::string_view(reinterpret_cast<const char *>(line_ptr), line_len_bytes),
-          mid);
-#else
-        // On Unicode platforms (char=wchar_t), character = code unit
-        size_t byte_pos = mid;
-#endif
-        
+          std::string_view(line_ptr, line_len_bytes), mid);
+
         if (byte_pos > line_len_bytes)
           byte_pos = line_len_bytes;
-        
+
         char saved = duplicated[line_start + byte_pos];
         duplicated[line_start + byte_pos] = '\0';
         PixelSize test_sz = CalcTextSize(line_ptr);
         duplicated[line_start + byte_pos] = saved;
-        
+
         if (test_sz.width <= r.GetWidth()) {
           chars_that_fit = byte_pos;
           low = mid + 1;
@@ -143,27 +125,31 @@ Canvas::DrawFormattedText(const PixelRect r, const std::string_view text,
           high = mid - 1;
         }
       }
-      
+
       // if we found a break point, insert a null terminator
       if (chars_that_fit > 0 && chars_that_fit < line_len_bytes) {
-        duplicated[line_start + chars_that_fit] = '\0';
-#ifndef UNICODE
-        // Ensure we don't split a UTF-8 sequence by cropping backward if needed
-        // CropIncompleteUTF8 finds the terminator and crops incomplete sequences
-        char *new_end = CropIncompleteUTF8(
-          reinterpret_cast<char *>(duplicated + line_start));
-        // Update chars_that_fit to the actual break position after cropping
-        chars_that_fit = new_end - reinterpret_cast<char *>(duplicated + line_start);
-#endif
-        prev_p = duplicated + line_start + chars_that_fit;
+        const size_t break_position = line_start + chars_that_fit;
+
+        /*
+         * Make room for the separator instead of overwriting the first
+         * byte of the next character.  Overwriting it made the following
+         * line begin with a UTF-8 continuation byte.
+         */
+        memmove(duplicated + break_position + 1,
+                duplicated + break_position,
+                len - break_position + 1);
+        duplicated[break_position] = '\0';
+        ++len;
+        prev_p = duplicated + break_position;
       }
     }
 
-    if (prev_p) {
+    if (prev_p)
+      /* keep wrapping the rest of the text even though it does not
+         fit; the loop below stops at the bottom of the rectangle, but
+         a line which was never wrapped would be drawn across the whole
+         canvas */
       lines++;
-      if (lines >= max_lines)
-        break;
-    }
   }
 
   if (format & DT_CALCRECT) {

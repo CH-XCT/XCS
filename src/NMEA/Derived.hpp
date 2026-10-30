@@ -15,7 +15,7 @@
 #include "Engine/ThermalBand/ThermalEncounterBand.hpp"
 #include "Engine/ThermalBand/ThermalEncounterCollection.hpp"
 #include "NMEA/ThermalLocator.hpp"
-#include "NMEA/Validity.hpp"
+#include "time/Validity.hpp"
 #include "NMEA/ClimbHistory.hpp"
 #include "TeamCode/TeamCode.hpp"
 #include "Engine/Navigation/TraceHistory.hpp"
@@ -133,6 +133,9 @@ struct DerivedInfo:
   /** Speed to fly block/dolphin (m/s) */
   double V_stf;
 
+  /** Whether #V_stf was calculated from a valid glide polar. */
+  bool V_stf_available;
+
   /** Auto QNH calculation result. */
   AtmosphericPressure pressure;
   Validity pressure_available;
@@ -241,6 +244,13 @@ struct DerivedInfo:
   double next_leg_eq_thermal;
 
   /**
+   * Thermal value of current leg that is equivalent (gives the same average
+   * speed) to the current MacCready setting on the next leg.
+   * A negative value should be treated as invalid.
+   */
+  double next_leg_eq_thermal_inverse;
+
+  /**
    * @todo Reset to cleared state
    */
   void Reset();
@@ -272,4 +282,4 @@ struct DerivedInfo:
   double CalculateWorkingFraction(const double h, const double safety_height) const;
 };
 
-static_assert(std::is_trivial_v<DerivedInfo>, "type is not trivial");
+static_assert(std::is_trivially_copyable_v<DerivedInfo>, "type is not trivially copyable");

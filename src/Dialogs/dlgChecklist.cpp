@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright The XCSoar Project
 
+#include "DataFilePath.hpp"
 #include "Dialogs/Dialogs.h"
 #include "Dialogs/WidgetDialog.hpp"
 #include "Widget/VScrollWidget.hpp"
 #include "Widget/ArrowPagerWidget.hpp"
 #include "Widget/RichTextWidget.hpp"
+#include "ui/control/RichTextWindow.hpp"
 #include "Look/DialogLook.hpp"
 #include "UIGlobals.hpp"
 #include "util/StaticString.hxx"
@@ -14,12 +16,16 @@
 #include "io/Reader.hxx"
 #include "io/BufferedReader.hxx"
 #include "io/StringConverter.hpp"
-#include "LocalPath.hpp"
 #include "Profile/Profile.hpp"
 #include "Profile/Keys.hpp"
+#include "Repository/FileType.hpp"
 #include "system/Path.hpp"
 #include "Language/Language.hpp"
+#include "Session/SessionState.hpp"
 
+#include <algorithm>
+#include <array>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -58,6 +64,29 @@ UpdateCaption(WndForm &form, const Checklist &checklist,
   form.SetCaption(caption);
 }
 
+/**
+ * Commit @p page as a new page, or fold it into the last page when
+ * the pager child limit is reached.
+ */
+static void
+FlushPage(Checklist &c, ChecklistPage &page) noexcept
+{
+  if (page.empty())
+    return;
+
+  if (c.size() < MAX_CHECKLIST_PAGES) {
+    c.push_back(std::move(page));
+  } else if (!c.empty()) {
+    if (!page.title.empty()) {
+      c.back().text.append(page.title);
+      c.back().text.push_back('\n');
+    }
+    c.back().text.append(page.text);
+  }
+
+  page = {};
+}
+
 static Checklist
 LoadChecklist(Path path) noexcept
 try {
@@ -68,72 +97,196 @@ try {
 
   FileReader file_reader(path);
   BufferedReader reader{file_reader};
-  StringConverter string_converter{Charset::UTF8};
+  StringConverter conv{Charset::UTF8};
 
   ChecklistPage page;
+  while (char *raw = reader.ReadLine()) {
+    const std::string_view line{raw};
 
-  char *TempString;
-  while ((TempString = reader.ReadLine()) != nullptr) {
-    const std::string_view line{TempString};
+    if (raw[0] == '[') {
+      FlushPage(c, page);
 
-    // Look for start of new page
-    if (TempString[0] == '[') {
-      if (!page.empty()) {
-        if (c.size() < MAX_CHECKLIST_PAGES) {
-          c.emplace_back(std::move(page));
-        } else if (!c.empty()) {
-          c.back().text.append(page.title);
-          c.back().text.append("\n");
-          c.back().text.append(page.text);
-        }
-        page = {};
-      }
-
-      if (c.size() < MAX_CHECKLIST_PAGES) {
-        page.title.assign(string_converter.Convert(Split(line.substr(1), ']').first));
-      } else if (!c.empty()) {
-        // Already at page limit; append this line to last page instead
-        c.back().text.append(string_converter.Convert(line));
+      if (c.size() < MAX_CHECKLIST_PAGES)
+        page.title.assign(
+          conv.Convert(Split(line.substr(1), ']').first));
+      else if (!c.empty()) {
+        /* Extra [section] headers stay visible on the last page. */
+        c.back().text.append(conv.Convert(line));
         c.back().text.push_back('\n');
       }
     } else if (!line.empty() || !page.text.empty()) {
-      // append text to details string
-      if (c.size() < MAX_CHECKLIST_PAGES) {
-        page.text.append(string_converter.Convert(line));
-        page.text.push_back('\n');
-      } else if (!c.empty()) {
-        c.back().text.append(string_converter.Convert(line));
-        c.back().text.push_back('\n');
-      }
+      std::string &dest = c.size() < MAX_CHECKLIST_PAGES
+        ? page.text
+        : c.back().text;
+      dest.append(conv.Convert(line));
+      dest.push_back('\n');
     }
   }
 
-  if (!page.empty()) {
-    if (c.size() < MAX_CHECKLIST_PAGES) {
-      c.emplace_back(std::move(page));
-    } else if (!c.empty()) {
-      // At page limit; append final page content to last page
-      if (!page.title.empty()) {
-        c.back().text.append(page.title);
-        c.back().text.append("\n");
-      }
-      c.back().text.append(page.text);
-    }
-  }
-
+  FlushPage(c, page);
   return c;
 } catch (...) {
   return {};
 }
 
+/**
+ * Survives dialog close so the last page and checkbox ticks come back
+ * on the next open.  Cleared when the Site Files checklist path changes.
+ */
+static struct {
+  std::size_t page = 0;
+  AllocatedPath path;
+  std::vector<std::string> texts;
+  std::vector<std::vector<uint8_t>> checks;
+} session;
+
+static RichTextWindow &
+GetPageWindow(Widget &page) noexcept
+{
+  auto &widget = static_cast<RichTextWidget &>(
+    static_cast<VScrollWidget &>(page).GetWidget());
+  return static_cast<RichTextWindow &>(widget.GetWindow());
+}
+
+static std::string
+TicksToString(const std::vector<uint8_t> &checked) noexcept
+{
+  std::string ticks;
+  ticks.reserve(checked.size());
+  for (const uint8_t bit : checked)
+    ticks.push_back(bit ? '1' : '0');
+  return ticks;
+}
+
+static std::vector<uint8_t>
+TicksFromString(const std::string &ticks) noexcept
+{
+  std::vector<uint8_t> checked;
+  checked.reserve(ticks.size());
+  for (const char c : ticks)
+    checked.push_back(c == '1');
+  return checked;
+}
+
+/**
+ * Fill the in-memory session from the session file when this process
+ * has not opened the checklist yet.
+ */
+static void
+LoadFileIntoSession(Path path, const Checklist &checklist) noexcept
+{
+  if (path == nullptr)
+    return;
+
+  const SessionState &state = Session::State();
+  if (!state.flying || state.checklist_file != path.c_str())
+    return;
+
+  session.path = path;
+  session.page = state.checklist_page;
+  session.texts.clear();
+  session.checks.clear();
+  session.texts.reserve(checklist.size());
+  session.checks.reserve(checklist.size());
+
+  for (std::size_t i = 0; i < checklist.size(); ++i) {
+    session.texts.push_back(checklist[i].text);
+
+    std::string ticks;
+    if (state.ChecklistTicks(unsigned(i),
+                             SessionHash(checklist[i].text), ticks))
+      session.checks.push_back(TicksFromString(ticks));
+    else
+      session.checks.emplace_back();
+  }
+}
+
+static void
+RestoreSessionChecks(ArrowPagerWidget &pager, Path path,
+                     const Checklist &checklist) noexcept
+{
+  if (path != session.path)
+    return;
+
+  const unsigned n = std::min(pager.GetSize(),
+                              (unsigned)checklist.size());
+  for (unsigned i = 0; i < n; ++i) {
+    if (i >= session.texts.size() || i >= session.checks.size())
+      break;
+    if (session.texts[i] != checklist[i].text)
+      continue;
+
+    GetPageWindow(pager.GetWidget(i))
+      .SetCheckboxCheckedStates(session.checks[i]);
+  }
+}
+
+static void
+SaveSession(ArrowPagerWidget &pager, Path path,
+            const Checklist &checklist) noexcept
+{
+  session.page = pager.GetCurrentIndex();
+  session.path = path;
+  session.texts.clear();
+  session.checks.clear();
+
+  const unsigned n = std::min(pager.GetSize(),
+                              (unsigned)checklist.size());
+  session.texts.reserve(n);
+  session.checks.reserve(n);
+  std::array<SessionChecklistNote, SESSION_MAX_CHECKLIST_PAGES> notes{};
+  std::array<std::string, SESSION_MAX_CHECKLIST_PAGES> stored{};
+
+  for (unsigned i = 0; i < n; ++i) {
+    session.texts.push_back(checklist[i].text);
+    session.checks.push_back(
+      GetPageWindow(pager.GetWidget(i)).GetCheckboxCheckedStates());
+
+    if (i >= SESSION_MAX_CHECKLIST_PAGES)
+      continue;
+
+    stored[i] = TicksToString(session.checks.back());
+    notes[i].sum = SessionHash(checklist[i].text);
+    notes[i].ticks = stored[i];
+  }
+
+  if (path != nullptr && !path.empty())
+    Session::NoteChecklist(path.c_str(), unsigned(session.page),
+                           std::span<const SessionChecklistNote>(
+                             notes.data(),
+                             std::min(n, SESSION_MAX_CHECKLIST_PAGES)));
+}
+
+struct ChecklistPersist {
+  ArrowPagerWidget *pager;
+  const Checklist *checklist;
+  Path path;
+};
+
+static void
+OnChecklistToggled(void *ctx) noexcept
+{
+  const auto *persist = static_cast<const ChecklistPersist *>(ctx);
+  SaveSession(*persist->pager, persist->path, *persist->checklist);
+}
+
+void
+dlgChecklistNotifySiteFileChanged() noexcept
+{
+  /* Profile::GetPath(ChecklistFile) is already updated; drop page and
+     ticks so a different file does not keep stale state. */
+  session = {};
+  Session::ClearChecklist();
+}
+
 void
 dlgChecklistShowModal()
 {
-  static std::size_t current_page = 0;
 
   auto path = Profile::GetPath(ProfileKeys::ChecklistFile);
   if (path == nullptr || path.empty())
-    path = LocalPath("xcsoar-checklist.txt");
+    path = ResolveTypedDataFilePath(FileType::CHECKLIST,
+                                    "xcsoar-checklist.txt");
   auto checklist = LoadChecklist(path);
   if (checklist.empty())
     {
@@ -152,7 +305,8 @@ dlgChecklistShowModal()
         "- [ ] %s\n"
         "- [ ] %s\n"
         "- [ ] %s\n"
-        "- [ ] %s",
+        "- [ ] %s\n"
+        "- [ ] %s [%s](vhf:122.800#standby)",
         _("Getting Started"),
         _("Download the example checklist or create your own:"),
         _("Download Example"),
@@ -164,15 +318,20 @@ dlgChecklistShowModal()
         N_("**Bold** and # Headings"),
         _("Clickable links"),
         _("Phone: tel: / SMS: sms: / Email: mailto:"),
-        _("Maps: geo:47.5,8.5"));
+        _("Maps: geo:47.5,8.5"),
+        _("Set standby from a link"),
+        C_("Menu", "Information"));
       checklist.emplace_back(ChecklistPage{
           _("No checklist loaded"),
           body.c_str(),
         });
     }
 
-  if (current_page >= checklist.size())
-    current_page = 0;
+  if (session.path == nullptr || path == nullptr || session.path != path)
+    LoadFileIntoSession(path, checklist);
+
+  if (session.page >= checklist.size())
+    session.page = 0;
 
   const DialogLook &look = UIGlobals::GetDialogLook();
 
@@ -181,25 +340,40 @@ dlgChecklistShowModal()
 
   auto pager = std::make_unique<ArrowPagerWidget>(look.button,
                                                    dialog.MakeModalResultCallback(mrOK));
-  for (const auto &i : checklist)
-    pager->Add(std::make_unique<VScrollWidget>(
-      std::make_unique<RichTextWidget>(look, i.text.c_str()), look, true));
+  ArrowPagerWidget *const pager_ptr = pager.get();
 
-  pager->SetCurrent(current_page);
+  for (const auto &page : checklist) {
+    pager->Add(std::make_unique<VScrollWidget>(
+      std::make_unique<RichTextWidget>(look, page.text.c_str()), look, true));
+  }
+
+  pager->SetCurrent(session.page);
 
   const std::size_t total_pages = checklist.size();
 
   pager->SetPageFlippedCallback(
-    [&checklist, &dialog, &pager=*pager, total_pages](){
+    [&checklist, &dialog, pager_ptr, total_pages]() {
       UpdateCaption(dialog, checklist,
-                    pager.GetCurrentIndex(), total_pages);
+                    pager_ptr->GetCurrentIndex(), total_pages);
     });
 
   UpdateCaption(dialog, checklist,
                 pager->GetCurrentIndex(), total_pages);
 
   dialog.FinishPreliminary(std::move(pager));
+  /* Full-screen dialogs do not Prepare() until Show(); do it here so
+     the page windows exist before ticks are restored. */
+  dialog.PrepareWidget();
+
+  auto &pager_widget = static_cast<ArrowPagerWidget &>(dialog.GetWidget());
+  RestoreSessionChecks(pager_widget, path, checklist);
+
+  ChecklistPersist persist{&pager_widget, &checklist, path};
+  for (unsigned i = 0; i < pager_widget.GetSize(); ++i)
+    GetPageWindow(pager_widget.GetWidget(i))
+      .SetCheckboxToggledCallback(OnChecklistToggled, &persist);
+
   dialog.ShowModal();
 
-  current_page = ((ArrowPagerWidget &)dialog.GetWidget()).GetCurrentIndex();
+  SaveSession(pager_widget, path, checklist);
 }

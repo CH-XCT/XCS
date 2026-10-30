@@ -9,12 +9,14 @@
 #include "Device/MultipleDevices.hpp"
 #include "Blackboard/DeviceBlackboard.hpp"
 #include "time/PeriodClock.hpp"
+#include "time/RoughTime.hpp"
 #include "MainWindow.hpp"
 #include "PopupMessage.hpp"
 #include "Simulator.hpp"
 #include "Replay/Replay.hpp"
 #include "InfoBoxes/InfoBoxManager.hpp"
 #include "Task/ProtectedTaskManager.hpp"
+#include "Engine/Task/TaskManager.hpp"
 #include "BallastDumpManager.hpp"
 #include "Operation/Operation.hpp"
 #include "Tracking/TrackingGlue.hpp"
@@ -23,9 +25,20 @@
 #include "Components.hpp"
 #include "NetComponents.hpp"
 #include "BackendComponents.hpp"
+#include "LogFile.hpp"
+#include "Session/SessionState.hpp"
+#include "Engine/Task/TaskType.hpp"
 
 #ifdef _WIN32
 #include <windows.h>
+#endif
+
+#ifdef HAVE_HTTP
+#include "NOTAM/NOTAMGlue.hpp"
+#endif
+
+#ifdef __APPLE__
+#include "Apple/DarkMode.hpp"
 #endif
 
 static void
@@ -115,6 +128,13 @@ BallastDumpProcessTimer() noexcept
     // Plane is dry now -> disable ballast_timer
     settings_computer.polar.ballast_timer_active = false;
 
+  /* Each dump step is the crash copy of the remaining ballast.
+     The 30s flush below is too slow for that. */
+  Session::NotePolar(glide_polar.GetBallastLitres(),
+                     glide_polar.GetCrewMass(),
+                     settings_computer.polar.bugs);
+  Session::Flush();
+
   if (backend_components->protected_task_manager != nullptr)
     backend_components->protected_task_manager->SetGlidePolar(glide_polar);
 }
@@ -159,12 +179,102 @@ ProcessAutoBugs() noexcept
   }
 }
 
+/**
+ * Keep the UTC offset up to date, unless the user has configured it
+ * manually.  This picks up daylight saving time transitions, and time
+ * zone changes while travelling.
+ */
+static void
+UTCOffsetProcessTimer() noexcept
+{
+  const auto &settings = CommonInterface::GetComputerSettings();
+  if (settings.local_time_source == LocalTimeSource::MANUAL_UTC_OFFSET)
+    return;
+
+  /* calculating the UTC offset is cheap, but there is no point in
+     doing it on every timer tick */
+  static PeriodClock clock;
+  if (!clock.CheckUpdate(std::chrono::seconds(30)))
+    return;
+
+  if (const auto utc_offset = settings.GetCurrentUTCOffset();
+      utc_offset != settings.utc_offset)
+    CommonInterface::SetComputerSettings().utc_offset = utc_offset;
+}
+
+static void
+SessionProcessTimer() noexcept
+{
+  if (!Session::IsReady())
+    return;
+
+  const auto &settings = CommonInterface::GetComputerSettings();
+  const auto &polar = settings.polar;
+  const bool flying = CommonInterface::Calculated().flight.flying;
+  if (Session::State().NoteFlying(
+        flying,
+        polar.glide_polar_task.GetBallastLitres(),
+        polar.glide_polar_task.GetCrewMass(),
+        polar.bugs))
+    Session::Flush();
+
+  /* QNH only once it has been set.  The startup default is not known,
+     so automatic QNH can still run. */
+  if (settings.pressure_available)
+    Session::NoteQNH(settings.pressure.GetHectoPascal());
+  Session::NoteMaxTemp(settings.forecast_temperature.ToKelvin());
+
+  if (backend_components->protected_task_manager != nullptr) {
+    const ProtectedTaskManager::Lease
+      lease{*backend_components->protected_task_manager};
+    /* Abort keeps the Goto task.  Resume() puts that mode back. */
+    const auto mode = lease->GetMode();
+    if (mode != TaskType::GOTO && mode != TaskType::ABORT &&
+        Session::State().have_goto)
+      Session::ClearGoto();
+  }
+
+  static PeriodClock clock;
+  if (!Session::State().modified)
+    return;
+
+  if (clock.IsDefined() && clock.Elapsed() < std::chrono::seconds(30))
+    return;
+
+  clock.Update();
+  Session::Flush();
+}
+
 static void
 SettingsProcessTimer() noexcept
 {
+  UTCOffsetProcessTimer();
   BallastDumpProcessTimer();
   ProcessAutoBugs();
+  SessionProcessTimer();
 }
+
+#ifdef __APPLE__
+
+/**
+ * Follows the operating system's appearance setting, which macOS and
+ * iOS may switch at any time, e.g. on their sunset-to-sunrise
+ * schedule.  Neither sends the application an event our event loop
+ * could see, so the setting has to be polled; this is only necessary
+ * while the user has asked us to follow it.
+ */
+static void
+DarkModeProcessTimer() noexcept
+{
+  if (CommonInterface::GetUISettings().dark_mode !=
+      UISettings::DarkMode::AUTO)
+    return;
+
+  if (UpdateAppleDarkMode())
+    CommonInterface::main_window->ReinitialiseLook();
+}
+
+#endif
 
 static void
 CommonProcessTimer() noexcept
@@ -172,6 +282,10 @@ CommonProcessTimer() noexcept
   BlackboardProcessTimer();
 
   SettingsProcessTimer();
+
+#ifdef __APPLE__
+  DarkModeProcessTimer();
+#endif
 
   InfoBoxManager::ProcessTimer();
   InputEvents::ProcessTimer();
@@ -259,6 +373,26 @@ ProcessTimer() noexcept
     if (net_components->tim != nullptr &&
         CommonInterface::GetComputerSettings().weather.enable_tim)
       net_components->tim->OnTimer(CommonInterface::Basic());
+
+    const NMEAInfo &basic = CommonInterface::Basic();
+    if (net_components->notam != nullptr) {
+      const auto &notam_settings =
+        CommonInterface::GetComputerSettings().airspace.notam;
+      net_components->notam->SetSettings(notam_settings);
+      if (notam_settings.enabled && basic.location_available) {
+        const auto current_time_utc =
+          basic.time_available && basic.date_time_utc.IsDatePlausible()
+            ? basic.date_time_utc.ToTimePoint()
+            : std::chrono::system_clock::now();
+        try {
+          net_components->notam->OnTimer(basic.location, current_time_utc);
+        } catch (const std::exception &e) {
+          LogFmt("NOTAM: OnTimer failed: {}", e.what());
+        } catch (...) {
+          LogFmt("NOTAM: OnTimer failed");
+        }
+      }
+    }
 #endif
   }
 }

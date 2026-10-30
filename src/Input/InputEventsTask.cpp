@@ -10,6 +10,7 @@
 #include "Protection.hpp"
 #include "Formatter/UserUnits.hpp"
 #include "Formatter/LocalTimeFormatter.hpp"
+#include "Formatter/TimeFormatter.hpp"
 #include "Units/Units.hpp"
 #include "Profile/Profile.hpp"
 #include "Profile/Keys.hpp"
@@ -26,6 +27,10 @@
 #include "Components.hpp"
 #include "BackendComponents.hpp"
 #include "DataComponents.hpp"
+
+#include "util/StaticString.hxx"
+
+#include <chrono>
 
 static void
 trigger_redraw()
@@ -99,14 +104,37 @@ InputEvents::eventCalculator([[maybe_unused]] const char *misc)
 }
 
 void
-InputEvents::eventGotoLookup([[maybe_unused]] const char *misc)
+InputEvents::eventGotoLookup(const char *misc)
 {
   const NMEAInfo &basic = CommonInterface::Basic();
 
   if (!backend_components->protected_task_manager)
     return;
 
-  auto wp = ShowWaypointListDialog(*data_components->waypoints, basic.location);
+  /* Optional ``misc`` keyword: pre-select the Type filter when the
+     dialog opens, so a gesture/key binding can jump directly to a
+     category (e.g. recently-used waypoints).  Unknown values are
+     silently ignored, preserving backward compatibility with the
+     argument-less form. */
+  std::optional<TypeFilter> initial_type;
+  if (misc != nullptr && *misc != '\0') {
+    if (StringIsEqual(misc, "recent") ||
+        StringIsEqual(misc, "last_used"))
+      initial_type = TypeFilter::LAST_USED;
+    else if (StringIsEqual(misc, "airport"))
+      initial_type = TypeFilter::AIRPORT;
+    else if (StringIsEqual(misc, "landable"))
+      initial_type = TypeFilter::LANDABLE;
+    else if (StringIsEqual(misc, "turnpoint"))
+      initial_type = TypeFilter::TURNPOINT;
+    else if (StringIsEqual(misc, "start"))
+      initial_type = TypeFilter::START;
+    else if (StringIsEqual(misc, "finish"))
+      initial_type = TypeFilter::FINISH;
+  }
+
+  auto wp = ShowWaypointListDialog(*data_components->waypoints, basic.location,
+                                   nullptr, 0, initial_type);
   if (wp != NULL) {
     // Remove old temporary goto waypoint when selecting a regular waypoint
     auto &way_points = *data_components->waypoints;
@@ -135,12 +163,16 @@ InputEvents::eventMacCready(const char *misc)
 
   TaskBehaviour &task_behaviour = CommonInterface::SetComputerSettings().task;
 
-  if (StringIsEqual(misc, "up")) {
+  const bool abort =
+    CommonInterface::Calculated().common_stats.task_type == TaskType::ABORT;
+
+  if (StringIsEqual(misc, "up") || StringIsEqual(misc, "down")) {
     const auto step = Units::ToSysVSpeed(GetUserVerticalSpeedStep());
-    ActionInterface::OffsetManualMacCready(step);
-  } else if (StringIsEqual(misc, "down")) {
-    const auto step = Units::ToSysVSpeed(GetUserVerticalSpeedStep());
-    ActionInterface::OffsetManualMacCready(-step);
+    const auto offset = StringIsEqual(misc, "up") ? step : -step;
+    if (abort)
+      ActionInterface::OffsetSafetyMacCready(offset);
+    else
+      ActionInterface::OffsetManualMacCready(offset);
   } else if (StringIsEqual(misc, "auto toggle")) {
     task_behaviour.auto_mc = !task_behaviour.auto_mc;
     Profile::Set(ProfileKeys::AutoMc, task_behaviour.auto_mc);
@@ -157,7 +189,10 @@ InputEvents::eventMacCready(const char *misc)
       Message::AddMessage(_("Auto. MacCready off"));
     }
   } else if (StringIsEqual(misc, "show")) {
-    Message::AddMessage(_("MacCready "), FormatUserVerticalSpeed(mc, false));
+    if (abort)
+      mc = task_behaviour.safety_mc;
+    Message::AddMessage(_("MacCready"),
+                        FormatUserVerticalSpeed(mc, false));
   }
 }
 
@@ -210,70 +245,85 @@ InputEvents::eventAbortTask(const char *misc)
   if (!backend_components->protected_task_manager)
     return;
 
-  ProtectedTaskManager::ExclusiveLease task_manager{*backend_components->protected_task_manager};
-  const auto report_resume = [&task_manager](bool resumed) {
-    if (resumed) {
-      if (task_manager->GetMode() == TaskType::GOTO)
-        Message::AddMessage(_("Go to target"));
+  bool crossed_abort = false;
+  bool in_abort      = false;
+
+  {
+    ProtectedTaskManager::ExclusiveLease task_manager{
+      *backend_components->protected_task_manager};
+    const auto mode_before   = task_manager->GetMode();
+    const auto report_resume = [&task_manager](bool resumed) {
+      if (resumed) {
+        if (task_manager->GetMode() == TaskType::GOTO)
+          Message::AddMessage(_("Go to target"));
+        else
+          Message::AddMessage(_("Task resumed"));
+        return;
+      }
+
+      const auto &ordered_task = task_manager->GetOrderedTask();
+      if (ordered_task.TaskSize() == 0)
+        Message::AddMessage(_("No task to resume"));
+      else if (!task_manager->CheckOrderedTask())
+        Message::AddMessage(_("Ordered task invalid"));
       else
-        Message::AddMessage(_("Task resumed"));
-      return;
-    }
+        Message::AddMessage(_("Task resume failed"));
+    };
 
-    const auto &ordered_task = task_manager->GetOrderedTask();
-    if (ordered_task.TaskSize() == 0)
-      Message::AddMessage(_("No task to resume"));
-    else if (!task_manager->CheckOrderedTask())
-      Message::AddMessage(_("Ordered task invalid"));
-    else
-      Message::AddMessage(_("Task resume failed"));
-  };
-
-  if (StringIsEqual(misc, "abort")) {
-    task_manager->Abort();
-    Message::AddMessage(_("Task aborted"));
-  } else if (StringIsEqual(misc, "resume")) {
-    report_resume(task_manager->Resume());
-  } else if (StringIsEqual(misc, "show")) {
-    switch (task_manager->GetMode()) {
-    case TaskType::ABORT:
-      Message::AddMessage(_("Task aborted"));
-      break;
-    case TaskType::GOTO:
-      Message::AddMessage(_("Go to target"));
-      break;
-    case TaskType::ORDERED:
-      Message::AddMessage(_("Ordered task"));
-      break;
-    default:
-      Message::AddMessage(_("No task"));
-    }
-  } else {
-    // toggle
-    switch (task_manager->GetMode()) {
-    case TaskType::NONE:
-    case TaskType::ORDERED:
+    if (StringIsEqual(misc, "abort")) {
       task_manager->Abort();
       Message::AddMessage(_("Task aborted"));
-      break;
-    case TaskType::GOTO:
-      if (task_manager->CheckOrderedTask()) {
-        report_resume(task_manager->Resume());
-      } else {
+    } else if (StringIsEqual(misc, "resume")) {
+      report_resume(task_manager->Resume());
+    } else if (StringIsEqual(misc, "show")) {
+      switch (task_manager->GetMode()) {
+      case TaskType::ABORT:
+        Message::AddMessage(_("Task aborted"));
+        break;
+      case TaskType::GOTO:
+        Message::AddMessage(_("Go to target"));
+        break;
+      case TaskType::ORDERED:
+        Message::AddMessage(_("Ordered task"));
+        break;
+      default:
+        Message::AddMessage(_("No task"));
+      }
+    } else {
+      // toggle
+      switch (task_manager->GetMode()) {
+      case TaskType::NONE:
+      case TaskType::ORDERED:
         task_manager->Abort();
         Message::AddMessage(_("Task aborted"));
+        break;
+      case TaskType::GOTO:
+        if (task_manager->CheckOrderedTask()) {
+          report_resume(task_manager->Resume());
+        } else {
+          task_manager->Abort();
+          Message::AddMessage(_("Task aborted"));
+        }
+        break;
+      case TaskType::ABORT:
+        report_resume(task_manager->Resume());
+        break;
       }
-      break;
-    case TaskType::ABORT:
-      report_resume(task_manager->Resume());
-      break;
     }
+
+    /* quickly propagate the updated values from the TaskManager to the
+       InterfaceBlackboard, so they are available immediately */
+    task_manager->UpdateCommonStatsTask();
+    CommonInterface::ReadCommonStats(task_manager->GetCommonStats());
+
+    const auto mode_after = task_manager->GetMode();
+    crossed_abort =
+      (mode_before == TaskType::ABORT) != (mode_after == TaskType::ABORT);
+    in_abort = mode_after == TaskType::ABORT;
   }
 
-  /* quickly propagate the updated values from the TaskManager to the
-     InterfaceBlackboard, so they are available immediately */
-  task_manager->UpdateCommonStatsTask();
-  CommonInterface::ReadCommonStats(task_manager->GetCommonStats());
+  if (crossed_abort)
+    ActionInterface::PublishAbortDeviceMacCready(in_abort);
 
   trigger_redraw();
 }
@@ -331,17 +381,31 @@ InputEvents::eventTaskTransition(const char *misc)
     if (!start_stats.HasStarted())
       return;
 
-    char TempAll[120];
-    StringFormatUnsafe(
-        TempAll, "\r\n%s: %s\r\n%s:%s\r\n%s: %s", _("Altitude"),
-        FormatUserAltitude(start_stats.altitude).c_str(), _("Speed"),
-        FormatUserSpeed(start_stats.ground_speed, true).c_str(), _("Time"),
-        FormatLocalTimeHHMM(start_stats.time,
-                            CommonInterface::GetComputerSettings().utc_offset)
-            .c_str());
-    Message::AddMessage(_("Task start"), TempAll);
+    StaticString<512> TempAll;
+    if (start_stats.pev_offset_available) {
+      const auto pev_s = FormatTimespanSmart(
+          std::chrono::seconds{start_stats.pev_offset_seconds}, 3);
+      TempAll.UnsafeFormat(
+          "\r\n%s: %s\r\n%s: %s\r\n%s: %s\r\n%s: %s",
+          _("Altitude"),
+          FormatUserAltitude(start_stats.altitude).c_str(), _("Speed"),
+          FormatUserSpeed(start_stats.ground_speed, true).c_str(), C_("Status", "Time"),
+          FormatLocalTimeHHMM(start_stats.time,
+                              CommonInterface::GetComputerSettings().utc_offset)
+              .c_str(),
+          _("PEV offset at start"), pev_s.c_str());
+    } else {
+      TempAll.UnsafeFormat(
+          "\r\n%s: %s\r\n%s: %s\r\n%s: %s", _("Altitude"),
+          FormatUserAltitude(start_stats.altitude).c_str(), _("Speed"),
+          FormatUserSpeed(start_stats.ground_speed, true).c_str(), C_("Status", "Time"),
+          FormatLocalTimeHHMM(start_stats.time,
+                              CommonInterface::GetComputerSettings().utc_offset)
+              .c_str());
+    }
+    Message::AddMessage(_("Task start"), TempAll.c_str());
   } else if (StringIsEqual(misc, "next")) {
-    Message::AddMessage(_("Next turnpoint"));
+    Message::AddMessage(_("Next Turnpoint"));
   } else if (StringIsEqual(misc, "finish")) {
     Message::AddMessage(_("Task finished"));
   }

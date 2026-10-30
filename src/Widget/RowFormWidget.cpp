@@ -52,8 +52,10 @@ RowFormWidget::Row::GetMinimumHeight(const DialogLook &look,
   case Type::DUMMY:
     return 0;
 
-  case Type::WIDGET:
-    return widget->GetMinimumSize().height;
+  case Type::WIDGET: {
+    const unsigned height = widget->GetMinimumSize().height;
+    return height > 0 ? height : Layout::GetMinimumControlHeight();
+  }
 
   case Type::GENERIC:
     break;
@@ -71,7 +73,12 @@ RowFormWidget::Row::GetMinimumHeight(const DialogLook &look,
     return Layout::GetMinimumControlHeight();
   }
 
-  return window->GetSize().height;
+  /* Use the window rectangle (outer size), not GetSize() (client
+     area).  Move() sizes the outer window; feeding client height
+     back into Move() shrinks bordered controls on every layout
+     pass (e.g. VScrollPanel smooth scroll) until height reaches 0
+     and PaintCanvas asserts. */
+  return window->GetPosition().GetHeight();
 }
 
 unsigned
@@ -101,7 +108,7 @@ RowFormWidget::Row::GetMaximumHeight(const DialogLook &look,
     return 4096;
   }
 
-  return window->GetSize().height;
+  return window->GetPosition().GetHeight();
 }
 
 inline void
@@ -222,6 +229,12 @@ RowFormWidget::SetRowAvailable(unsigned i, bool available) noexcept
 
   row.available = available;
   UpdateLayout();
+
+  /* The scroll panel sized this form while the row was hidden.
+     Ask it to measure again, or the new rows stay inside the old
+     short rectangle. */
+  if (ContainerWindow *parent = GetWindow().GetParent())
+    parent->OnChildContentHeightChanged();
 }
 
 void
@@ -242,9 +255,7 @@ Window &
 RowFormWidget::Add(Row::Type type, std::unique_ptr<Window> window) noexcept
 {
   assert(IsDefined());
-#ifndef USE_WINUSER
   assert(window->GetParent() == &GetWindow());
-#endif
   assert(window->IsVisible());
   /* cannot append rows after a REMAINING row */
   assert(rows.empty() || rows.back().type != Row::Type::REMAINING);
@@ -280,10 +291,8 @@ RowFormWidget::AddMultiLine(const char *text) noexcept
   auto ltw = std::make_unique<LargeTextWindow>();
   ltw->Create(panel, rc, style);
   ltw->SetFont(look.text_font);
-#ifndef USE_WINUSER
-  ltw->SetColors(look.background_color, look.text_color,
-                 look.dark_mode ? COLOR_GRAY : COLOR_BLACK);
-#endif
+  ltw->SetColors(look.ReadOnlyValueBackground(), look.list.text_color,
+                 look.ReadOnlyValueBorderColor());
 
   if (text != nullptr)
     ltw->SetText(text);
@@ -430,9 +439,18 @@ RowFormWidget::GetMinimumSize() const noexcept
     : (GetRecommendedCaptionWidth() + value_width);
 
   PixelSize size(edit_width, 0u);
-  for (const auto &i : rows)
-    if (i.IsAvailable(expert))
-      size.height += i.GetMinimumHeight(look, vertical);
+  for (const auto &i : rows) {
+    if (!i.IsAvailable(expert))
+      continue;
+
+    size.height += i.GetMinimumHeight(look, vertical);
+
+    if (i.type == Row::Type::WIDGET) {
+      const unsigned width = i.widget->GetMinimumSize().width;
+      if (width > size.width)
+        size.width = width;
+    }
+  }
 
   return size;
 }
@@ -443,13 +461,25 @@ RowFormWidget::GetMaximumSize() const noexcept
   const unsigned value_width =
     look.text_font.TextSize("Foo Bar Foo Bar").width * 2;
 
+  const bool expert = UIGlobals::GetDialogSettings().expert;
+
   const unsigned edit_width = vertical
     ? std::max(GetRecommendedCaptionWidth(), value_width)
     : (GetRecommendedCaptionWidth() + value_width);
 
   PixelSize size(edit_width, 0u);
-  for (const auto &i : rows)
+  for (const auto &i : rows) {
+    if (!i.IsAvailable(expert))
+      continue;
+
     size.height += i.GetMaximumHeight(look, vertical);
+
+    if (i.type == Row::Type::WIDGET) {
+      const unsigned width = i.widget->GetMaximumSize().width;
+      if (width > size.width)
+        size.width = width;
+    }
+  }
 
   return size;
 }
@@ -465,7 +495,7 @@ RowFormWidget::Initialise(ContainerWindow &parent,
   style.Hide();
   style.ControlParent();
 
-  SetWindow(std::make_unique<PanelControl>(parent, look, rc, style));
+  SetWindow(std::make_unique<PanelControl>(parent, rc, style));
 }
 
 void
@@ -480,8 +510,12 @@ RowFormWidget::Unprepare() noexcept
 void
 RowFormWidget::Show(const PixelRect &rc) noexcept
 {
+  PixelRect safe_rc = rc;
+  if (safe_rc.GetHeight() == 0)
+    safe_rc.bottom = safe_rc.top + 1;
+
   Window &panel = GetWindow();
-  panel.Move(rc);
+  panel.Move(safe_rc);
 
   UpdateLayout();
 
@@ -512,4 +546,35 @@ RowFormWidget::HasFocus() const noexcept
   return std::any_of(rows.begin(), rows.end(), [](const auto &r){
     return r.HasFocus();
   });
+}
+
+bool
+RowFormWidget::FocusAdjacent(bool next) noexcept
+{
+  int current = -1;
+  for (unsigned i = 0; i < rows.size(); ++i) {
+    if (rows[i].HasFocus()) {
+      current = (int)i;
+      break;
+    }
+  }
+  if (current < 0)
+    return false;
+
+  const int step = next ? 1 : -1;
+  for (int i = current + step;
+       i >= 0 && i < (int)rows.size(); i += step) {
+    const Row &row = rows[i];
+    if (row.type == Row::Type::DUMMY || row.type == Row::Type::WIDGET)
+      continue;
+
+    Window &window = rows[i].GetWindow();
+    if (!window.IsVisible() || !window.IsEnabled() || !window.IsTabStop())
+      continue;
+
+    window.SetFocus();
+    return true;
+  }
+
+  return false;
 }

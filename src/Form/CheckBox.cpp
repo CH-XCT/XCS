@@ -3,9 +3,11 @@
 
 #include "Form/CheckBox.hpp"
 #include "Look/DialogLook.hpp"
+#include "ui/window/Window.hpp"
 #include "ui/canvas/Canvas.hpp"
 #include "ui/event/KeyCode.hpp"
 #include "Screen/Layout.hpp"
+#include "Form/Button.hpp"
 #include "Asset.hpp"
 #include "util/Macros.hpp"
 
@@ -69,6 +71,19 @@ CheckBoxControl::Create(ContainerWindow &parent, const DialogLook &_look,
   callback = std::move(_callback);
 
   PaintWindow::Create(parent, rc, style);
+}
+
+void
+CheckBoxControl::CreateInDialogForm(ContainerWindow &parent,
+                                    const DialogLook &look,
+                                    std::string::const_pointer caption,
+                                    const PixelRect &rc,
+                                    Callback callback) noexcept
+{
+  WindowStyle style;
+  style.Hide();
+  style.TabStop();
+  Create(parent, look, caption, rc, style, std::move(callback));
 }
 
 unsigned
@@ -152,6 +167,10 @@ CheckBoxControl::OnMouseDown([[maybe_unused]] PixelPoint p) noexcept
   if (IsTabStop())
     SetFocus();
 
+#ifdef HAVE_VIBRATOR
+  PlayHapticFeedback(HapticFeedbackType::PRESS);
+#endif
+
   SetPressed(true);
   SetCapture();
   dragging = true;
@@ -208,10 +227,6 @@ CheckBoxControl::OnPaint(Canvas &canvas) noexcept
 
   if (focused)
     canvas.Clear(cb_look.focus_background_brush);
-  else if (HaveClipping())
-    /* with clipping, the parent's background does not extend into
-       child windows, so we must fill the background ourselves */
-    canvas.Clear(look->background_brush);
 
   const auto &state_look = IsEnabled()
     ? (pressed
@@ -222,7 +237,11 @@ CheckBoxControl::OnPaint(Canvas &canvas) noexcept
     : cb_look.disabled;
 
   const unsigned padding = Layout::GetTextPadding();
-  unsigned size = canvas.GetHeight() - 2 * padding;
+  const unsigned height = canvas.GetHeight();
+  const unsigned width = canvas.GetWidth();
+  const unsigned limit = width < height ? width : height;
+  /* Unsigned wrap here scales the check mark to the whole screen. */
+  const unsigned size = limit > 2 * padding ? limit - 2 * padding : 0;
 
   PixelRect box_rc;
   box_rc.left = (int)padding;
@@ -235,7 +254,7 @@ CheckBoxControl::OnPaint(Canvas &canvas) noexcept
   canvas.SetTextColor(state_look.text_color);
   canvas.SetBackgroundTransparent();
 
-  const PixelPoint caption_position(canvas.GetHeight() + 2 * padding,
-                                    ((int)canvas.GetHeight() - (int)cb_look.font->GetHeight()) / 2);
+  const PixelPoint caption_position((int)height + 2 * (int)padding,
+                                    ((int)height - (int)cb_look.font->GetHeight()) / 2);
   canvas.DrawText(caption_position, caption.c_str());
 }

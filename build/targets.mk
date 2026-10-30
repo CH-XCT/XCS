@@ -1,26 +1,23 @@
 TARGETS = PC WIN64 \
+  WIN64OPENGL WIN32OPENGL \
 	UNIX UNIX32 UNIX64 OPT \
 	WAYLAND \
 	FUZZER \
-	PI PI2 CUBIE KOBO NEON \
+	PI PI2 PI3 PI4 PI5 CUBIE KOBO NEON \
 	ANDROID ANDROID7 ANDROID86 \
 	ANDROIDAARCH64 ANDROIDX64 \
 	ANDROIDFAT \
-	OSX64 MACOS IOS32 IOS64 IOS64SIM
+	MACOS IOS64 IOS64SIM
 
 ifeq ($(TARGET),)
   ifeq ($(HOST_IS_UNIX),y)
     ifeq ($(HOST_IS_DARWIN),y)
-      ifeq ($(HOST_IS_AARCH64),y)
-        TARGET = MACOS
-      else
-        TARGET = OSX64
-      endif
+      TARGET = MACOS
     else
       TARGET = UNIX
     endif
   else
-    TARGET = PC
+    TARGET = WIN64OPENGL
   endif
 else
   ifeq ($(filter $(TARGET),$(TARGETS)),)
@@ -59,14 +56,31 @@ HAVE_POSIX := n
 HAVE_WIN32 := y
 HAVE_MSVCRT := y
 HAVE_HTTP := y
+DO_CROSS_COMPILE := n
 
 TARGET_ARCH :=
 
 # virtual targets ("flavors")
 
 ifeq ($(TARGET),WIN64)
+  $(error TARGET=WIN64 (GDI) has been removed; use TARGET=WIN64OPENGL)
+endif
+
+ifeq ($(TARGET),WIN64OPENGL)
   X64 := y
   override TARGET = PC
+
+  OPENGL = y
+  ENABLE_SDL = y
+  USE_ANGLE = y
+endif
+
+ifeq ($(TARGET),WIN32OPENGL)
+  override TARGET = PC
+
+  OPENGL = y
+  ENABLE_SDL = y
+  USE_ANGLE = y
 endif
 
 ifeq ($(TARGET),ANDROID)
@@ -105,10 +119,6 @@ ifeq ($(TARGET),ANDROIDFAT)
   FAT_BINARY := y
   override TARGET = ANDROID
   override TARGET_FLAVOR = ANDROID
-endif
-
-ifeq ($(ANDROID_BUNDLE_BUILD),y)
-  override TARGET_FLAVOR = ANDROID_BUNDLE
 endif
 
 # real targets
@@ -185,10 +195,8 @@ endif
 
 ifeq ($(TARGET),PI)
   override TARGET = UNIX
-  TCPREFIX := arm-linux-gnueabihf-
-  ifeq ($(HOST_IS_PI),n)
-    PI ?= /opt/pi/root
-  endif
+  HOST_TRIPLET := arm-linux-gnueabihf
+  TCPREFIX := $(HOST_TRIPLET)-
   TARGET_IS_LINUX = y
   TARGET_IS_PI = y
   TARGET_IS_PI32 = y
@@ -197,19 +205,37 @@ ifeq ($(TARGET),PI)
   ARMV6 = y
 endif
 
+ifeq ($(TARGET),PI3)
+  # Same ARMv7 + NEON build as PI2.  The output directory stays output/PI3.
+  override TARGET = PI2
+endif
+
 ifeq ($(TARGET),PI2)
   override TARGET = NEON
-  ifeq ($(HOST_IS_PI),n)
-    PI ?= /opt/pi/root
-  endif
   TARGET_IS_PI = y
   TARGET_IS_PI32 = y
+endif
+
+ifeq ($(TARGET),PI5)
+  # Same ARMv8-A build as PI4.  The output directory stays output/PI5.
+  override TARGET = PI4
+endif
+
+ifeq ($(TARGET),PI4)
+  override TARGET = UNIX
+  HOST_TRIPLET := aarch64-linux-gnu
+  TCPREFIX := $(HOST_TRIPLET)-
+  TARGET_IS_LINUX = y
+  TARGET_IS_PI = y
+  TARGET_IS_PI64 = y
+  TARGET_IS_ARM = y
+  # Pi 4 is Cortex-A72, Pi 5 is Cortex-A76.  armv8-a runs on both.
+  TARGET_ARCH += -march=armv8-a
 endif
 
 ifeq ($(TARGET),CUBIE)
   # cross-crompiling for Cubieboard
   override TARGET = NEON
-  CUBIE ?= /opt/cubie/root
   TARGET_IS_CUBIE=y
 endif
 
@@ -236,17 +262,6 @@ ifeq ($(TARGET),NEON)
   NEON := y
 endif
 
-ifeq ($(TARGET),OSX64)
-  override TARGET = UNIX
-  TARGET_IS_DARWIN = y
-  TARGET_IS_OSX = y
-  OSX_MIN_SUPPORTED_VERSION = 12.0
-  HOST_TRIPLET = x86_64-apple-darwin
-  LLVM_TARGET = $(HOST_TRIPLET)
-  CLANG = y
-  TARGET_ARCH += -mmacosx-version-min=$(OSX_MIN_SUPPORTED_VERSION)
-endif
-
 ifeq ($(TARGET),MACOS)
   override TARGET = UNIX
   TARGET_IS_DARWIN = y
@@ -262,25 +277,11 @@ ifeq ($(TARGET),MACOS)
   TARGET_IS_ARM = y
 endif
 
-ifeq ($(TARGET),IOS32)
-  override TARGET = UNIX
-  TARGET_IS_DARWIN = y
-  TARGET_IS_IOS = y
-  IOS_MIN_SUPPORTED_VERSION = 10.0
-  HOST_TRIPLET = armv7-apple-darwin
-  LLVM_TARGET = $(HOST_TRIPLET)
-  ifeq ($(HOST_IS_DARWIN),y)
-    DARWIN_SDK ?= /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk
-  endif
-  CLANG = y
-  TARGET_ARCH += -miphoneos-version-min=$(IOS_MIN_SUPPORTED_VERSION)
-endif
-
 ifeq ($(TARGET),IOS64)
   override TARGET = UNIX
   TARGET_IS_DARWIN = y
   TARGET_IS_IOS = y
-  IOS_MIN_SUPPORTED_VERSION = 11.0
+  IOS_MIN_SUPPORTED_VERSION = 15.0
   HOST_TRIPLET = aarch64-apple-darwin
   LLVM_TARGET = $(HOST_TRIPLET)
   ifeq ($(HOST_IS_DARWIN),y)
@@ -295,7 +296,7 @@ ifeq ($(TARGET),IOS64SIM)
   override TARGET = UNIX
   TARGET_IS_DARWIN = y
   TARGET_IS_IOS = y
-  IOS_MIN_SUPPORTED_VERSION = 11.0
+  IOS_MIN_SUPPORTED_VERSION = 15.0
   HOST_TRIPLET = aarch64-apple-darwin
   LLVM_TARGET = $(HOST_TRIPLET)
   ifeq ($(HOST_IS_DARWIN),y)
@@ -329,6 +330,12 @@ ifeq ($(TARGET),UNIX)
 
   ifeq ($(ARMV7),y)
     TARGET_ARCH += -march=armv7-a
+
+    # Use Thumb-2 instructions: smaller code, and NEON works in Thumb
+    # mode as well. Debian's and Ubuntu's arm-linux-gnueabihf GCC defaults to Thumb,
+    # but other toolchains and Clang may not, so do not leave it to the
+    # compiler.
+    TARGET_ARCH += -mthumb
   endif
 
   ifeq ($(TARGET_IS_ARMHF),y)
@@ -344,7 +351,9 @@ ifeq ($(TARGET),UNIX)
   endif
 
   ifeq ($(TARGET_IS_ARM)$(TARGET_IS_LINUX),yy)
-    ifeq ($(TARGET_IS_ARMHF),y)
+    ifeq ($(TARGET_IS_PI64),y)
+      LLVM_TARGET ?= aarch64-linux-gnu
+    else ifeq ($(TARGET_IS_ARMHF),y)
       LLVM_TARGET ?= arm-linux-gnueabihf
     else
       LLVM_TARGET ?= arm-linux-gnueabi
@@ -360,7 +369,7 @@ ifeq ($(TARGET),ANDROID)
     ANDROID_NDK ?= $(HOME)/opt/android-ndk-r26d
   endif
 
-  ANDROID_SDK_PLATFORM = android-35
+  ANDROID_SDK_PLATFORM = android-36
   ANDROID_NDK_API = 21
 
   # The naming of CPU ABIs, architectures, and various NDK directory names is an unholy mess.
@@ -482,24 +491,46 @@ endif
 ifeq ($(TARGET_IS_PI),y)
   TARGET_CPPFLAGS += -DRASPBERRY_PI
 
-  ifneq ($(PI),)
-    TARGET_CPPFLAGS += --sysroot=$(PI) -isystem $(PI)/usr/include/arm-linux-gnueabihf -isystem $(PI)/usr/include
+  ifeq ($(HOST_IS_PI),n)
+    # Cross-compiling for a PI
+    DO_CROSS_COMPILE := y
+    ifneq ($(PI),)
+      $(warning Use of variable PI is deprecated. Please use SYSROOT instead.)
+      SYSROOT := $(PI)
+    else ifeq ($(TARGET_IS_PI64),y)
+      SYSROOT ?= /opt/pi64/root
+    else
+      SYSROOT ?= /opt/pi/root
+    endif
+
   endif
+
 endif
 
 ifeq ($(HOST_IS_ARM)$(TARGET_IS_CUBIE),ny)
   # cross-crompiling for Cubieboard
-  TARGET_CPPFLAGS += --sysroot=$(CUBIE) -isystem $(CUBIE)/usr/include/arm-linux-gnueabihf
-  TARGET_CPPFLAGS += -isystem $(CUBIE)/usr/local/stow/sunxi-mali/include
+  DO_CROSS_COMPILE := y
+  ifneq ($(CUBIE),)
+    $(warning Use of variable CUBIE is deprecated. Please use SYSROOT instead.)
+    SYSROOT := $(CUBIE)
+  else
+    SYSROOT ?= /opt/cubie/root
+  endif
+  
+endif
+
+ifeq ($(DO_CROSS_COMPILE),y)
+  # armhf GCC notes the std::pair return ABI change in every file.
+  TARGET_CXXFLAGS += -Wno-psabi
+endif
+
+# Same-arch sysroot is valid (other distro, or Mac arm64 vs Pi OS).
+ifneq ($(SYSROOT),)
+  TARGET_CPPFLAGS += --sysroot=$(SYSROOT)
 endif
 
 ifeq ($(TARGET_IS_KOBO),y)
   TARGET_CPPFLAGS += -DKOBO
-
-  # Use Thumb instructions (which is the default in Debian's arm-linux-gnueabihf
-  # toolchain, but this might be different when using another toolchain, or
-  # Clang instead of GCC).
-  TARGET_ARCH += -mthumb
 
   # At least in Debian's arm-linux-gnueabihf GCC, PIE is enabled by default.
   # PIE brings no benefit for us, and we can get smaller binaries when disabling
@@ -548,11 +579,16 @@ TARGET_LDLIBS =
 TARGET_LDADD =
 
 ifeq ($(TARGET),PC)
-  TARGET_LDFLAGS += -Wl,--major-subsystem-version=5
-  TARGET_LDFLAGS += -Wl,--minor-subsystem-version=00
+  TARGET_LDFLAGS += -Wl,--major-subsystem-version=6
+  TARGET_LDFLAGS += -Wl,--minor-subsystem-version=0
 
-  # default to "console"; see SCREEN_LDLIBS
+  # default to "console"; overridden to "windows" by
+  # SDL_LDLIBS (sdl.mk) for GUI programs
   TARGET_LDFLAGS += -Wl,-subsystem,console
+
+  ifeq ($(X64),y)
+    TARGET_LDFLAGS += -Wl,--high-entropy-va
+  endif
 endif
 
 ifeq ($(HAVE_WIN32),y)
@@ -569,16 +605,14 @@ ifneq ($(TARGET),ANDROID)
 endif
 endif
 
-ifeq ($(HOST_IS_PI)$(TARGET_IS_PI),ny)
-  TARGET_LDFLAGS += --sysroot=$(PI) -L$(PI)/usr/lib/arm-linux-gnueabihf
+ifeq ($(TARGET_IS_ARMHF)$(TARGET_IS_KOBO),yn)
+  # GCC 32-bit ARM needs libatomic for 64-bit std::atomic.
+  # Kobo's musl toolchain does not ship it.
+  TARGET_LDLIBS += -latomic
 endif
 
-ifeq ($(HOST_IS_ARM)$(TARGET_IS_CUBIE),ny)
-  # cross-crompiling for Cubieboard
-  TARGET_LDFLAGS += -L/usr/arm-linux-gnueabihf/lib --sysroot=$(CUBIE)
-  TARGET_LDFLAGS += -L$(CUBIE)/lib/arm-linux-gnueabihf
-  TARGET_LDFLAGS += -L$(CUBIE)/usr/lib/arm-linux-gnueabihf
-  TARGET_LDFLAGS += -L$(CUBIE)/usr/local/stow/sunxi-mali/lib
+ifneq ($(SYSROOT),)
+  TARGET_LDFLAGS += --sysroot=$(SYSROOT)
 endif
 
 ifeq ($(TARGET_IS_KOBO),y)

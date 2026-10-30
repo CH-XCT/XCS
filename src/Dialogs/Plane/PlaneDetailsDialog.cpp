@@ -12,6 +12,7 @@
 #include "Plane/Plane.hpp"
 #include "Language/Language.hpp"
 #include "Interface.hpp"
+#include "Units/Units.hpp"
 #include "Computer/Settings.hpp"
 #include "UIGlobals.hpp"
 
@@ -25,6 +26,7 @@ class PlaneEditWidget final
     HANDICAP,
     WING_AREA,
     EMPTY_MASS,
+    MTOW,
     MAX_BALLAST,
     DUMP_TIME,
     MAX_SPEED,
@@ -109,9 +111,6 @@ PlaneEditWidget::UpdatePolarButton() noexcept
 void
 PlaneEditWidget::UpdateWeGlideName() noexcept
 {
-  if (!CommonInterface::GetComputerSettings().weglide.enabled)
-    return;
-
   if (plane.weglide_glider_type == 0) {
     SetText(WEGLIDE_NAME, "-");
     return;
@@ -154,6 +153,13 @@ PlaneEditWidget::Prepare([[maybe_unused]] ContainerWindow &parent, [[maybe_unuse
            "%.0f %s", "%.0f",
            0, 1000, 5, false,
            UnitGroup::MASS, plane.empty_mass);
+  /* AddFloat keeps min and max in the user unit.  1000 kg is about
+     2205 lb, so a pound display can still hold this glider's MTOW. */
+  const Unit mass_unit = Units::GetUserUnitByGroup(UnitGroup::MASS);
+  AddFloat(_("MTOW"), _("Maximum takeoff weight of the glider."),
+           "%.0f %s", "%.0f",
+           0, Units::ToUserUnit(1000, mass_unit), 5, false,
+           UnitGroup::MASS, plane.max_takeoff_mass);
   AddFloat(_("Max. Ballast"), nullptr,
            "%.0f l", "%.0f",
            0, 500, 5,
@@ -162,19 +168,18 @@ PlaneEditWidget::Prepare([[maybe_unused]] ContainerWindow &parent, [[maybe_unuse
              "%u s", "%u",
              10, 300, 5,
              plane.dump_time);
-  AddFloat(_("Max. Cruise Speed"), nullptr,
+  AddFloat(_("Max. Cruise Speed"),
+           _("Upper limit for MacCready speed-to-fly, including final "
+             "glide. Prevents the glide computer from commanding "
+             "unrealistically high cruise speeds. A typical choice is "
+             "the rough-air / green-arc limit from the flight manual."),
            "%.0f %s", "%.0f", 0, 300, 5,
            false, UnitGroup::HORIZONTAL_SPEED, plane.max_speed);
 
-  if (CommonInterface::GetComputerSettings().weglide.enabled) {
-    auto *row = AddInteger(_("WeGlide Type"), nullptr, "%u", "%u", 0,
-                           9999, 1, plane.weglide_glider_type, this);
-    row->SetEditCallback(EditWeGlideType);
-    AddReadOnly(_("WeGlide Aircraft"), nullptr, "");
-  } else {
-    AddDummy();
-    AddDummy();
-  }
+  auto *row = AddInteger(_("WeGlide Type"), nullptr, "%u", "%u", 0,
+                         9999, 1, plane.weglide_glider_type, this);
+  row->SetEditCallback(EditWeGlideType);
+  AddReadOnly(_("WeGlide Aircraft"), nullptr, "");
 
   UpdateCaption();
   UpdatePolarButton();
@@ -192,12 +197,12 @@ PlaneEditWidget::Save(bool &_changed) noexcept
   changed |= SaveValueInteger(HANDICAP, plane.handicap);
   changed |= SaveValue(WING_AREA, plane.wing_area);
   changed |= SaveValue(EMPTY_MASS, UnitGroup::MASS, plane.empty_mass);
+  changed |= SaveValue(MTOW, UnitGroup::MASS, plane.max_takeoff_mass);
   changed |= SaveValue(MAX_BALLAST, plane.max_ballast);
   changed |= SaveValueInteger(DUMP_TIME, plane.dump_time);
   changed |= SaveValue(MAX_SPEED, UnitGroup::HORIZONTAL_SPEED,
                        plane.max_speed);
-  if (CommonInterface::GetComputerSettings().weglide.enabled)
-    changed |= SaveValueInteger(WEGLIDE_ID, plane.weglide_glider_type);
+  changed |= SaveValueInteger(WEGLIDE_ID, plane.weglide_glider_type);
 
   _changed |= changed;
   return true;
@@ -219,6 +224,7 @@ PlaneEditWidget::PolarButtonClicked() noexcept
   LoadValue(HANDICAP, plane.handicap);
   LoadValue(WING_AREA, plane.wing_area);
   LoadValue(EMPTY_MASS, plane.empty_mass, UnitGroup::MASS);
+  LoadValue(MTOW, plane.max_takeoff_mass, UnitGroup::MASS);
   LoadValue(MAX_BALLAST, plane.max_ballast);
   LoadValue(MAX_SPEED, plane.max_speed, UnitGroup::HORIZONTAL_SPEED);
 }

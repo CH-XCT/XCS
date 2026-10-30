@@ -11,12 +11,39 @@
 
 using namespace UI;
 
+static PixelRect
+GetCancelButtonRect(const PixelRect &client_rc) noexcept
+{
+  PixelRect rc = client_rc;
+  rc.left = rc.right - Layout::Scale(75);
+  rc.bottom = rc.top + Layout::GetMaximumControlHeight();
+  return rc;
+}
+
 ProgressDialog::ProgressDialog(SingleWindow &parent,
                                const DialogLook &dialog_look,
                                const char *caption)
-  :WndForm(parent, dialog_look, parent.GetClientRect(), caption),
+  :WndForm(parent, dialog_look, parent.GetDialogRect(), caption),
    progress(GetClientAreaWindow())
 {
+  SetFillsClient(true);
+
+  auto layout_client = [this]() noexcept {
+    const PixelRect rc = GetClientAreaWindow().GetClientRect();
+    progress.Move(rc);
+    if (cancel_button.IsDefined())
+      cancel_button.Move(GetCancelButtonRect(rc));
+  };
+  SetClientLayoutFunction(layout_client);
+  layout_client();
+}
+
+void
+ProgressDialog::ReinitialiseLayout([[maybe_unused]] const PixelRect &rc) noexcept
+{
+  /* Stay edge-to-edge on the client; the safe-area rect is only for
+     ordinary dialogs. */
+  Move(GetMainWindow().GetClientRect());
 }
 
 void
@@ -27,11 +54,7 @@ ProgressDialog::AddCancelButton(std::function<void()> &&callback)
   WindowStyle style;
   style.TabStop();
 
-  PixelRect rc = client_area.GetClientRect();
-  rc.right -= Layout::Scale(2);
-  rc.left = rc.right - Layout::Scale(78);
-  rc.top += Layout::Scale(2);
-  rc.bottom = rc.top + Layout::Scale(35);
+  const PixelRect rc = GetCancelButtonRect(client_area.GetClientRect());
 
   cancel_button.Create(client_area, GetLook().button,
                        _("Cancel"), rc, style,

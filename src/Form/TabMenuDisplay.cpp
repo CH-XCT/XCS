@@ -6,9 +6,9 @@
 #include "Widget/PagerWidget.hpp"
 #include "Widget/VScrollWidget.hpp"
 #include "Screen/Layout.hpp"
+#include "Form/Button.hpp"
 #include "ui/event/KeyCode.hpp"
 #include "ui/canvas/Canvas.hpp"
-#include "ui/canvas/Features.hpp"
 #include "Look/DialogLook.hpp"
 #include "Language/Language.hpp"
 #include "util/StringFormat.hpp"
@@ -30,16 +30,17 @@ TabMenuDisplay::InitMenu(const TabMenuGroup groups[],
   assert(n_groups > 0);
   assert(n_groups <= MAX_MAIN_MENU_ITEMS);
 
-  main_menu_buttons.resize(n_groups);
   for (unsigned i = 0; i < n_groups; i++) {
     const auto &g = groups[i];
-    auto &mb = main_menu_buttons[i];
-    mb.caption = gettext(g.caption);
-    mb.first_page_index = buttons.size();
+    const unsigned first_page_index = buttons.size();
+    const unsigned main_menu_index = main_menu_buttons.size();
 
     for (auto p = g.pages; p->Load != nullptr; ++p) {
+      if (p->IsAvailable != nullptr && !p->IsAvailable())
+        continue;
+
       auto &page_button = buttons.append();
-      page_button.main_menu_index = i;
+      page_button.main_menu_index = main_menu_index;
       page_button.caption = gettext(p->menu_caption);
 
       /* Wrap panel in VScrollWidget for automatic scrolling when needed */
@@ -48,6 +49,12 @@ TabMenuDisplay::InitMenu(const TabMenuGroup groups[],
       pager.Add(std::move(scroll_panel));
     }
 
+    if (buttons.size() == first_page_index)
+      continue;
+
+    auto &mb = main_menu_buttons.append();
+    mb.caption = gettext(g.caption);
+    mb.first_page_index = first_page_index;
     mb.last_page_index = buttons.size() - 1;
   }
 }
@@ -89,11 +96,24 @@ TabMenuDisplay::UpdateLayout() noexcept
 {
   const auto window_size = GetSize();
   const unsigned border_width = GetTabLineHeight();
-  const unsigned menu_button_height =
-    std::min(Layout::GetMaximumControlHeight(), window_size.height / 7u);
-  const unsigned menu_button_width = (window_size.width - 2 * border_width) / 2;
+  const unsigned n_main_menu_items = std::max(GetNumMainMenuItems(), 1u);
+
+  unsigned n_vertical_items = n_main_menu_items;
+  for (unsigned i = 0; i < GetNumMainMenuItems(); ++i)
+    n_vertical_items = std::max(n_vertical_items,
+                                GetMainMenuButton(i).NumSubMenus());
 
   const unsigned offset = Layout::Scale(2);
+  const unsigned vertical_spacing =
+    (n_vertical_items + 1) * border_width + 2 * offset;
+  const unsigned available_height = window_size.height > vertical_spacing
+    ? window_size.height - vertical_spacing
+    : window_size.height;
+  const unsigned menu_button_height =
+    std::min(Layout::GetMaximumControlHeight(),
+             available_height / n_vertical_items);
+  const unsigned menu_button_width = (window_size.width - 2 * border_width) / 2;
+
   const unsigned item_height = menu_button_height + border_width;
 
   for (unsigned main_i = 0, main_y = border_width;
@@ -174,6 +194,10 @@ TabMenuDisplay::OnPageFlipped() noexcept
 void
 TabMenuDisplay::SetCursor(unsigned i) noexcept
 {
+  if (GetNumPages() == 0)
+    return;
+
+  i = std::min(i, GetNumPages() - 1);
   if (i == cursor)
     return;
 
@@ -223,16 +247,24 @@ TabMenuDisplay::OnResize(PixelSize new_size) noexcept
 bool
 TabMenuDisplay::OnKeyCheck(unsigned key_code) const noexcept
 {
- switch (key_code) {
+  switch (key_code) {
+  case KEY_RETURN:
+  case KEY_LEFT:
+  case KEY_RIGHT:
+    return true;
 
- case KEY_RETURN:
- case KEY_LEFT:
- case KEY_RIGHT:
-   return true;
+  case KEY_DOWN:
+    /* Only claim Down while another menu item follows; at the last
+       item, let the dialog move focus to Close / arrows. */
+    return cursor + 1 < GetNumPages();
 
- default:
-   return false;
- }
+  case KEY_UP:
+    /* Same for Up at the first item. */
+    return cursor > 0;
+
+  default:
+    return false;
+  }
 }
 
 bool
@@ -244,10 +276,12 @@ TabMenuDisplay::OnKeyDown(unsigned key_code) noexcept
     return true;
 
   case KEY_RIGHT:
+  case KEY_DOWN:
     HighlightNext();
     return true;
 
   case KEY_LEFT:
+  case KEY_UP:
     HighlightPrevious();
     return true;
 
@@ -267,6 +301,10 @@ TabMenuDisplay::OnMouseDown(PixelPoint Pos) noexcept
   down_index = IsPointOverButton(Pos, GetPageMainIndex(cursor));
 
   if (!down_index.IsNone()) {
+#ifdef HAVE_VIBRATOR
+    PlayHapticFeedback(HapticFeedbackType::PRESS);
+#endif
+
     dragging = true;
     SetCapture();
 
@@ -404,9 +442,6 @@ TabMenuDisplay::PaintSubMenuItems(Canvas &canvas) const noexcept
 void
 TabMenuDisplay::OnPaint(Canvas &canvas) noexcept
 {
-  if (HaveClipping())
-    canvas.Clear(look.background_color);
-
   PaintMainMenuItems(canvas);
   PaintSubMenuItems(canvas);
 }

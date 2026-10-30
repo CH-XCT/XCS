@@ -16,6 +16,40 @@ fi
 readonly TARGET_PLATFORM_NAME="$1"
 readonly CONFIGURATION="$2"
 
+# Load environment variables from .env file if it exists from darwin/.env
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    echo "build.sh: Loading configuration from darwin/.env"
+    set -a
+    # shellcheck disable=SC1091
+    source "$SCRIPT_DIR/.env"
+    set +a
+fi
+
+# Normalise the TESTING flag; make expects a lower case "y"
+case "$(printf '%s' "${TESTING:-n}" | tr '[:upper:]' '[:lower:]')" in
+    y|yes|true|1)
+        TESTING="y"
+        echo "build.sh: Building the testing flavour (TESTING=y)"
+        ;;
+    *)
+        TESTING="n"
+        ;;
+esac
+export TESTING
+
+# Normalise the DEBUG_ALL_MAP_OVERLAYS flag (see doc/debugging.rst)
+case "$(printf '%s' "${DEBUG_ALL_MAP_OVERLAYS:-n}" | tr '[:upper:]' '[:lower:]')" in
+    y|yes|true|1)
+        DEBUG_ALL_MAP_OVERLAYS="y"
+        echo "build.sh: Forcing all map overlays (DEBUG_ALL_MAP_OVERLAYS=y)"
+        ;;
+    *)
+        DEBUG_ALL_MAP_OVERLAYS="n"
+        ;;
+esac
+export DEBUG_ALL_MAP_OVERLAYS
+
 # Set debug flag based on configuration
 DEBUG="n"
 if [ "${CONFIGURATION}" = "Debug" ]; then
@@ -75,7 +109,10 @@ NUM_CPUS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/nul
 echo "Building with $NUM_CPUS parallel jobs..."
 
 # Execute make with error checking
-if ! gmake -j"${NUM_CPUS}" USE_CCACHE=y V=2 OPTIMIZE="-O0" DEBUG="$DEBUG" TARGET="$TARGET" $IPA_TARGET; then
+# TESTING must be passed on the command line: build/options.mk assigns a
+# default with "=", which would override the value from the environment.
+# DEBUG_ALL_MAP_OVERLAYS is passed the same way for consistency.
+if ! gmake -j"${NUM_CPUS}" USE_CCACHE=y V=2 DEBUG="$DEBUG" TESTING="$TESTING" DEBUG_ALL_MAP_OVERLAYS="$DEBUG_ALL_MAP_OVERLAYS" TARGET="$TARGET" $IPA_TARGET; then
     echo "Error: Build failed" >&2
     exit 1
 fi

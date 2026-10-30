@@ -17,12 +17,13 @@
 #endif
 #endif
 
-#if defined(_WIN32)
-#include "ResourceLoader.hpp"
-#include <mmsystem.h>
-#elif defined(HAVE_PCM_PLAYER)
+#if defined(HAVE_PCM_PLAYER)
 #include "GlobalPCMResourcePlayer.hpp"
 #include "PCMResourcePlayer.hpp"
+#elif defined(_WIN32)
+// On Windows without SDL we use sndPlaySound
+#include "ResourceLoader.hpp"
+#include <mmsystem.h>
 #endif
 
 bool
@@ -38,6 +39,13 @@ PlayResource(const char *resource_name)
 
   return SoundUtil::Play(resource_name);
 
+#elif defined(HAVE_PCM_PLAYER)
+
+  if (nullptr == pcm_resource_player)
+    return false;
+
+  return pcm_resource_player->PlayResource(resource_name);
+
 #elif defined(_WIN32)
 
   if (strstr(resource_name, TEXT(".wav")))
@@ -47,14 +55,32 @@ PlayResource(const char *resource_name)
   return data.data() != nullptr &&
     sndPlaySound((LPCTSTR)data.data(), SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
 
+#else
+  return false;
+#endif
+}
+
+bool
+PlayResources(std::span<const char *const> resource_names)
+{
+#ifdef ANDROID
+
+  return SoundUtil::PlaySequence(Java::GetEnv(), context->Get(),
+                                 resource_names);
+
+#elif defined(__APPLE__) && TARGET_OS_IPHONE
+
+  return SoundUtil::PlaySequence(resource_names);
+
 #elif defined(HAVE_PCM_PLAYER)
 
   if (nullptr == pcm_resource_player)
     return false;
 
-  return pcm_resource_player->PlayResource(resource_name);
+  return pcm_resource_player->PlayResources(resource_names);
 
 #else
+  (void)resource_names;
   return false;
 #endif
 }

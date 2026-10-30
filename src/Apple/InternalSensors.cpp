@@ -6,8 +6,10 @@
 #include "Apple/InternalSensors.hpp"
 #include "Device/SensorListener.hpp"
 #include "Geo/GeoPoint.hpp"
+#include "Language/Language.hpp"
 #include "time/FloatDuration.hxx"
 #include "time/SystemClock.hxx"
+#include "LogFile.hpp"
 
 #include <TargetConditionals.h>
 
@@ -108,7 +110,13 @@
 - (void)locationManager:(CLLocationManager *)manager
     didFailWithError:(NSError *)error
 {
+  LogFmt("CoreLocation failed: domain={} code={} description={}",
+         [[error domain] UTF8String], [error code],
+         [[error localizedDescription] UTF8String]);
   self->listener->OnConnected(0);
+
+  if ([error code] == kCLErrorDenied)
+    self->listener->OnSensorError(_("Location access denied"));
 }
 
 #if TARGET_OS_IPHONE
@@ -152,8 +160,11 @@ InternalSensors::InternalSensors(SensorListener &_listener)
   :listener(_listener)
 #if TARGET_OS_IPHONE
   , altimeter(nullptr)
+  , altimeter_queue(nullptr)
   , motion_activity_manager(nullptr)
   , motion_activity_queue(nullptr)
+  , altimeter_callback_state(
+      std::make_shared<AltimeterCallbackState>(*this, _listener))
 #endif
 {
   if ([NSThread isMainThread]) {
@@ -254,6 +265,7 @@ void InternalSensors::Init()
         // Create persistent manager and queue to check permissions
         motion_activity_manager = [[CMMotionActivityManager alloc] init];
         motion_activity_queue = [[NSOperationQueue alloc] init];
+        const auto callback_state = altimeter_callback_state;
         
         // Query motion activity to trigger permission dialog
         [motion_activity_manager queryActivityStartingFromDate:[NSDate date]
@@ -265,23 +277,33 @@ void InternalSensors::Init()
                 NSLog(@"Error querying motion activities: %@", error);
                 // Schedule main-thread work for error handling
                 dispatch_async(dispatch_get_main_queue(), ^{
+                  const std::scoped_lock lock{callback_state->mutex};
+                  auto *owner = callback_state->owner;
+                  if (owner == nullptr)
+                    return;
+
                   // Ensure altimeter remains nullptr on error
-                  altimeter = nullptr;
+                  owner->altimeter = nullptr;
                   // Clear the persistent references since we're done
-                  motion_activity_manager = nullptr;
-                  motion_activity_queue = nullptr;
+                  owner->motion_activity_manager = nullptr;
+                  owner->motion_activity_queue = nullptr;
                 });
                 return;
             }
             
             // Schedule main-thread work for successful permission grant
             dispatch_async(dispatch_get_main_queue(), ^{
+              const std::scoped_lock lock{callback_state->mutex};
+              auto *owner = callback_state->owner;
+              if (owner == nullptr)
+                return;
+
               // Clear the persistent references since we're done with permission check
-              motion_activity_manager = nullptr;
-              motion_activity_queue = nullptr;
+              owner->motion_activity_manager = nullptr;
+              owner->motion_activity_queue = nullptr;
               
               // Only initialize altimeter if permission query succeeded
-              StartAltimeterUpdates();
+              owner->StartAltimeterUpdates();
             });
         }];
         
@@ -314,11 +336,20 @@ void InternalSensors::Deinit()
 {
   [location_manager stopUpdatingLocation];
   #if TARGET_OS_IPHONE
+  {
+    const std::scoped_lock lock{altimeter_callback_state->mutex};
+    altimeter_callback_state->owner = nullptr;
+    altimeter_callback_state->listener = nullptr;
+  }
+
   if (altimeter != nullptr) {
     [altimeter stopRelativeAltitudeUpdates];
   }
+  [altimeter_queue cancelAllOperations];
+  altimeter_queue = nullptr;
   
   // Clean up persistent motion activity manager and queue
+  [motion_activity_queue cancelAllOperations];
   motion_activity_manager = nullptr;
   motion_activity_queue = nullptr;
   #endif
@@ -338,12 +369,20 @@ void InternalSensors::Deinit()
  */
 void InternalSensors::StartAltimeterUpdates()
 {
+  /* Core Motion does not publish the pressure sensor's noise
+     characteristics.  Use the same conservative fallback variance as
+     Android's unidentified pressure sensors.  Passing zero here makes the
+     Kalman filter treat every pressure sample as exact, which turns normal
+     sensor noise into large vario excursions. */
+  static constexpr float PRESSURE_SENSOR_NOISE_VARIANCE = 0.05f;
+
   // Initialize altimeter for pressure readings
   altimeter = [[CMAltimeter alloc] init];
-  NSOperationQueue *queue = [[NSOperationQueue alloc] init];
+  altimeter_queue = [[NSOperationQueue alloc] init];
+  const auto callback_state = altimeter_callback_state;
   
   // Start receiving altimeter updates
-  [altimeter startRelativeAltitudeUpdatesToQueue:queue
+  [altimeter startRelativeAltitudeUpdatesToQueue:altimeter_queue
                                      withHandler:^(CMAltitudeData * _Nullable altitudeData, NSError * _Nullable error) {
     if (error) {
       NSLog(@"Error: %@", [error localizedDescription]);
@@ -351,9 +390,13 @@ void InternalSensors::StartAltimeterUpdates()
     }
 
     // Convert pressure readings (from kPa to hPa/mbar) and notify listener
-    listener.OnBarometricPressureSensor(
+    const std::scoped_lock lock{callback_state->mutex};
+    if (callback_state->listener == nullptr)
+      return;
+
+    callback_state->listener->OnBarometricPressureSensor(
       static_cast<float>(altitudeData.pressure.floatValue * 10.0f),
-      0.0f
+      PRESSURE_SENSOR_NOISE_VARIANCE
     );
   }];
 }

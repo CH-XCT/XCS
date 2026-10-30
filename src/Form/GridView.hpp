@@ -33,8 +33,8 @@ private:
   StaticArray<unsigned, 16> saved_row_per_page;
 
 public:
-  void Create(ContainerWindow &parent, const DialogLook &look,
-              const PixelRect &rc, const WindowStyle style,
+  void Create(ContainerWindow &parent, const PixelRect &rc,
+              const WindowStyle style,
               unsigned column_width, unsigned row_height);
 
   void AddItem(Window &w) {
@@ -104,6 +104,10 @@ private:
   
   signed FindNextInRow(signed currIndex, Direction direction, bool cycle) const noexcept;
   signed FindNextInColumn(signed currIndex, Direction direction, bool cycle) const noexcept;
+
+  /** True at the first/last cell of the focused item's row. */
+  [[gnu::pure]]
+  bool IsAtRowEdge(signed focus_pos, Direction direction) const noexcept;
   
   struct PageBounds {
     unsigned pageStart;

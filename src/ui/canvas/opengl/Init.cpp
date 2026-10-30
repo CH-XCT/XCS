@@ -42,7 +42,11 @@ void
 OpenGL::Initialise()
 {
 #ifndef NDEBUG
+#ifdef _WIN32
+  thread = GetCurrentThreadId();
+#else
   thread = pthread_self();
+#endif
 #endif
 }
 
@@ -66,13 +70,8 @@ SupportsNonPowerOfTwoTextures() noexcept
 static GLenum
 CheckDepthStencil() noexcept
 {
-#ifdef USE_GLX
-  if (OpenGL::IsExtensionSupported("GL_EXT_packed_depth_stencil"))
-    return GL_DEPTH24_STENCIL8_OES;
-#else
   if (OpenGL::IsExtensionSupported("GL_OES_packed_depth_stencil"))
     return GL_DEPTH24_STENCIL8_OES;
-#endif
 
   /* not supported */
   return GL_NONE;
@@ -86,11 +85,6 @@ CheckDepthStencil() noexcept
 static GLenum
 CheckStencil() noexcept
 {
-#ifdef USE_GLX
-  /* GL_STENCIL_INDEX8 is available on any desktop OpenGL
-     implementation that supports framebuffer objects */
-  return GL_STENCIL_INDEX8;
-#else
 #if !defined(__APPLE__) || !TARGET_OS_IPHONE
   if (OpenGL::IsExtensionSupported("GL_OES_stencil1"))
     return GL_STENCIL_INDEX1_OES;
@@ -105,7 +99,6 @@ CheckStencil() noexcept
 
   /* not supported */
   return GL_NONE;
-#endif
 }
 
 void
@@ -117,6 +110,11 @@ OpenGL::SetupContext()
   if (auto s = (const char *)glGetString(GL_VERSION))
     LogFormat("GL version: %s", s);
 
+  /* PowerVR Rogue (libGLESv2_POWERVR_ROGUE) crashes in memcpy inside
+     glMultiDrawElementsEXT while drawing topography polygons. Callers
+     fall back to glDrawElements when the pointers stay null. #1235 */
+  [[maybe_unused]] bool disable_multi_draw = false;
+
   if (auto s = (const char *)glGetString(GL_RENDERER)) {
     LogFormat("GL renderer: %s", s);
 
@@ -124,12 +122,16 @@ OpenGL::SetupContext()
       /* Allwinner A20 SoC has a Mali-400 GPU. Limit the map scale to
          250 km. */
       max_map_scale = 251*1000*2;
-    } else if (strstr(s, "PowerVR Rogue GE8300") != nullptr) {
-      /* PowerVR Rogue GE8300 (MediaTek MT8166) crashes in the driver
-         when rendering large topography polygons at extreme zoom-out.
-         Limit the maximum map scale to avoid triggering the bug.
-         See https://github.com/XCSoar/XCSoar/issues/1235 */
-      max_map_scale = 300000;
+    } else if (strstr(s, "PowerVR Rogue") != nullptr) {
+      disable_multi_draw = true;
+      LogFormat("GL: multi-draw disabled on PowerVR Rogue");
+
+      if (strstr(s, "GE8300") != nullptr) {
+        /* MediaTek MT8166 still crashes on large topography when
+           zoomed out.  Keep the map inside the scale that is safe
+           on that GPU. #1235 */
+        max_map_scale = 300000;
+      }
     }
   }
 
@@ -137,6 +139,15 @@ OpenGL::SetupContext()
     LogFormat("GL extensions: %s", s);
 
   texture_non_power_of_two = SupportsNonPowerOfTwoTextures();
+
+  {
+    GLint value = 0;
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &value);
+    max_texture_size = value > 0
+      ? unsigned(value)
+      : DEFAULT_MAX_TEXTURE_SIZE;
+    LogFormat("GL max texture size: %u", max_texture_size);
+  }
 
 #ifdef ANDROID
   if (native_view != nullptr)
@@ -157,7 +168,8 @@ OpenGL::SetupContext()
 #endif
 
 #ifdef HAVE_DYNAMIC_MULTI_DRAW_ARRAYS
-  if (IsExtensionSupported("GL_EXT_multi_draw_arrays")) {
+  if (!disable_multi_draw &&
+      IsExtensionSupported("GL_EXT_multi_draw_arrays")) {
     GLExt::multi_draw_arrays = (PFNGLMULTIDRAWARRAYSEXTPROC)
       GetProcAddress("glMultiDrawArraysEXT");
     GLExt::multi_draw_elements = (PFNGLMULTIDRAWELEMENTSEXTPROC)

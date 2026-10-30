@@ -13,6 +13,22 @@ namespace Layout
 extern bool landscape;
 
 /**
+ * How far away the screen is read.  Auto uses the short edge:
+ * under 3.2 inches is handheld and uses closer-view type.
+ */
+enum class ViewingDistance : unsigned {
+  AUTO,
+  HANDHELD,
+  PANEL,
+  COUNT,
+};
+
+/**
+ * True when type is shrunk for closer viewing.
+ */
+extern bool small_screen;
+
+/**
  * Screen size in pixels, the smaller of width and height.
  */
 extern unsigned min_screen_pixels;
@@ -70,11 +86,28 @@ extern unsigned hit_radius;
  * @param screen_size the size of the screen in pixels
  * @param ui_scale the UI scale setting in percent
  * @param custom_dpi user defined DPI setting or 0 for system settings
+ * @param viewing_distance overrides the short-edge test when not Auto
  */
 void
 Initialise(const UI::Display &display,
            PixelSize screen_size, unsigned ui_scale=100,
-           unsigned custom_dpi=0) noexcept;
+           unsigned custom_dpi=0,
+           ViewingDistance viewing_distance=ViewingDistance::AUTO) noexcept;
+
+/**
+ * Initialise layout from an explicit pixel size and DPI.  Does not
+ * require a live display; small-screen detection uses
+ * @p screen_size.
+ *
+ * @param dpi pixels per inch along x (pens) and y (points/fonts)
+ * @param ui_scale the UI scale setting in percent
+ * @param has_touch true to size controls and hit targets for touch
+ * @param viewing_distance overrides the short-edge test when not Auto
+ */
+void
+Initialise(PixelSize screen_size, UnsignedPoint2D dpi,
+           unsigned ui_scale=100, bool has_touch=false,
+           ViewingDistance viewing_distance=ViewingDistance::AUTO) noexcept;
 
 /**
  * Is scaling supported by this platform?
@@ -85,7 +118,7 @@ ScaleSupported() noexcept
   return true;
 }
 
-[[gnu::const]]
+[[gnu::pure]]
 static inline int
 Scale(int x) noexcept
 {
@@ -95,7 +128,7 @@ Scale(int x) noexcept
   return (x * int(scale_1024)) >> 10;
 }
 
-[[gnu::const]]
+[[gnu::pure]]
 static inline unsigned
 Scale(unsigned x) noexcept
 {
@@ -105,7 +138,7 @@ Scale(unsigned x) noexcept
   return (x * scale_1024) >> 10;
 }
 
-[[gnu::const]]
+[[gnu::pure]]
 static inline long
 Scale(long x) noexcept
 {
@@ -115,7 +148,7 @@ Scale(long x) noexcept
   return (x * long(scale_1024)) >> 10;
 }
 
-[[gnu::const]]
+[[gnu::pure]]
 static inline double
 Scale(double x) noexcept
 {
@@ -125,7 +158,7 @@ Scale(double x) noexcept
   return x * (Layout::scale_1024 / 1024.);
 }
 
-[[gnu::const]]
+[[gnu::pure]]
 static inline PixelSize
 Scale(PixelSize size) noexcept
 {
@@ -135,7 +168,7 @@ Scale(PixelSize size) noexcept
   return {Scale(size.width), Scale(size.height)};
 }
 
-[[gnu::const]]
+[[gnu::pure]]
 static inline int
 FastScale(int x) noexcept
 {
@@ -145,7 +178,7 @@ FastScale(int x) noexcept
   return x * int(scale);
 }
 
-[[gnu::const]]
+[[gnu::pure]]
 static inline unsigned
 FastScale(unsigned x) noexcept
 {
@@ -155,7 +188,7 @@ FastScale(unsigned x) noexcept
   return x * scale;
 }
 
-[[gnu::const]]
+[[gnu::pure]]
 static inline long
 FastScale(long x) noexcept
 {
@@ -165,7 +198,7 @@ FastScale(long x) noexcept
   return x * (long)scale;
 }
 
-[[gnu::const]]
+[[gnu::pure]]
 static inline unsigned
 ScalePenWidth(unsigned width) noexcept
 {
@@ -175,7 +208,7 @@ ScalePenWidth(unsigned width) noexcept
   return (width * pen_width_scale) >> 10;
 }
 
-[[gnu::const]]
+[[gnu::pure]]
 static inline unsigned
 ScaleFinePenWidth(unsigned width) noexcept
 {
@@ -190,7 +223,7 @@ ScaleFinePenWidth(unsigned width) noexcept
  *
  * Use this if you need exact physical dimensions.
  */
-[[gnu::const]]
+[[gnu::pure]]
 static inline unsigned
 PtScale(unsigned pt) noexcept
 {
@@ -204,7 +237,7 @@ PtScale(unsigned pt) noexcept
  *
  * Use this for best readability of on-screen objects.
  */
-[[gnu::const]]
+[[gnu::pure]]
 static inline unsigned
 VptScale(unsigned pt) noexcept
 {
@@ -216,7 +249,7 @@ VptScale(unsigned pt) noexcept
  * scaling factors may be applied to consider small screens
  * (i.e. viewing distance) and user preference.
  */
-[[gnu::const]]
+[[gnu::pure]]
 static inline unsigned
 FontScale(unsigned spt) noexcept
 {
@@ -236,7 +269,7 @@ ScaleY(int y) noexcept
   return y;
 }
 
-[[gnu::const]]
+[[gnu::pure]]
 static inline unsigned
 GetTextPadding() noexcept
 {
@@ -264,6 +297,22 @@ static inline unsigned
 GetMaximumControlHeight() noexcept
 {
   return maximum_control_height;
+}
+
+/**
+ * In-flight tap target (pan menu, map cursor bar), in points.
+ * ~20 mm, large enough for a gloved tap (2 * map hit radius).
+ */
+static constexpr unsigned inflight_button_pt = 56;
+
+/**
+ * Pixel size of #inflight_button_pt.
+ */
+[[gnu::pure]]
+static inline unsigned
+GetInflightButtonHeight() noexcept
+{
+  return PtScale(inflight_button_pt);
 }
 
 /**

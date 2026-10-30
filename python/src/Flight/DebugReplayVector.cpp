@@ -35,7 +35,8 @@ DebugReplayVector::Compute(const int elevation)
   FeaturesSettings features;
   features.nav_baro_altitude_enabled = true;
   computer.Fill(computed_basic, qnh, features);
-  computer.Compute(computed_basic, last_basic, last_basic, calculated);
+  computer.Compute(computed_basic, last_basic, last_basic, calculated,
+                   ComputerSettings{.polar = {.glide_polar_task = glide_polar}});
 
   if (elevation > -1000) {
     calculated.terrain_valid = true;
@@ -73,6 +74,12 @@ DebugReplayVector::CopyFromFix(const IGCFixEnhanced &fix)
     basic.location_available.Clear();
     basic.gps_altitude_available.Clear();
   }
+
+  if (fix.gps_ellipsoid_altitude_available) {
+    basic.gps_ellipsoid_altitude = fix.gps_ellipsoid_altitude;
+    basic.gps_ellipsoid_altitude_available.Update(basic.clock);
+  } else
+    basic.gps_ellipsoid_altitude_available.Clear();
 
   if (fix.pressure_altitude != 0) {
     basic.pressure_altitude = fix.pressure_altitude;

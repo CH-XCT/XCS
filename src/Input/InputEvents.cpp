@@ -39,8 +39,12 @@ https://xcsoar.readthedocs.io/en/latest/input_events.html
 #include "io/BufferedReader.hxx"
 #include "Pan.hpp"
 #include "Dialogs/LockScreen.hpp"
+#include "Weather/MapOverlay/InputEvents.hpp"
 #include "Menu/MenuBar.hpp"
 #include "MapWindow/GlueMapWindow.hpp"
+#include "Screen/Layout.hpp"
+#include "Language/Language.hpp"
+#include "util/StringAPI.hxx"
 
 #ifdef KOBO
 #include "ui/event/KeyCode.hpp"
@@ -179,6 +183,13 @@ InputEvents::IsDefault() noexcept
   return current_mode == MODE_DEFAULT;
 }
 
+bool
+InputEvents::IsMode(const char *name) noexcept
+{
+  const int id = GetModeId(name);
+  return id >= 0 && current_mode == Mode(id);
+}
+
 void
 InputEvents::drawButtons(Mode mode, bool full) noexcept
 {
@@ -204,22 +215,14 @@ InputEvents::drawButtons(Mode mode, bool full) noexcept
   CommonInterface::main_window->ShowMenu(menu, overlay_menu, full);
 
   GlueMapWindow *map = CommonInterface::main_window->GetMapIfActive();
-  if (map != nullptr)
-  {
-    if (mode != MODE_DEFAULT)
-    {
-      /* Adjust the margin to ensure that GlueMapWindow elements,
-       * such as the scale, are not overdrawn by the buttons
-       * when in Pan mode. */
+  if (map != nullptr) {
+    /* Only portrait pan mode covers the scale with a bottom menu. */
+    unsigned margin = 0;
+    if (mode != MODE_DEFAULT && map->IsPanning() && !Layout::landscape) {
       PixelRect screen_rect = map->GetParentClientRect();
-      unsigned factor = (screen_rect.GetHeight() > screen_rect.GetWidth())
-        ? menubar_height_scale_factor
-        : 5;
-      
-      map->SetBottomMarginFactor(factor);
-    } else {
-      map->SetBottomMarginFactor(0);
+      margin = MenuBar::GetButtonHeight(screen_rect.GetHeight(), true);
     }
+    map->SetBottomMargin(margin);
   }
 }
 
@@ -365,6 +368,37 @@ InputEvents::processKey(unsigned key_code) noexcept
   return ProcessKey(getModeID(), key_code);
 }
 
+int
+InputEvents::GetModeId(const char *name) noexcept
+{
+  return input_config.LookupMode(name);
+}
+
+bool
+InputEvents::ProcessKeyInMode(Mode mode, unsigned key_code) noexcept
+{
+  if (!global_running)
+    return false;
+
+#ifdef KOBO
+#ifdef ENABLE_SDL
+  if (key_code == SDLK_POWER)
+    key_code = KEY_MENU;
+#endif
+#endif
+
+  if (Lua::FireKey(key_code)) {
+  }
+
+  const unsigned event_id = input_config.GetKeyEventInModeNoFallback(
+      (unsigned)mode, key_code);
+  if (event_id == 0)
+    return false;
+
+  ProcessEvent(event_id);
+  return true;
+}
+
 unsigned
 InputEvents::gesture_to_event(const char *data) noexcept
 {
@@ -375,6 +409,62 @@ bool
 InputEvents::IsGesture(const char *data) noexcept
 {
   return (Lua::IsGesture(data)) || (gesture_to_event(data) != 0);
+}
+
+/**
+ * The names of the actions a gesture can trigger, see
+ * GetGestureLabel(); mostly the same as in the gesture help, see
+ * dlgGestureHelp.cpp.
+ */
+static constexpr struct {
+  InputConfig::pt2Event event;
+
+  /** the event's argument; nullptr matches any argument */
+  const char *misc;
+
+  const char *label;
+} gesture_labels[] = {
+  { InputEvents::eventZoom, "in", N_("Zoom in") },
+  { InputEvents::eventZoom, "out", N_("Zoom out") },
+  { InputEvents::eventZoom, "auto on", N_("Auto zoom") },
+  { InputEvents::eventScreenModes, "next", N_("Next page") },
+  { InputEvents::eventScreenModes, "previous", N_("Previous page") },
+  { InputEvents::eventWaypointDetails, "select", N_("Waypoint list") },
+  { InputEvents::eventSetup, "Alternates", N_("Alternates") },
+  { InputEvents::eventMode, "Menu", N_("Menu") },
+  { InputEvents::eventCalculator, nullptr, N_("Task manager") },
+  { InputEvents::eventAnalysis, nullptr, N_("Analysis") },
+  { InputEvents::eventChecklist, nullptr, N_("Checklist") },
+  { InputEvents::eventPan, "on", N_("Pan mode") },
+  { InputEvents::eventPan, "toggle", N_("Pan mode") },
+  { InputEvents::eventStatus, nullptr, N_("Status") },
+  { InputEvents::eventGotoLookup, "recent", N_("Recently used waypoints") },
+  { InputEvents::eventGotoLookup, "last_used",
+    N_("Recently used waypoints") },
+  { InputEvents::eventQuickMenu, nullptr, N_("Quick menu") },
+};
+
+const char *
+InputEvents::GetGestureLabel(const char *data) noexcept
+{
+  if (Lua::IsGesture(data))
+    /* Lua takes precedence, see processGesture() */
+    return nullptr;
+
+  /* the first event of the chain which has a name; others, like
+     "Zoom auto show", only prepare it */
+  for (unsigned id = gesture_to_event(data); id > 0;
+       id = input_config.events[id].next) {
+    const InputConfig::Event &event = input_config.events[id];
+
+    for (const auto &i : gesture_labels)
+      if (event.event == i.event &&
+          (i.misc == nullptr ||
+           (event.misc != nullptr && StringIsEqual(event.misc, i.misc))))
+        return gettext(i.label);
+  }
+
+  return nullptr;
 }
 
 bool
@@ -511,4 +601,17 @@ void
 InputEvents::eventLockScreen([[maybe_unused]] const char *mode)
 {
   ShowLockBox();
+}
+
+// WeatherOverlay
+// Adjusts the active map weather overlay cursor bar.
+// time +/-, time auto on/off/toggle/show
+// altitude +/-, altitude auto on/off/toggle/show
+// field/layer/level picker (secondary axis list)
+// level +/- and level auto … (EDL pressure level alias for altitude)
+// setup (open Info → Weather for the active overlay)
+void
+InputEvents::eventWeatherOverlay(const char *misc)
+{
+  WeatherMapOverlay::HandleInputEvent(misc);
 }

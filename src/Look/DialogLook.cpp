@@ -7,28 +7,40 @@
 #include "Screen/Layout.hpp"
 #include "Asset.hpp"
 
+#include <algorithm>
+
 #ifdef EYE_CANDY
 #include "Resources.hpp"
 #endif
 
-#include <algorithm>
-
 void
 DialogLook::LoadFonts()
 {
-  const FontDescription text_font_d(std::min(Layout::FontScale(12),
-                                             Layout::min_screen_pixels / 20));
+  /* FontScale applies DPI, Text size, and the close-view shrink.
+     Cap at the short edge / 20 so menus, forms, headings and status
+     text stay on the screen.  Map labels are not capped. */
+  const unsigned cap    = Layout::min_screen_pixels / 20;
+  const unsigned height = std::min(Layout::FontScale(12), cap);
+  const FontDescription text_font_d(height);
+
   const FontDescription small_font_d =
     text_font_d.WithHeight(text_font_d.GetHeight() * 3u / 4u);
 
   text_font.Load(text_font_d);
   small_font.Load(small_font_d);
+  small_font_bold.Load(small_font_d.WithBold());
 
+  /* QuickGuide **bold** and list emphasis use bold_font; buttons use
+     text_font on e-paper (see Initialise). */
   bold_font.Load(text_font_d.WithBold());
 
-  /* H1 = 150% of text size, H2 = 125% */
-  heading1_font.Load(text_font_d.WithHeight(text_font_d.GetHeight() * 3u / 2u).WithBold());
-  heading2_font.Load(text_font_d.WithHeight(text_font_d.GetHeight() * 5u / 4u).WithBold());
+  /* H1 = 150% of text size, H2 = 125%, both inside the same cap. */
+  const FontDescription heading1_d =
+    text_font_d.WithHeight(std::min(height * 3u / 2u, cap));
+  const FontDescription heading2_d =
+    text_font_d.WithHeight(std::min(height * 5u / 4u, cap));
+  heading1_font.Load(heading1_d.WithBold());
+  heading2_font.Load(heading2_d.WithBold());
 }
 
 void
@@ -96,6 +108,35 @@ DialogLook::Initialise(bool _dark_mode)
   }
 
   button.Initialise(bold_font, dark_mode);
+
+  /* #ButtonState::SELECTED (action bar) matches a focused list row; in dark
+     mode use the same bright `focused` (COLOR_XCSOAR) as dialog/tab focus
+     list.focused in dark is darker (XCSOAR_DARK) */
+  {
+    if (dark_mode) {
+      button.selected.background_color = focused.background_color;
+      button.selected.foreground_color = focused.text_color;
+    } else {
+      const auto &h = list.focused;
+      button.selected.background_color = h.background_color;
+      button.selected.foreground_color = h.text_color;
+    }
+    button.selected.foreground_brush.Create(button.selected.foreground_color);
+    if (dark_mode) {
+      button.selected.CreateBorder(
+        LightColor(button.selected.background_color),
+        DarkColor(button.selected.background_color));
+    } else if (IsDithered()) {
+      button.selected.CreateBorder(COLOR_WHITE, COLOR_WHITE);
+    } else if (!HasColors()) {
+      button.selected.CreateBorder(LightColor(COLOR_DARK_GRAY), COLOR_BLACK);
+    } else {
+      button.selected.CreateBorder(
+        LightColor(button.selected.background_color),
+        DarkColor(button.selected.background_color));
+    }
+  }
+
   check_box.Initialise(text_font, dark_mode);
 
   list.font = &text_font;
@@ -108,4 +149,16 @@ DialogLook::SetBackgroundColor(Color color)
   background_color = color;
   background_gradient_top_color = color;
   background_brush.Create(color);
+}
+
+Color
+DialogLook::ReadOnlyValueBackground() const noexcept
+{
+  return dark_mode ? DarkColor(list.background_color) : Color(0xf0, 0xf0, 0xf0);
+}
+
+Color
+DialogLook::ReadOnlyValueBorderColor() const noexcept
+{
+  return dark_mode ? COLOR_GRAY : COLOR_BLACK;
 }

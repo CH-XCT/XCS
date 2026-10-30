@@ -27,7 +27,7 @@ DeviceConfig::IsAvailable() const noexcept
     return true;
 
   case PortType::RFCOMM:
-  case PortType::BLE_HM10:
+  case PortType::BLE_SERIAL:
   case PortType::BLE_SENSOR:
   case PortType::RFCOMM_SERVER:
   case PortType::GLIDER_LINK:
@@ -41,9 +41,6 @@ DeviceConfig::IsAvailable() const noexcept
   case PortType::IOIOVOLTAGE:
     return HasIOIOLib();
 
-  case PortType::AUTO:
-    return false;
-
   case PortType::INTERNAL:
     return IsAndroid() || IsApple();
 
@@ -52,6 +49,7 @@ DeviceConfig::IsAvailable() const noexcept
 
   case PortType::TCP_LISTENER:
   case PortType::UDP_LISTENER:
+  case PortType::SPECTATE_FILE:
     return true;
 
   case PortType::PTY:
@@ -74,13 +72,11 @@ DeviceConfig::ShouldReopenOnTimeout() const noexcept
     return false;
 
   case PortType::SERIAL:
-  case PortType::AUTO:
-    /* TODO: old branch for Windows CE due to its quirks */
     return false;
 
   case PortType::RFCOMM:
   case PortType::BLE_SENSOR:
-  case PortType::BLE_HM10:
+  case PortType::BLE_SERIAL:
   case PortType::RFCOMM_SERVER:
   case PortType::ANDROID_USB_SERIAL:
   case PortType::IOIOUART:
@@ -98,9 +94,8 @@ DeviceConfig::ShouldReopenOnTimeout() const noexcept
 
   case PortType::TCP_LISTENER:
   case PortType::UDP_LISTENER:
-    /* this is a server, and if no data gets received, this can just
-       mean that nobody connected to it, but reopening it periodically
-       doesn't help */
+  case PortType::SPECTATE_FILE:
+    /* local file polling; reopening does not help */
     return false;
 
   case PortType::PTY:
@@ -167,6 +162,13 @@ DeviceConfig::BluetoothNameStartsWith([[maybe_unused]] const char *prefix) const
 }
 
 void
+DeviceConfig::ApplySpectateDefaults() noexcept
+{
+  if (path.empty())
+    path = DEFAULT_SPECTATE_PATH;
+}
+
+void
 DeviceConfig::Clear() noexcept
 {
   port_type = PortType::DISABLED;
@@ -182,9 +184,11 @@ DeviceConfig::Clear() noexcept
   enabled = true;
   sync_from_device = true;
   sync_to_device = true;
+  send_position = true;
   k6bt = false;
   polar_sync = PolarSync::OFF;
   engine_type = EngineType::NONE;
+  instrument_alignment = InstrumentAlignment::NONE;
 #ifndef NDEBUG
   dump_port = false;
 #endif
@@ -216,7 +220,7 @@ DeviceConfig::GetPortName(char *buffer, size_t max_size) const noexcept
     return buffer;
     }
 
-  case PortType::BLE_HM10: {
+  case PortType::BLE_SERIAL: {
     const char *name = bluetooth_mac.c_str();
 #ifdef ANDROID
     if (bluetooth_helper != nullptr) {
@@ -266,9 +270,6 @@ DeviceConfig::GetPortName(char *buffer, size_t max_size) const noexcept
   case PortType::IOIOVOLTAGE:
     return "IOIO voltage sensor";
 
-  case PortType::AUTO:
-    return _("GPS Intermediate Driver");
-
   case PortType::INTERNAL:
     return _("Built-in GPS & sensors");
 
@@ -295,6 +296,10 @@ DeviceConfig::GetPortName(char *buffer, size_t max_size) const noexcept
   case PortType::ANDROID_USB_SERIAL:
     StringFormat(buffer, max_size, "%s: %s",
                  _("USB serial"), path.c_str());
+    return buffer;
+
+  case PortType::SPECTATE_FILE:
+    StringFormat(buffer, max_size, "%s", path.c_str());
     return buffer;
   }
 

@@ -5,14 +5,17 @@
 
 #include "InfoBoxes/Content/Base.hpp"
 #include "ui/window/LazyPaintWindow.hpp"
+#include "ui/event/PeriodicTimer.hpp"
 #include "ui/event/Timer.hpp"
 #include "Data.hpp"
 
+#include <chrono>
 #include <memory>
 
 struct InfoBoxSettings;
 struct InfoBoxLook;
 class Color;
+class Canvas;
 
 class InfoBoxWindow : public LazyPaintWindow
 {
@@ -41,26 +44,43 @@ class InfoBoxWindow : public LazyPaintWindow
    */
   bool pressed = false;
 
+  /** Enter is down.  Release before the hold is armed runs the action. */
+  bool enter_down = false;
+
   /**
    * draw the selector event if the InfoBox window is not the system focus
    */
   bool force_draw_selector = false;
 
   /**
-   * Track whether a long press is pending (timer hasn't fired yet).
-   * Used to distinguish between long press (show picker) and short press (show dialog).
+   * A press is still down and has not become a drag.  Lift before
+   * #hold_armed is a tap; lift after it opens arrange.
    */
   bool long_press_pending = false;
+
+  /** the hold finished; the action waits for lift-off */
+  bool hold_armed = false;
+
+  /** where this press started, for the slop check */
+  PixelPoint press_point{0, 0};
+
+  /** when the long-press glow started */
+  std::chrono::steady_clock::time_point press_start{};
+
+  /** starts the fill once the press is past a tap */
+  UI::Timer hold_timer{[this]{ OnHoldArmed(); }};
+
+  /** fades the long-press fill while the hold is running */
+  UI::PeriodicTimer fade_timer{[this]{ Invalidate(); }};
 
   /** a timer which returns keyboard focus back to the map window after a while */
   UI::Timer focus_timer{[this]{ FocusParent(); }};
 
   /**
-   * This timer opens the dialog.  It is used to check for "long
-   * click" and to delay the dialog a bit (for double click
-   * detection).
+   * Arms the hold while the press is still down.  Lift after that
+   * opens arrange mode.
    */
-  UI::Timer dialog_timer{[this]{ OnDialogTimer(); }};
+  UI::Timer long_press_timer{[this]{ OnLongPress(); }};
 
   PixelRect title_rect;
   PixelRect value_rect;
@@ -117,6 +137,11 @@ public:
   }
 
   void SetContentProvider(std::unique_ptr<InfoBoxContent> _content);
+
+  [[nodiscard]] bool HasContent() const noexcept {
+    return content != nullptr;
+  }
+
   void UpdateContent();
 
 private:
@@ -131,7 +156,14 @@ private:
 protected:
   void ShowDialog();
 
-  bool HandleKey(InfoBoxContent::InfoBoxKeyCodes keycode);
+  /** Short press and Enter: the content action, if this box has one. */
+  void Activate() noexcept;
+
+  /** Lift or Enter release: arrange if the hold is armed, else the action. */
+  void FinishPress() noexcept;
+
+  /** Move focus to the nearest box in this screen direction. */
+  void FocusNeighbour(int dx, int dy) noexcept;
 
 public:
   [[gnu::pure]]
@@ -145,7 +177,10 @@ public:
   }
 
 private:
-  void OnDialogTimer() noexcept;
+  void OnLongPress() noexcept;
+  void OnHoldArmed() noexcept;
+  void StopLongPress() noexcept;
+  void PaintLongPressGlow(Canvas &canvas) noexcept;
 
 protected:
   void OnDestroy() noexcept override;
@@ -155,6 +190,7 @@ protected:
   void OnCancelMode() noexcept override;
 
   bool OnKeyDown(unsigned key_code) noexcept override;
+  bool OnKeyUp(unsigned key_code) noexcept override;
 
   bool OnMouseDown(PixelPoint p) noexcept override;
   bool OnMouseUp(PixelPoint p) noexcept override;

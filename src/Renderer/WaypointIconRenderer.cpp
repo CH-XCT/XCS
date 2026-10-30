@@ -13,6 +13,18 @@
 #include <algorithm>
 
 [[gnu::pure]]
+static unsigned
+MapIconTargetHeight(const MaskedIcon &icon, unsigned percent) noexcept
+{
+  const unsigned h = icon.GetSize().height;
+  if (h == 0)
+    return 0;
+
+  const unsigned scaled = (h * percent + 50U) / 100U;
+  return std::max(1U, scaled);
+}
+
+[[gnu::pure]]
 static const MaskedIcon &
 GetWaypointIcon(const WaypointLook &look, const Waypoint &wp,
                 bool small_icons, const bool in_task) noexcept
@@ -125,7 +137,8 @@ WaypointIconRenderer::DrawLandable(const Waypoint &waypoint,
       icon = waypoint.IsAirport()
         ? &look.airport_reachable_icon
         : &look.field_reachable_icon;
-    else if (reachable == WaypointReachability::STRAIGHT)
+    else if (reachable == WaypointReachability::STRAIGHT ||
+             reachable == WaypointReachability::BEST_GLIDE)
       icon = waypoint.IsAirport()
         ? &look.airport_marginal_icon
         : &look.field_marginal_icon;
@@ -136,8 +149,14 @@ WaypointIconRenderer::DrawLandable(const Waypoint &waypoint,
 
     if (icon_size > 0)
       icon->Draw(canvas, point, icon_size);
-    else
-      icon->Draw(canvas, point);
+    else {
+      const unsigned th =
+        MapIconTargetHeight(*icon, (unsigned)settings.map_waypoint_icon_scale);
+      if (th != 0 && th != icon->GetSize().height)
+        icon->Draw(canvas, point, th);
+      else
+        icon->Draw(canvas, point);
+    }
     return;
   }
 
@@ -150,6 +169,8 @@ WaypointIconRenderer::DrawLandable(const Waypoint &waypoint,
      30 * scale.  Derive scale so the full icon fits icon_size. */
   if (icon_size > 0)
     scale = icon_size / 30.;
+  else
+    scale *= double(settings.map_waypoint_icon_scale) / 100.;
 
   double radius = 10 * scale;
 
@@ -158,20 +179,28 @@ WaypointIconRenderer::DrawLandable(const Waypoint &waypoint,
   const bool is_reachable = reachable != WaypointReachability::INVALID &&
     reachable != WaypointReachability::UNREACHABLE;
 
+  const bool best_glide =
+    reachable == WaypointReachability::BEST_GLIDE;
+
   switch (settings.landable_style) {
   case WaypointRendererSettings::LandableStyle::PURPLE_CIRCLE:
     // Render landable with reachable state
     if (is_reachable) {
-      canvas.Select(reachable == WaypointReachability::TERRAIN
-                    ? look.reachable_brush
-                    : look.terrain_unreachable_brush);
+      if (best_glide)
+        canvas.Select(look.orange_brush);
+      else if (reachable == WaypointReachability::TERRAIN)
+        canvas.Select(look.reachable_brush);
+      else
+        canvas.Select(look.terrain_unreachable_brush);
       DrawLandableBase(canvas, point, waypoint.IsAirport(), 1.5 * radius);
     }
     canvas.Select(look.magenta_brush);
     break;
 
   case WaypointRendererSettings::LandableStyle::BW:
-    if (is_reachable)
+    if (best_glide)
+      canvas.Select(look.orange_brush);
+    else if (is_reachable)
       canvas.Select(reachable == WaypointReachability::TERRAIN
                     ? look.reachable_brush
                     : look.terrain_unreachable_brush);
@@ -182,7 +211,11 @@ WaypointIconRenderer::DrawLandable(const Waypoint &waypoint,
     break;
 
   case WaypointRendererSettings::LandableStyle::TRAFFIC_LIGHTS:
-    if (is_reachable)
+    /* Orange is already the straight reach that terrain blocks.
+       Best glide is the light red between that and unreachable. */
+    if (best_glide)
+      canvas.Select(look.terrain_unreachable_brush);
+    else if (is_reachable)
       canvas.Select(reachable == WaypointReachability::TERRAIN
                     ? look.reachable_brush
                     : look.orange_brush);
@@ -216,7 +249,16 @@ WaypointIconRenderer::Draw(const Waypoint &waypoint, const PixelPoint &point,
   if (waypoint.IsLandable())
     DrawLandable(waypoint, point, reachable);
   else if (icon_size > 0)
-    GetWaypointIcon(look, waypoint, small_icons, in_task).Draw(canvas, point, icon_size);
-  else
-    GetWaypointIcon(look, waypoint, small_icons, in_task).Draw(canvas, point);
+    GetWaypointIcon(look, waypoint, small_icons, in_task).Draw(canvas, point,
+                                                                icon_size);
+  else {
+    const auto &icon =
+      GetWaypointIcon(look, waypoint, small_icons, in_task);
+    const unsigned th =
+      MapIconTargetHeight(icon, (unsigned)settings.map_waypoint_icon_scale);
+    if (th != 0 && th != icon.GetSize().height)
+      icon.Draw(canvas, point, th);
+    else
+      icon.Draw(canvas, point);
+  }
 }

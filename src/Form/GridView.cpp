@@ -5,13 +5,13 @@
 #include "Math/Util.hpp"
 
 void
-GridView::Create(ContainerWindow &parent, const DialogLook &look,
-                 const PixelRect &rc, const WindowStyle style,
+GridView::Create(ContainerWindow &parent, const PixelRect &rc,
+                 const WindowStyle style,
                  unsigned _column_width, unsigned _row_height)
 {
   column_width = _column_width;
   row_height = _row_height;
-  PanelControl::Create(parent, look, rc, style);
+  PanelControl::Create(parent, rc, style);
   current_page = 0;
   previous_page = 0;
   saved_row_from_previous_page = 0;
@@ -437,13 +437,7 @@ GridView::ShowNextPage(Direction direction)
   if (newPos != -1 && IsItemValid(newPos)) {
     items[newPos]->SetFocus();
     if (focusPos != -1 && IsItemValid(focusPos) && items[newPos]->HasFocus()) {
-#ifdef USE_WINUSER
-      HWND oldFocusHwnd = ::GetFocus();
-      if (oldFocusHwnd != nullptr)
-        ::SendMessage(oldFocusHwnd, WM_CANCELMODE, 0, 0);
-#else
       items[focusPos]->ClearFocus();
-#endif /* USE_WINUSER */
     }
     RefreshLayout();
   }
@@ -588,47 +582,64 @@ GridView::GetNextItemIndex(unsigned currIndex, Direction direction) const
   return nextPos;
 }
 
+bool
+GridView::IsAtRowEdge(signed focus_pos, Direction direction) const noexcept
+{
+  const PageBounds bounds = GetPageBoundsForIndex(focus_pos);
+  const PagePosition pos = GetPagePosition(focus_pos);
+  const unsigned row_end = std::min(bounds.pageStart
+                                      + (pos.rowNum + 1) * num_columns,
+                                    bounds.pageEnd);
+
+  if (direction == Direction::LEFT)
+    return pos.colNum == 0;
+
+  /* Last column, or last cell of a short final row. */
+  return pos.colNum + 1 >= num_columns ||
+    focus_pos + 1 >= (signed)row_end;
+}
+
 void
 GridView::MoveFocus(Direction direction)
 {
-  signed focusPos = GetIndexOfItemInFocus();
+  signed focus_pos = GetIndexOfItemInFocus();
 
-  if (focusPos == -1) {
+  if (focus_pos == -1) {
     ShowNextPage(direction);
     return;
   }
 
-  unsigned pageSize = GetPageSize();
-  bool singlePage = (items.size() <= pageSize);
-
-  signed newFocusPos = -1;
+  signed new_focus_pos = -1;
 
   if (direction == Direction::LEFT || direction == Direction::RIGHT) {
-    newFocusPos = FindNextInRow(focusPos, direction, singlePage);
-    
-    if (newFocusPos == -1) {
-      if (singlePage) {
+    /* Prefer an enabled neighbour in-row without wrapping. */
+    new_focus_pos = FindNextInRow(focus_pos, direction, false);
+    if (new_focus_pos == -1) {
+      if (!IsAtRowEdge(focus_pos, direction))
+        return; /* disabled mid-row: stay put */
+
+      const bool single_page = items.size() <= GetPageSize();
+      if (single_page) {
+        new_focus_pos = FindNextInRow(focus_pos, direction, true);
+        if (new_focus_pos == -1)
+          return;
+      } else {
+        ShowNextPage(direction);
         return;
       }
-      ShowNextPage(direction);
-      return;
     }
   } else {
-    newFocusPos = FindNextInColumn(focusPos, direction, true);
-    
-    if (newFocusPos == -1) {
+    new_focus_pos = FindNextInColumn(focus_pos, direction, true);
+    if (new_focus_pos == -1)
       return;
-    }
   }
 
-  if (newFocusPos == focusPos) {
+  if (new_focus_pos == focus_pos || new_focus_pos < 0 ||
+      !IsItemValid(new_focus_pos))
     return;
-  }
 
-  if (newFocusPos >= 0 && IsItemValid(newFocusPos)) {
-    items[newFocusPos]->SetFocus();
-    RefreshLayout();
-  }
+  items[new_focus_pos]->SetFocus();
+  RefreshLayout();
 }
 
 void

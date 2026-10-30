@@ -20,7 +20,7 @@ ProtectedAirspaceWarningManager::Clear() noexcept
 }
 
 void
-ProtectedAirspaceWarningManager::AcknowledgeAll() noexcept
+ProtectedAirspaceWarningManager::AcknowledgeAll()
 {
   ExclusiveLease lease(*this);
   lease->AcknowledgeAll();
@@ -42,15 +42,30 @@ ProtectedAirspaceWarningManager::GetAckDay(const AbstractAirspace &airspace) con
 
 void
 ProtectedAirspaceWarningManager::AcknowledgeDay(ConstAirspacePtr airspace,
-                                                const bool set) noexcept
+                                                const bool set)
 {
   ExclusiveLease lease(*this);
   lease->AcknowledgeDay(std::move(airspace), set);
 }
 
 void
+ProtectedAirspaceWarningManager::SetCleared(ConstAirspacePtr airspace,
+                                            const bool set)
+{
+  ExclusiveLease lease(*this);
+  lease->SetCleared(std::move(airspace), set);
+}
+
+bool
+ProtectedAirspaceWarningManager::GetCleared(const AbstractAirspace &airspace) const noexcept
+{
+  Lease lease(*this);
+  return lease->GetCleared(airspace);
+}
+
+void
 ProtectedAirspaceWarningManager::AcknowledgeWarning(ConstAirspacePtr airspace,
-                                                    const bool set) noexcept
+                                                    const bool set)
 {
   ExclusiveLease lease(*this);
   lease->AcknowledgeWarning(std::move(airspace), set);
@@ -58,7 +73,7 @@ ProtectedAirspaceWarningManager::AcknowledgeWarning(ConstAirspacePtr airspace,
 
 void
 ProtectedAirspaceWarningManager::AcknowledgeInside(ConstAirspacePtr airspace,
-                                                   const bool set) noexcept
+                                                   const bool set)
 {
   ExclusiveLease lease(*this);
   lease->AcknowledgeInside(std::move(airspace), set);
@@ -75,8 +90,10 @@ std::optional<AirspaceWarning>
 ProtectedAirspaceWarningManager::GetTopWarning() const noexcept
 {
   const Lease lease(*this);
-  if (auto i = lease->begin(); i != lease->end())
-    return *i;
+  const AirspaceWarningManager &manager = lease;
+  for (const auto &warning : manager)
+    if (warning.IsActive())
+      return warning;
 
   return std::nullopt;
 }

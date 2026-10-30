@@ -6,6 +6,9 @@
 #include "Look/DialogLook.hpp"
 #include "Screen/Layout.hpp"
 #include "UIGlobals.hpp"
+#include "ui/canvas/TextWrapper.hpp"
+
+#include <algorithm>
 
 PixelSize
 RichTextWidget::GetMinimumSize() const noexcept
@@ -16,38 +19,36 @@ RichTextWidget::GetMinimumSize() const noexcept
 PixelSize
 RichTextWidget::GetMaximumSize() const noexcept
 {
-  // If window is prepared, use actual content height
+  PixelSize size{Layout::FastScale(600), Layout::FastScale(200)};
+  bool from_content = false;
+
   if (IsDefined()) {
     const auto &w = static_cast<const RichTextWindow &>(GetWindow());
-    unsigned content_height = w.GetContentHeight();
-    if (content_height > 0)
-      return PixelSize{Layout::FastScale(600),
-                       static_cast<int>(content_height)};
+    const unsigned content_height = w.GetContentHeight();
+    if (content_height > 0) {
+      size.height = content_height;
+      from_content = true;
+    }
   }
 
-  // Estimate height from text length before window is prepared
-  if (!text.empty()) {
+  if (!from_content && !text.empty()) {
     const Font &font = GetLook().text_font;
     const unsigned line_height = font.GetLineSpacing();
-
-    // Count newlines for initial estimate
-    unsigned line_count = 1;
-    for (const char c : text) {
-      if (c == '\n')
-        ++line_count;
-    }
-
-    // Add extra for word wrapping (rough estimate: 50% more lines)
-    line_count = line_count * 3 / 2;
-
-    const unsigned padding = Layout::GetTextPadding() * 2;
-    const int estimated_height =
-      static_cast<int>(line_count * line_height + padding * 2);
-
-    return PixelSize{Layout::FastScale(600), estimated_height};
+    const unsigned estimate_width = Layout::FastScale(600);
+    const unsigned line_count =
+      std::max(1u, EstimateWrappedLineCount(font, estimate_width, text));
+    const unsigned padding = Layout::GetTextPadding();
+    size.height = line_count * line_height + padding * 2;
   }
 
-  return PixelSize{Layout::FastScale(600), Layout::FastScale(200)};
+  /* TwoWidgets requires maximum >= minimum. A short code and URL
+     would otherwise be shorter than GetMinimumSize(). */
+  const PixelSize minimum = GetMinimumSize();
+  if (size.width < minimum.width)
+    size.width = minimum.width;
+  if (size.height < minimum.height)
+    size.height = minimum.height;
+  return size;
 }
 
 void
@@ -82,6 +83,7 @@ RichTextWidget::Prepare(ContainerWindow &parent, const PixelRect &rc) noexcept
   w->SetFont(dialog_look.text_font, &dialog_look.bold_font,
              &dialog_look.heading1_font, &dialog_look.heading2_font);
   w->SetDarkMode(dialog_look.dark_mode, dialog_look.background_color);
+  w->SetDialogLook(dialog_look);
 
   if (link_return_callback)
     w->SetInternalLinkReturnCallback(link_return_callback);
@@ -104,8 +106,11 @@ RichTextWidget::SetFocus() noexcept
 bool
 RichTextWidget::KeyPress(unsigned key_code) noexcept
 {
-  // Forward key events to the window
-  if (IsDefined())
-    return GetWindow().InjectKeyPress(key_code);
-  return false;
+  /* Only when the window has focus.  Otherwise Up/Down/Enter would
+     move the link cursor or activate a link while Close (or another
+     control) is focused; same rule as #ListWidget. */
+  if (!IsDefined() || !HasFocus())
+    return false;
+
+  return GetWindow().InjectKeyPress(key_code);
 }

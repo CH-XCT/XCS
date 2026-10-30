@@ -25,11 +25,6 @@ MapLook::Initialise(const MapSettings &settings,
   noaa.Initialise();
 #endif
 
-#ifdef HAVE_HATCHED_BRUSH
-  above_terrain_bitmap.Load(IDB_ABOVETERRAIN);
-  above_terrain_brush.Create(above_terrain_bitmap);
-#endif
-
   terrain_warning_icon.LoadResource(IDB_TERRAINWARNING_ALL);
 
   compass_brush.Create(IsDithered() ? COLOR_WHITE : ColorWithAlpha(Color(207, 207, 207), alpha));
@@ -54,6 +49,13 @@ MapLook::Initialise(const MapSettings &settings,
   reach_working_pen_thick.Create(Pen::DASH1, Layout::ScalePenWidth(2), clrBlupia);
 
   track_line_pen.Create(Layout::ScalePenWidth(3), COLOR_GRAY);
+
+  // Create green pen and brush for the Turn Back Marker (TBM)
+  tbm_pen.Create(Layout::ScalePenWidth(2), HasColors() ? COLOR_GREEN : COLOR_BLACK);
+  tbm_brush.Create(HasColors() ? COLOR_GREEN : COLOR_BLACK);
+
+  distance_rings_pen.Create(Layout::ScalePenWidth(1),
+                            HasColors() ? COLOR_GRAY : COLOR_BLACK);
 
   contest_pens[0].Create(Layout::ScalePenWidth(1) + 2, COLOR_RED);
   contest_pens[1].Create(Layout::ScalePenWidth(1) + 1, COLOR_ORANGE);

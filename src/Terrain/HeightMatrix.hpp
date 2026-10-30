@@ -46,6 +46,13 @@ public:
             unsigned quantisation_pixels, bool interpolate) noexcept;
 #endif
 
+  /**
+   * Make height matrix with a gradient from min_h to max_h, default left-right
+   */
+  void FillGradient(UnsignedPoint2D _size,
+                    int16_t min_h, int16_t max_h,
+                    bool vertical = false) noexcept;
+
   UnsignedPoint2D GetSize() const noexcept {
     return size;
   }
@@ -57,6 +64,18 @@ public:
   const TerrainHeight *GetRow(unsigned y) const noexcept {
     return GetData() + y * size.x;
   }
+
+  TerrainHeight *GetRow(unsigned y) noexcept {
+    return data.data() + y * size.x;
+  }
+
+  /**
+   * Slide the samples by an integer number of columns and rows.
+   * Positive @p east discards the west edge.  Positive @p north
+   * discards the south edge.  The vacated samples are left stale
+   * for the caller to fill.
+   */
+  void Scroll(int east, int north) noexcept;
 
   const TerrainHeight *GetDataEnd() const noexcept {
     return GetRow(size.y);

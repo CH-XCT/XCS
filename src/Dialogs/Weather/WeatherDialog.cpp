@@ -5,19 +5,101 @@
 #include "NOAAList.hpp"
 #include "RASPDialog.hpp"
 #include "PCMetDialog.hpp"
-#if 0
+#include "Dialogs/Settings/Panels/PCMetConfigPanel.hpp"
+#ifdef HAVE_HTTP
+#include "XCThermDialog.hpp"
+#include "WeatherCredentialGateWidget.hpp"
+#include "Dialogs/Settings/Panels/XCThermConfigPanel.hpp"
+#endif
+#include "Dialogs/Settings/Panels/WeatherConfigPanel.hpp"
+#include "Weather/Features.hpp"
+
+#ifdef HAVE_HTTP
+#include "SkySightDialog.hpp"
+#include "Dialogs/Settings/Panels/SkySightConfigPanel.hpp"
+#endif
+#ifdef HAVE_WEATHER_OVERLAY
 #include "MapOverlayWidget.hpp"
 #endif
+#include "Widget/TextWidget.hpp"
 #include "Dialogs/WidgetDialog.hpp"
 #include "Widget/TabWidget.hpp"
 #include "Widget/ButtonWidget.hpp"
+#ifdef HAVE_EDL
+#include "EdlSettingsWidget.hpp"
+#endif
 #include "UIGlobals.hpp"
 #include "Look/DialogLook.hpp"
 #include "Language/Language.hpp"
-#include "Weather/Features.hpp"
+#include "Language/FormatText.hpp"
+#include "Interface.hpp"
 #include "util/StaticString.hxx"
 
 static int weather_page = 0;
+
+#ifdef HAVE_HTTP
+static std::unique_ptr<Widget>
+CreateSkySightTabWidget() noexcept
+{
+  return CreateWeatherCredentialGateWidget(
+    []() {
+      return CommonInterface::GetComputerSettings()
+        .weather.skysight.IsDefined();
+    },
+    CreateSkySightConfigPanel,
+    CreateSkySightWidget);
+}
+
+static std::unique_ptr<Widget>
+CreateXCThermTabWidget() noexcept
+{
+  return CreateWeatherCredentialGateWidget(
+    []() {
+      return CommonInterface::GetComputerSettings()
+        .weather.xctherm.credentials.IsDefined();
+    },
+    CreateXCThermConfigPanel,
+    CreateXCThermMainWidget);
+}
+#endif
+
+#ifdef HAVE_PCMET
+static std::unique_ptr<Widget>
+CreatePCMetTabWidget() noexcept
+{
+  return CreateWeatherCredentialGateWidget(
+    []() {
+      return CommonInterface::GetComputerSettings()
+        .weather.pcmet.www_credentials.IsDefined();
+    },
+    CreatePCMetCredentialsPanel,
+    CreatePCMetMainWidget);
+}
+#endif
+
+#ifndef HAVE_EDL
+class EDLUnavailableWidget final : public TextWidget {
+  const char *text;
+
+public:
+  explicit EDLUnavailableWidget(const char *_text) noexcept
+    :text(_text) {}
+
+  void Prepare(ContainerWindow &parent, const PixelRect &rc) noexcept override {
+    TextWidget::Prepare(parent, rc);
+    SetText(text);
+  }
+};
+
+static std::unique_ptr<Widget>
+CreateEDLUnavailableWidget() noexcept
+{
+  static StaticString<128> message;
+  FormatFeatureNotAvailableInThisBuildWithoutOpenGLRenderer(
+    message, _("EDL weather"));
+  return std::make_unique<EDLUnavailableWidget>(message.c_str());
+}
+#endif
 
 static void
 SetTitle(WndForm &form, const TabWidget &pager)
@@ -52,6 +134,13 @@ ShowWeatherDialog(const char *page)
 
   /* setup tabs */
 
+#ifdef HAVE_HTTP
+  if (page != nullptr && StringIsEqual(page, "skysight"))
+    start_page = widget.GetSize();
+
+  widget.AddTab(CreateSkySightTabWidget(), "SkySight");
+#endif
+
 #ifdef HAVE_NOAA
   if (page != nullptr && StringIsEqual(page, "list"))
     start_page = widget.GetSize();
@@ -59,29 +148,45 @@ ShowWeatherDialog(const char *page)
   widget.AddTab(CreateNOAAListWidget(), _("METAR and TAF"));
 #endif
 
+#ifdef HAVE_HTTP
+  if (page != nullptr && StringIsEqual(page, "xctherm"))
+    start_page = widget.GetSize();
+
+  widget.AddTab(CreateXCThermTabWidget(), "XC Therm");
+#endif
+
   if (page != nullptr && StringIsEqual(page, "rasp"))
     start_page = widget.GetSize();
 
   widget.AddTab(CreateRaspWidget(), "RASP");
 
+  if (page != nullptr && StringIsEqual(page, "edl"))
+    start_page = widget.GetSize();
+
+#ifdef HAVE_EDL
+  widget.AddTab(CreateEdlSettingsWidget(), "EDL");
+#else
+  widget.AddTab(CreateEDLUnavailableWidget(), "EDL");
+#endif
+
 #ifdef HAVE_PCMET
   if (page != nullptr && StringIsEqual(page, "pc_met"))
     start_page = widget.GetSize();
 
-  widget.AddTab(CreatePCMetWidget(), "pc_met");
+  widget.AddTab(CreatePCMetTabWidget(), "Flugwetter");
 #endif
 
-#if 0
-  /* The German DWD has terminated our access to georeferenced images,
-     so this code is disabled for now, but will remain here;
-     eventually, we should refactor the code to be generic, allowing
-     arbitrary georeferenced images */
+#ifdef HAVE_WEATHER_OVERLAY
+  /* this was disabled while the only source was the DWD, whose
+     georeferenced images we lost access to; the radar composite needs
+     no account, so there is something to show again */
 
   if (page != nullptr && StringIsEqual(page, "overlay"))
     start_page = widget.GetSize();
 
-  // TODO: better and translatable title?
-  widget.AddTab(CreateWeatherMapOverlayWidget(), "Overlay");
+  /* the other tabs are named after their service, which is why they
+     are not translated; this one is a common noun */
+  widget.AddTab(CreateWeatherMapOverlayWidget(), _("Overlay"));
 #endif
 
   /* restore previous page */

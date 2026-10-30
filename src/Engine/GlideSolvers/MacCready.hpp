@@ -19,8 +19,8 @@ class GlidePolar;
  *  frequently, greater than one if the glider attains higher speeds due
  *  to dolphin/cloud street flying.
  *  
- *  Note that all speeds etc are assumed to be true; air density is NOT
- *  taken into account.
+ *  Note that all speeds are true airspeeds. Air density correction is
+ *  applied via GlidePolar::density_ratio, set from AirDensityRatio(altitude).
  */
 class MacCready 
 {
@@ -67,6 +67,18 @@ public:
    */
   [[gnu::pure]]
   GlideResult SolveStraight(const GlideState &task) const;
+
+  /**
+   * True when a straight glide at the best-L/D speed still arrives
+   * above the target. One evaluation at that speed on a copy of
+   * @p polar with MacCready 0, so bugs, ballast and the cruise-speed
+   * limit are unchanged. Wind is applied at that speed; there is no
+   * search for a different one.
+   */
+  [[nodiscard]] [[gnu::pure]]
+  static bool ArrivesAtBestGlide(const GlidePolar &polar,
+                                 const GlideSettings &settings,
+                                 const GlideState &state) noexcept;
 
   /** 
    * Calculates the glide solution for a classical MacCready theory task.

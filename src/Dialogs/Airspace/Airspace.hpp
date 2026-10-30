@@ -8,13 +8,38 @@
 
 class Airspaces;
 class ProtectedAirspaceWarningManager;
-struct AirspaceLook;
+
+/**
+ * True when the Airspace Filter dialog allows clearance for this
+ * class.
+ */
+[[nodiscard]]
+bool
+IsAirspaceClearanceAllowed(AirspaceClass type) noexcept;
+
+/**
+ * Grant or revoke clearance.  On failure, log the error and show
+ * "Failed to update airspace clearance".  Returns false when the
+ * update did not apply.
+ */
+bool
+TrySetAirspaceClearance(ProtectedAirspaceWarningManager &manager,
+                        ConstAirspacePtr airspace,
+                        bool set) noexcept;
 
 void
 dlgAirspaceDetails(ConstAirspacePtr airspace,
                    ProtectedAirspaceWarningManager *_airspace_warnings);
 
-int dlgAirspacePatternsShowModal(const AirspaceLook &look);
+/**
+ * Like #dlgAirspaceDetails for a parent list: Close dismisses without
+ * committing; Ack Day / Enable commits and returns true.
+ */
+[[nodiscard]] bool
+dlgAirspaceDetailsForBrowseParent(
+  ConstAirspacePtr airspace,
+  ProtectedAirspaceWarningManager *airspace_warnings) noexcept;
+
 void dlgAirspaceShowModal(bool colored);
 
 void

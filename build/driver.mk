@@ -38,7 +38,9 @@ IMI_SOURCES = \
 	$(DRIVER_SRC_DIR)/IMI/Register.cpp
 
 LX_SOURCES = \
+	$(SRC)/IGC/IGCParser.cpp \
 	$(DRIVER_SRC_DIR)/LX/NanoLogger.cpp \
+	$(DRIVER_SRC_DIR)/LX/NanoFileTransfer.cpp \
 	$(DRIVER_SRC_DIR)/LX/NanoDeclare.cpp \
 	$(DRIVER_SRC_DIR)/LX/Protocol.cpp \
 	$(DRIVER_SRC_DIR)/LX/Mode.cpp \
@@ -63,6 +65,7 @@ FLARM_SOURCES = \
 	$(DRIVER_SRC_DIR)/FLARM/Mode.cpp \
 	$(DRIVER_SRC_DIR)/FLARM/Parser.cpp \
 	$(DRIVER_SRC_DIR)/FLARM/StaticParser.cpp \
+	$(DRIVER_SRC_DIR)/FLARM/RangeParser.cpp \
 	$(DRIVER_SRC_DIR)/FLARM/Settings.cpp \
 	$(DRIVER_SRC_DIR)/FLARM/Declare.cpp \
 	$(DRIVER_SRC_DIR)/FLARM/Logger.cpp \
@@ -86,6 +89,7 @@ BLUEFLY_SOURCES = \
 	$(DRIVER_SRC_DIR)/BlueFly/Misc.cpp \
 	$(DRIVER_SRC_DIR)/BlueFly/Parser.cpp \
 	$(DRIVER_SRC_DIR)/BlueFly/Settings.cpp \
+	$(DRIVER_SRC_DIR)/BlueFly/Logger.cpp \
 	$(DRIVER_SRC_DIR)/BlueFly/Register.cpp
 
 XCTRACER_SOURCES = \
@@ -97,6 +101,10 @@ THERMALEXPRESS_SOURCES = \
 
 STRATUX_SOURCES = \
 	$(DRIVER_SRC_DIR)/Stratux/Driver.cpp
+
+GDL90_SOURCES = \
+	$(DRIVER_SRC_DIR)/GDL90/GDL90Driver.cpp \
+	$(DRIVER_SRC_DIR)/GDL90/Register.cpp
 
 DRIVER_SOURCES = \
 	$(SRC)/Device/Driver.cpp \
@@ -113,12 +121,16 @@ DRIVER_SOURCES = \
 	$(XCTRACER_SOURCES) \
 	$(THERMALEXPRESS_SOURCES) \
 	$(STRATUX_SOURCES) \
+	$(GDL90_SOURCES) \
 	$(DRIVER_SRC_DIR)/AltairPro.cpp \
 	$(DRIVER_SRC_DIR)/BorgeltB50.cpp \
 	$(DRIVER_SRC_DIR)/XCVario.cpp \
 	$(DRIVER_SRC_DIR)/CaiGpsNav.cpp \
 	$(DRIVER_SRC_DIR)/CaiLNav.cpp \
 	$(DRIVER_SRC_DIR)/Condor.cpp \
+	$(DRIVER_SRC_DIR)/Condor3UDP.cpp \
+	$(DRIVER_SRC_DIR)/Condor3Spectate.cpp \
+	$(SRC)/Device/Port/SpectateFilePort.cpp \
 	$(DRIVER_SRC_DIR)/CProbe.cpp \
 	$(DRIVER_SRC_DIR)/EW.cpp \
 	$(DRIVER_SRC_DIR)/EWMicroRecorder.cpp \
@@ -140,9 +152,10 @@ DRIVER_SOURCES = \
 	$(DRIVER_SRC_DIR)/AirControlDisplay.cpp \
 	$(DRIVER_SRC_DIR)/Larus.cpp \
 	$(DRIVER_SRC_DIR)/LoEFGREN.cpp \
+	$(DRIVER_SRC_DIR)/LX160.cpp \
 	$(DRIVER_SRC_DIR)/ATR833/Device.cpp \
 	$(DRIVER_SRC_DIR)/ATR833/Register.cpp
 
-DRIVER_DEPENDS = TIME LIBNMEA GEO OPERATION UNITS FMT PROFILE FLARM GLIDE
+DRIVER_DEPENDS = TIME LIBNMEA GEO OPERATION UNITS FMT PROFILE FLARM GLIDE JSON
 
 $(eval $(call link-library,driver,DRIVER))

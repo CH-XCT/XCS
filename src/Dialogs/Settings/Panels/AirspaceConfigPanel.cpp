@@ -12,26 +12,28 @@
 #include "Language/Language.hpp"
 #include "Airspace/AirspaceComputerSettings.hpp"
 #include "Renderer/AirspaceRendererSettings.hpp"
-#include "ui/canvas/Features.hpp"
 #include "Interface.hpp"
 #include "UIGlobals.hpp"
-#include "UtilsSettings.hpp"
 
 using namespace std::chrono;
 
 enum ControlIndex {
   AirspaceDisplay,
-  AirspaceLabelSelection,
   ClipAltitude,
   AltWarningMargin,
+  AirspaceLabelSelection,
+#ifdef HAVE_HTTP
+  ShowNotamLabels,
+#endif
+  SPACER_WARNINGS,
   AirspaceWarnings,
   WarningDialog,
   WarningTime,
   RepetitiveSound,
   AcknowledgeTime,
+  SPACER_APPEARANCE,
   UseBlackOutline,
   AirspaceFillMode,
-  AirspaceTransparency
 };
 
 static constexpr StaticEnumChoice as_display_list[] = {
@@ -39,7 +41,7 @@ static constexpr StaticEnumChoice as_display_list[] = {
     N_("All airspaces are displayed.") },
   { AirspaceDisplayMode::CLIP, N_("Clip"),
     N_("Display airspaces below the clip altitude.") },
-  { AirspaceDisplayMode::AUTO, N_("Auto"),
+  { AirspaceDisplayMode::AUTO, NC_("Setting", "Auto"),
     N_("Display airspaces within a margin of the glider.") },
   { AirspaceDisplayMode::ALLBELOW, N_("All below"),
     N_("Display airspaces below the glider or within a margin.") },
@@ -90,21 +92,21 @@ private:
 void
 AirspaceConfigPanel::ShowDisplayControls(AirspaceDisplayMode mode)
 {
-  SetRowVisible(ClipAltitude,
-                mode == AirspaceDisplayMode::CLIP);
+  SetRowAvailable(ClipAltitude,
+                  mode == AirspaceDisplayMode::CLIP);
 
-  SetRowVisible(AltWarningMargin,
-                mode == AirspaceDisplayMode::AUTO ||
-                mode == AirspaceDisplayMode::ALLBELOW);
+  SetRowAvailable(AltWarningMargin,
+                  mode == AirspaceDisplayMode::AUTO ||
+                  mode == AirspaceDisplayMode::ALLBELOW);
 }
 
 void
 AirspaceConfigPanel::ShowWarningControls(bool visible)
 {
-  SetRowVisible(WarningDialog, visible);
-  SetRowVisible(WarningTime, visible);
-  SetRowVisible(RepetitiveSound, visible);
-  SetRowVisible(AcknowledgeTime, visible);
+  SetRowAvailable(WarningDialog, visible);
+  SetRowAvailable(WarningTime, visible);
+  SetRowAvailable(RepetitiveSound, visible);
+  SetRowAvailable(AcknowledgeTime, visible);
 }
 
 void
@@ -159,11 +161,6 @@ AirspaceConfigPanel::Prepare(ContainerWindow &parent,
           _("Controls filtering of airspace for display and warnings. The airspace filter button also allows filtering of display and warnings independently for each airspace class."),
           as_display_list, (unsigned)renderer.altitude_mode, this);
 
-  AddEnum(_("Label visibility"),
-          _("Determines what labels are displayed."),
-          as_label_selection_list, (unsigned)renderer.label_selection);
-  SetExpertRow(AirspaceLabelSelection);
-
   AddFloat(_("Clip altitude"),
            _("For clip airspace mode, this is the altitude below which airspace is displayed."),
            "%.0f %s", "%.0f", 0, 20000, 100, false,
@@ -173,6 +170,20 @@ AirspaceConfigPanel::Prepare(ContainerWindow &parent,
            _("For auto and all below airspace mode, this is the altitude above/below which airspace is included."),
            "%.0f %s", "%.0f", 0, 10000, 100, false,
            UnitGroup::ALTITUDE, computer.warnings.altitude_warning_margin);
+
+  AddEnum(_("Label visibility"),
+          _("Determines what labels are displayed."),
+          as_label_selection_list, (unsigned)renderer.label_selection);
+  SetExpertRow(AirspaceLabelSelection);
+
+#ifdef HAVE_HTTP
+  AddBoolean(_("Show NOTAM labels"),
+             _("Show brief NOTAM text labels on the map when zoomed in sufficiently."),
+             renderer.show_notam_labels);
+  SetExpertRow(ShowNotamLabels);
+#endif
+
+  AddSpacer();
 
   AddBoolean(_("Warnings"), _("Enable/disable all airspace warnings."),
              computer.enable_warnings, this);
@@ -199,6 +210,9 @@ AirspaceConfigPanel::Prepare(ContainerWindow &parent,
               computer.warnings.acknowledgement_time);
   SetExpertRow(AcknowledgeTime);
 
+  AddSpacer();
+  SetExpertRow(SPACER_APPEARANCE);
+
   AddBoolean(_("Use black outline"),
              _("Draw a black outline around each airspace rather than the airspace color."),
              renderer.black_outline);
@@ -209,13 +223,7 @@ AirspaceConfigPanel::Prepare(ContainerWindow &parent,
           as_fill_mode_list, (unsigned)renderer.fill_mode);
   SetExpertRow(AirspaceFillMode);
 
-#if defined(HAVE_HATCHED_BRUSH) && defined(HAVE_ALPHA_BLEND)
-  AddBoolean(_("Airspace transparency"), _("If enabled, then airspaces are filled transparently."),
-             renderer.transparency);
-  SetExpertRow(AirspaceTransparency);
-#endif
-
-  ShowDisplayControls(renderer.altitude_mode); // TODO make this work the first time
+  ShowDisplayControls(renderer.altitude_mode);
   ShowWarningControls(computer.enable_warnings);
 }
 
@@ -235,6 +243,11 @@ AirspaceConfigPanel::Save(bool &_changed) noexcept
 
   changed |= SaveValueEnum(AirspaceLabelSelection, ProfileKeys::AirspaceLabelSelection, renderer.label_selection);
 
+#ifdef HAVE_HTTP
+  changed |= SaveValue(ShowNotamLabels, ProfileKeys::AirspaceShowNOTAMLabels,
+                       renderer.show_notam_labels);
+#endif
+
   changed |= SaveValue(ClipAltitude, UnitGroup::ALTITUDE, ProfileKeys::ClipAlt, renderer.clip_altitude);
 
   changed |= SaveValue(AltWarningMargin, UnitGroup::ALTITUDE, ProfileKeys::AltMargin, computer.warnings.altitude_warning_margin);
@@ -244,28 +257,18 @@ AirspaceConfigPanel::Save(bool &_changed) noexcept
   changed |= SaveValue(WarningDialog, ProfileKeys::AirspaceWarningDialog,
                        ui_settings.enable_airspace_warning_dialog);
 
-  if (SaveValue(WarningTime, ProfileKeys::WarningTime, computer.warnings.warning_time)) {
-    changed = true;
-    require_restart = true;
-  }
+  changed |= SaveValue(WarningTime, ProfileKeys::WarningTime,
+                       computer.warnings.warning_time);
 
   changed |= SaveValue(RepetitiveSound, ProfileKeys::RepetitiveSound,
                        computer.warnings.repetitive_sound);
 
-  if (SaveValue(AcknowledgeTime, ProfileKeys::AcknowledgementTime,
-                computer.warnings.acknowledgement_time)) {
-    changed = true;
-    require_restart = true;
-  }
+  changed |= SaveValue(AcknowledgeTime, ProfileKeys::AcknowledgementTime,
+                       computer.warnings.acknowledgement_time);
 
   changed |= SaveValue(UseBlackOutline, ProfileKeys::AirspaceBlackOutline, renderer.black_outline);
 
   changed |= SaveValueEnum(AirspaceFillMode, ProfileKeys::AirspaceFillMode, renderer.fill_mode);
-
-#if defined(HAVE_HATCHED_BRUSH) && defined(HAVE_ALPHA_BLEND)
-  changed |= SaveValue(AirspaceTransparency, ProfileKeys::AirspaceTransparency,
-                       renderer.transparency);
-#endif
 
   _changed |= changed;
 
@@ -277,4 +280,3 @@ CreateAirspaceConfigPanel()
 {
   return std::make_unique<AirspaceConfigPanel>();
 }
-

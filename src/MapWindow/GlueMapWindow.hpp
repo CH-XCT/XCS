@@ -4,6 +4,7 @@
 #pragma once
 
 #include "MapWindow.hpp"
+#include "MapHudLayout.hpp"
 #include "time/PeriodClock.hpp"
 #include "UIUtil/TrackingGestureManager.hpp"
 #include "UIUtil/KineticManager.hpp"
@@ -24,6 +25,20 @@ struct Look;
 struct GestureLook;
 class TopographyThread;
 class TerrainThread;
+
+/**
+ * Debug aid for HUD layout work: draw every map overlay at once with
+ * placeholder data, ignoring the conditions that normally make them
+ * mutually exclusive — the GPS status only appears without a fix, the
+ * pan info only while panning, the final glide bar only with a valid
+ * task, the thermal profile only after climbs, the gesture pill only
+ * while a finger traces a gesture, the page indicator only for a
+ * moment after a page switch, and so on.  Enable with:
+ *   make DEBUG_ALL_MAP_OVERLAYS=y …
+ */
+#ifndef DEBUG_ALL_MAP_OVERLAYS
+#define DEBUG_ALL_MAP_OVERLAYS 0
+#endif
 
 class OffsetHistory
 {
@@ -53,10 +68,17 @@ class GlueMapWindow : public MapWindow {
 
 #ifdef HAVE_MULTI_TOUCH
     /**
-     * Dragging the map with two fingers; enters the "real" pan mode
-     * as soon as the user releases the finger press.
+     * Two-finger drag without scale/rotation yet, or single-finger
+     * continuation after a pinch; may enter the "real" pan mode when
+     * the gesture ends.
      */
     DRAG_MULTI_TOUCH_PAN,
+
+    /**
+     * Two-finger pan, pinch-zoom and twist when both finger positions
+     * are available.
+     */
+    DRAG_MULTI_TOUCH_PINCH,
 #endif
 
     DRAG_PAN,
@@ -69,10 +91,68 @@ class GlueMapWindow : public MapWindow {
   TrackingGestureManager gestures;
   bool ignore_single_click = false;
 
+  /**
+   * A multi-touch gesture currently owns map projection updates
+   * (location, scale, angle).  This is distinct from pan UI
+   * (#FOLLOW_PAN, fullscreen layout, crosshair): the gesture may own
+   * the map long before pan UI is committed.
+   */
+  [[gnu::pure]]
+  bool GestureOwnsMap() const noexcept {
+#ifdef HAVE_MULTI_TOUCH
+    return drag_mode == DRAG_MULTI_TOUCH_PAN ||
+      drag_mode == DRAG_MULTI_TOUCH_PINCH;
+#else
+    return false;
+#endif
+  }
+
+public:
+  /**
+   * Is a gesture trail currently visible?  Under OpenGL, it may
+   * extend beyond this window, because the pointer is captured while
+   * the gesture is drawn.
+   *
+   * @see MainWindow::OnPaint()
+   */
+  [[gnu::pure]]
+  bool HasGestureTrail() const noexcept {
+    return gestures.HasPoints();
+  }
+
+private:
+  /**
+   * Should pan chrome (crosshair, pan info) be drawn?  Hidden during
+   * an early multi-touch gesture that has not yet committed pan UI,
+   * so the crosshair is not painted at the pre-fullscreen map centre.
+   */
+  [[gnu::pure]]
+  bool IsPanChromeVisible() const noexcept {
+#ifdef HAVE_MULTI_TOUCH
+    if (GestureOwnsMap())
+      return IsPanning() &&
+        (multi_touch_pan_ui || multi_touch_was_panning);
+#endif
+    return IsPanning();
+  }
+
 #ifdef ENABLE_OPENGL
   KineticManager kinetic_x{std::chrono::milliseconds{700}};
   KineticManager kinetic_y{std::chrono::milliseconds{700}};
   UI::PeriodicTimer kinetic_timer{[this]{ OnKineticTimer(); }};
+
+  /**
+   * Re-render terrain at higher OpenGL quantisation after the user
+   * stops interacting on slow CPUs (see GetQuantisation()).
+   */
+  UI::Timer terrain_quantisation_timer{
+    [this]{ OnTerrainQuantisationTimer(); }};
+
+  /**
+   * Set after a full-resolution idle terrain redraw so
+   * PollTerrainQuantisationIdle() does not repaint every tick.
+   */
+  bool terrain_quantisation_idle_done = false;
 #endif
 
   /** flag to indicate if the MapItemList should be shown on mouse up */
@@ -83,7 +163,53 @@ class GlueMapWindow : public MapWindow {
    */
   Projection drag_projection;
 
+#ifdef ENABLE_OPENGL
+  /**
+   * Animate keyboard / mouse-wheel free-scale zoom.  Pinch stays
+   * instantaneous.
+   */
+  UI::Timer zoom_timer{[this]{ OnZoomTimer(); }};
+  double zoom_from_map_scale = 0;
+  double zoom_to_map_scale = 0;
+  std::chrono::steady_clock::time_point zoom_start_time{};
+#endif
+
+#ifdef HAVE_MULTI_TOUCH
+  double pinch_start_distance = 0;
+  double pinch_start_map_scale = 0;
+  GeoPoint pinch_anchor_geo = GeoPoint::Invalid();
+  PixelPoint pinch_start_centroid{};
+  PixelPoint pinch_last_a{}, pinch_last_b{};
+
+  /** True after finger separation crosses the scale dead zone. */
+  bool pinch_scaling = false;
+
+  /** Pan UI was already active at multi-touch down. */
+  bool multi_touch_was_panning = false;
+
+  /**
+   * Pan UI committed for this gesture (#CommitMultiTouchPanUI).
+   * Pure pinch-zoom leaves this false and returns to follow.
+   */
+  bool multi_touch_pan_ui = false;
+
+  /** Re-anchor single-finger pan after the second finger lifts. */
+  bool resume_pan_after_pinch = false;
+
+  Angle pinch_start_finger_angle = Angle::Zero();
+  Angle pinch_start_screen_angle = Angle::Zero();
+
+  /** True after finger twist crosses the rotate dead zone. */
+  bool pinch_rotating = false;
+#endif
+
   DisplayMode last_display_mode = DisplayMode::NONE;
+
+  /**
+   * A circling/cruise zoom switch (#SwitchZoomClimb) is due, but was
+   * deferred because pan mode was active.
+   */
+  bool switch_zoom_climb_pending = false;
 
   OffsetHistory offset_history;
 
@@ -118,12 +244,41 @@ class GlueMapWindow : public MapWindow {
   ThermalBandRenderer thermal_band_renderer;
   FinalGlideBarRenderer final_glide_bar_renderer;
   VarioBarRenderer vario_bar_renderer;
-
   const GestureLook &gesture_look;
 
   UI::Timer map_item_timer{[this]{ OnMapItemTimer(); }};
 
+  /**
+   * Repaints the page indicator while it fades out, and when it
+   * disappears.
+   */
+  UI::Timer page_indicator_timer{[this]{ OnPageIndicatorTimer(); }};
+
+  /**
+   * The UIState::page_indicator_time #page_indicator_timer runs for.
+   * Only used in the main thread.
+   */
+  std::chrono::steady_clock::time_point page_indicator_time{};
+
+  /**
+   * The number of configured pages and the current one, copied from
+   * #UIState for the page indicator.  The count is zero on a "special"
+   * page (e.g. "only map", or panning), which has no position in the
+   * list.  Only used in the main thread.
+   */
+  unsigned page_indicator_count = 0, page_indicator_index = 0;
+
   UI::Notify redraw_notify{[this]{ PartialRedraw(); }};
+
+  /**
+   * Nesting count for #BeginCoalesceFullRedraw() /
+   * #EndCoalesceFullRedraw().  While non-zero, #FullRedraw() only
+   * sets #full_redraw_pending.
+   */
+  unsigned coalesce_full_redraw = 0;
+
+  /** A #FullRedraw() was requested while coalescing was active. */
+  bool full_redraw_pending = false;
 
 public:
   GlueMapWindow(const Look &look) noexcept;
@@ -145,6 +300,25 @@ public:
   void SetBottomMarginFactor(unsigned margin_factor) noexcept;
 
   /**
+   * Sets the width at the right edge of the map that is covered by the
+   * overlay buttons, so HUD elements in the top right corner can avoid
+   * them.
+   */
+  void SetTopRightMargin(unsigned margin) noexcept;
+
+  /**
+   * Edge-chrome slots for this paint: HUD, margins, vario column and
+   * scale clearance.  Projection-space items are not included.
+   */
+  [[gnu::pure]]
+  MapHudLayout GetHudLayout(PixelRect hud_rc) const noexcept;
+
+  [[gnu::pure]]
+  MapHudLayout GetHudLayout() const noexcept {
+    return GetHudLayout(GetHudRect());
+  }
+
+  /**
    * Update the blackboard from DeviceBlackboard and
    * InterfaceBlackboard.
    */
@@ -161,6 +335,19 @@ public:
   void ResumeThreads() noexcept;
 
   /**
+   * Coalesce #FullRedraw() calls until a matching
+   * #EndCoalesceFullRedraw().  Used while the main window applies a
+   * multi-step page layout so the map is not painted at intermediate
+   * sizes.  Distinct from #DeferRedraw(), which schedules an async
+   * invalidate.
+   */
+  void BeginCoalesceFullRedraw() noexcept {
+    ++coalesce_full_redraw;
+  }
+
+  void EndCoalesceFullRedraw() noexcept;
+
+  /**
    * Trigger a full redraw of the map.
    */
   void FullRedraw() noexcept;
@@ -168,15 +355,25 @@ public:
 
   void QuickRedraw() noexcept;
 
+  void SetHudMargins(unsigned left, unsigned top,
+                     unsigned right, unsigned bottom) noexcept override;
+
+#ifdef ENABLE_OPENGL
+  /**
+   * Re-evaluate idle terrain quantisation; called from the main timer
+   * so simulator startup and async tile loads still refine without
+   * a GNSS-driven redraw.
+   */
+  void PollTerrainQuantisationIdle() noexcept;
+#endif
+
   /**
    * Trigger a deferred redraw.  It will occur in the main thread
    * after all other events have been handled.
    *
    * This method is thread-safe.
    */
-  void InjectRedraw() noexcept {
-    redraw_notify.SendNotification();
-  }
+  void InjectRedraw() noexcept;
 
   /**
    * Trigger a deferred redraw.  It will occur in the main thread
@@ -222,6 +419,8 @@ protected:
 
 #ifdef HAVE_MULTI_TOUCH
   bool OnMultiTouchDown() noexcept override;
+  bool OnMultiTouchMove(PixelPoint a, PixelPoint b) noexcept override;
+  bool OnMultiTouchUp() noexcept override;
 #endif
 
   bool OnKeyDown(unsigned key_code) noexcept override;
@@ -240,26 +439,70 @@ protected:
 
 private:
   void DrawGesture(Canvas &canvas) const noexcept;
-  void DrawMapScale(Canvas &canvas, const PixelRect &rc,
+  void DrawMapScale(Canvas &canvas, const MapHudLayout &layout,
                     const MapWindowProjection &projection) const noexcept;
-  void DrawFlightMode(Canvas &canvas, const PixelRect &rc) const noexcept;
-  void DrawGPSStatus(Canvas &canvas, const PixelRect &rc,
+  void DrawFlightMode(Canvas &canvas,
+                      const MapHudLayout &layout) const noexcept;
+  void DrawGPSStatus(Canvas &canvas, const MapHudLayout &layout,
                      const NMEAInfo &info) const noexcept;
   void DrawCrossHairs(Canvas &canvas) const noexcept;
-  void DrawPanInfo(Canvas &canvas) const noexcept;
-  void DrawThermalBand(Canvas &canvas, const PixelRect &rc) const noexcept;
-  void DrawFinalGlide(Canvas &canvas, const PixelRect &rc) const noexcept;
-  void DrawVario(Canvas &canvas, const PixelRect &rc) const noexcept;
-  void DrawStallRatio(Canvas &canvas, const PixelRect &rc) const noexcept;
+  void DrawPanInfo(Canvas &canvas,
+                   const MapHudLayout &layout) const noexcept;
+  void DrawThermalBand(Canvas &canvas,
+                       const MapHudLayout &layout) const noexcept;
+  void DrawFinalGlide(Canvas &canvas,
+                      const MapHudLayout &layout) const noexcept;
+  void DrawVario(Canvas &canvas,
+                 const MapHudLayout &layout) const noexcept;
+  void DrawStallRatio(Canvas &canvas,
+                      const MapHudLayout &layout) const noexcept;
+
+  /**
+   * Draw the position of the current page in the list of configured
+   * pages for a short while after switching pages, over the buffered
+   * map (see OnPaint()).
+   */
+  void DrawPageIndicator(Canvas &canvas) const noexcept;
 
   void SwitchZoomClimb() noexcept;
 
   void SaveDisplayModeScales() noexcept;
 
   /**
-   * The attribute visible_projection has been edited.
+   * Handle a tap at the given position if it hits the on-map compass
+   * (using a hit box somewhat larger than the drawn arrow so it can
+   * be tapped with a finger): while panning, reset a rotated map
+   * back to north-up; otherwise cycle through the map orientations
+   * (#CycleMapOrientation).
+   *
+   * @return true if the position hit the compass and the tap was
+   * handled
    */
-  void OnProjectionModified() noexcept {}
+  bool HandleCompassTap(PixelPoint p) noexcept;
+
+  /**
+   * Switch the orientation setting of the current display mode
+   * (cruise or circling) to the next available one and show a brief
+   * popup message with the new value.
+   */
+  void CycleMapOrientation() noexcept;
+
+  /**
+   * Persist the current projection scale as the circling or cruise
+   * scale, depending on the active display mode.
+   */
+  void PersistCurrentScale() noexcept;
+
+  /**
+   * The attribute visible_projection has been edited.
+   *
+   * Tells the page overlays, which fetch imagery for the visible area
+   * and would otherwise keep showing the section that was on screen
+   * when they last looked.  Runs on the main thread before the redraw
+   * is deferred, so it must stay cheap: it is called on every
+   * projection update, roughly once a second in flight.
+   */
+  void OnProjectionModified() noexcept;
 
   /**
    * Invoke WindowProjection::UpdateScreenBounds() and trigger updates
@@ -269,6 +512,39 @@ private:
 
   void UpdateScreenAngle() noexcept;
   void UpdateProjection() noexcept;
+
+#ifdef HAVE_MULTI_TOUCH
+  /**
+   * Discard a pending one-finger gesture trail without firing it.
+   */
+  void DiscardPendingFingerGesture() noexcept;
+
+  /**
+   * Begin multi-touch ownership of the map projection (not pan UI).
+   */
+  void BeginMultiTouchOwnership() noexcept;
+
+  /**
+   * Clear multi-touch session flags (ownership, pinch, rotation).
+   * Does not change #drag_mode or #follow_mode.
+   */
+  void ResetMultiTouchSessionState() noexcept;
+
+  /**
+   * Commit pan UI for the running gesture: fullscreen map and pan
+   * menu, with #FOLLOW_PAN only after the layout has been applied.
+   * No-op when already committed or pan UI was active at touch-down.
+   */
+  void CommitMultiTouchPanUI() noexcept;
+
+  /**
+   * Re-base pinch anchors after a layout change (pan UI commit) so the
+   * next motion does not jump in scale, rotation, or location.
+   */
+  void RebasePinchAfterLayoutChange(PixelPoint a, PixelPoint b,
+                                    double distance,
+                                    PixelPoint centroid) noexcept;
+#endif
 
 public:
   void SetLocation(const GeoPoint location) noexcept;
@@ -291,6 +567,13 @@ public:
 
   void UpdateDisplayMode() noexcept;
   void SetMapScale(double scale) noexcept;
+  void SetFreeMapScale(double scale) noexcept;
+
+  /**
+   * Smoothly animate to a free map scale (keyboard / mouse wheel).
+   * No-op path on builds without OpenGL: applies the scale immediately.
+   */
+  void AnimateFreeMapScale(double scale) noexcept;
 
 protected:
   DisplayMode GetDisplayMode() const noexcept {
@@ -303,8 +586,13 @@ protected:
 
 private:
   void OnMapItemTimer() noexcept;
+  void OnPageIndicatorTimer() noexcept;
 
 #ifdef ENABLE_OPENGL
   void OnKineticTimer() noexcept;
+  void CancelZoomAnimation() noexcept;
+  void OnZoomTimer() noexcept;
+  void NoteTerrainQuantisationUserActivity() noexcept;
+  void OnTerrainQuantisationTimer() noexcept;
 #endif
 };

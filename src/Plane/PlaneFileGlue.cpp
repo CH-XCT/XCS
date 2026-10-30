@@ -5,6 +5,7 @@
 #include "Plane.hpp"
 #include "Polar/Parser.hpp"
 #include "Engine/GlideSolvers/GlidePolar.hpp"
+#include "Repository/FileType.hpp"
 #include "io/KeyValueFileReader.hpp"
 #include "io/KeyValueFileWriter.hpp"
 #include "io/FileOutputStream.hxx"
@@ -17,6 +18,8 @@
 #include "LogFile.hpp"
 
 #include <fmt/format.h>
+
+#include <cmath>
 
 static bool
 ReadPolar(const char *string, Plane &plane) noexcept
@@ -62,6 +65,7 @@ PlaneGlue::Read(Plane &plane, KeyValueFileReader &reader)
   bool has_empty_mass = false;
   bool has_handicap = false;
   bool has_max_ballast = false;
+  bool has_max_takeoff_mass = false;
   bool has_dump_time = false;
   bool has_max_speed = false;
   bool has_wing_area = false;
@@ -95,6 +99,14 @@ PlaneGlue::Read(Plane &plane, KeyValueFileReader &reader)
       has_empty_mass = ReadDouble(pair.value, plane.empty_mass);
     } else if (!has_max_ballast && StringIsEqual(pair.key, "MaxBallast")) {
       has_max_ballast = ReadDouble(pair.value, plane.max_ballast);
+    } else if (!has_max_takeoff_mass &&
+               StringIsEqual(pair.key, "MaxTakeoffMass")) {
+      has_max_takeoff_mass =
+        ReadDouble(pair.value, plane.max_takeoff_mass) &&
+        std::isfinite(plane.max_takeoff_mass) &&
+        plane.max_takeoff_mass >= 0;
+      if (!has_max_takeoff_mass)
+        plane.max_takeoff_mass = 0;
     } else if (!has_dump_time && StringIsEqual(pair.key, "DumpTime")) {
       has_dump_time = ReadUnsigned(pair.value, plane.dump_time);
     } else if (!has_max_speed && StringIsEqual(pair.key, "MaxSpeed")) {
@@ -127,6 +139,8 @@ PlaneGlue::Read(Plane &plane, KeyValueFileReader &reader)
     plane.handicap = 100;
   if (!has_max_ballast)
     plane.max_ballast = 0;
+  if (!has_max_takeoff_mass)
+    plane.max_takeoff_mass = 0;
   if (!has_dump_time)
     plane.dump_time = 0;
   if (!has_max_speed)
@@ -180,6 +194,8 @@ PlaneGlue::Write(const Plane &plane, KeyValueFileWriter &writer)
   writer.Write("PlaneEmptyMass", tmp);
   tmp.Format("%f", (double)plane.max_ballast);
   writer.Write("MaxBallast", tmp);
+  tmp.Format("%f", (double)plane.max_takeoff_mass);
+  writer.Write("MaxTakeoffMass", tmp);
   tmp.Format("%f", (double)plane.dump_time);
   writer.Write("DumpTime", tmp);
   tmp.Format("%f", (double)plane.max_speed);
@@ -193,6 +209,9 @@ PlaneGlue::Write(const Plane &plane, KeyValueFileWriter &writer)
 void
 PlaneGlue::WriteFile(const Plane &plane, Path path)
 {
+  if (const auto parent = path.GetParent(); parent != nullptr)
+    Directory::CreateRecursive(parent);
+
   FileOutputStream file(path);
   BufferedOutputStream buffered(file);
   KeyValueFileWriter kvwriter(buffered);
@@ -226,7 +245,7 @@ PlaneGlue::FindByRegistration(const char *registration)
     }
   } visitor{match};
 
-  VisitDataFiles("*.xcp", visitor);
+  VisitDataFiles(GetFileTypePatterns(FileType::PLANE), visitor);
   return std::move(match.found_path);
 }
 
@@ -277,20 +296,30 @@ PlaneGlue::CreateFromPolar(const char *registration,
   const auto &coeffs = gp.GetCoefficients();
   if (coeffs.IsValid()) {
     constexpr double speeds[] = {90.0 / 3.6, 130.0 / 3.6, 180.0 / 3.6};
-    for (unsigned i = 0; i < 3; ++i) {
-      const double v = speeds[i];
-      plane.polar_shape.points[i].v = v;
-      plane.polar_shape.points[i].w =
-        coeffs.a * v * v + coeffs.b * v + coeffs.c;
-    }
+    for (unsigned i = 0; i < 3; ++i)
+      plane.polar_shape.points[i].v = speeds[i];
+    plane.polar_shape.SetSinkRates(coeffs);
   }
 
   const auto safe_name = SanitizeFilename(registration);
   if (safe_name.empty())
     return nullptr;
 
-  const auto filename = fmt::format("{}.xcp", safe_name);
-  auto path = LocalPath(filename.c_str());
+  /* where the plane list dialog creates a new profile as well */
+  const auto dir = LocalPath(GetFileTypeDefaultDir(FileType::PLANE));
+  Directory::CreateRecursive(dir);
+
+  /* another registration may sanitize to the same name ("D 1234" and
+     "D1234"); add a number rather than replace its profile */
+  auto path = AllocatedPath::Build(dir,
+                                   fmt::format("{}.xcp", safe_name).c_str());
+  for (unsigned n = 2; File::Exists(path); ++n) {
+    if (n > 99)
+      return nullptr;
+
+    const auto numbered = fmt::format("{}-{}.xcp", safe_name, n);
+    path = AllocatedPath::Build(dir, numbered.c_str());
+  }
 
   WriteFile(plane, path);
   return path;

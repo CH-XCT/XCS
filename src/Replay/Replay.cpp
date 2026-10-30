@@ -7,8 +7,11 @@
 #include "DemoReplayGlue.hpp"
 #include "io/FileLineReader.hpp"
 #include "Blackboard/DeviceBlackboard.hpp"
+#include "CalculationThread.hpp"
+#include "MergeThread.hpp"
 #include "Logger/Logger.hpp"
-#include "Interface.hpp"
+#include "Device/Config.hpp"
+#include "Repository/FileType.hpp"
 #include "CatmullRomInterpolator.hpp"
 #include "time/Cast.hxx"
 
@@ -37,7 +40,7 @@ Replay::Stop()
 }
 
 void
-Replay::Start(Path _path)
+Replay::Start(Path _path, const DeviceConfig &device)
 {
   assert(_path != nullptr);
 
@@ -49,14 +52,15 @@ Replay::Start(Path _path)
 
   if (path == nullptr || path.empty()) {
     replay = new DemoReplayGlue(device_blackboard, task_manager);
-  } else if (path.EndsWithIgnoreCase(".igc")) {
+  } else if (FilenameMatchesFileType(path.GetBase().c_str(),
+                                      FileType::IGC)) {
     replay = new IgcReplay(std::make_unique<FileLineReaderA>(path));
 
     cli = new CatmullRomInterpolator(FloatDuration{0.98});
     cli->Reset();
   } else {
     replay = new NmeaReplay(std::make_unique<FileLineReaderA>(path),
-                            CommonInterface::GetSystemSettings().devices[0]);
+                            device);
   }
 
   if (logger != nullptr)
@@ -184,6 +188,12 @@ Replay::Update()
     data.ProvidePressureAltitude(r.baro_altitude);
     data.ProvideBaroAltitudeTrue(r.baro_altitude);
 
+    /* The fix time is ahead of this sample. Expire() treats a
+       validity stamp in the future as a time warp and drops the
+       logged airspeed. */
+    if (data.airspeed_available)
+      data.airspeed_available.Update(data.clock);
+
     {
       const std::lock_guard lock{device_blackboard.mutex};
       device_blackboard.SetReplayState() = data;
@@ -192,6 +202,45 @@ Replay::Update()
   }
 
   return true;
+}
+
+unsigned
+Replay::ProcessAllFixes(MergeThread &merge_thread,
+                        CalculationThread &calc_thread)
+{
+  if (replay == nullptr || path == nullptr || path.empty())
+    return 0;
+
+  timer.Cancel();
+  fast_forward = TimeStamp::Undefined();
+
+  NMEAInfo data;
+  data.Reset();
+  unsigned count = 0;
+
+  while (replay->Update(data)) {
+    assert(!data.gps.real);
+
+    if (data.time_available)
+      virtual_time = data.time;
+
+    {
+      const std::lock_guard lock{device_blackboard.mutex};
+      device_blackboard.SetReplayState() = data;
+    }
+
+    merge_thread.ProcessReplayFix();
+    calc_thread.ProcessReplayFix();
+    ++count;
+
+    if (data.time_available)
+      data.Expire();
+  }
+
+  if (count > 0)
+    next_data = data;
+
+  return count;
 }
 
 void
@@ -207,9 +256,21 @@ Replay::OnTimer()
     schedule = std::chrono::milliseconds(100);
   else if (!virtual_time.IsDefined() || !next_data.time_available)
     schedule = std::chrono::milliseconds(500);
-  else if (cli != nullptr)
-    schedule = std::chrono::seconds(1);
-  else {
+  else if (cli != nullptr) {
+    /* Interpolated IGC emits one GPS sample per timer tick, with
+       virtual time advancing by elapsed × rate.  A fixed 1 s wall
+       timer therefore produces 10 s flight steps at 10×, which is too
+       sparse for circling wind.  Keep flight-time steps near 1 Hz. */
+    const double scale = std::max(time_scale, 0.1);
+    constexpr std::chrono::steady_clock::duration lower =
+      std::chrono::milliseconds(50);
+    constexpr std::chrono::steady_clock::duration upper =
+      std::chrono::seconds(1);
+    const auto period =
+      std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+        FloatDuration{1} / scale);
+    schedule = std::clamp(period, lower, upper);
+  } else {
     constexpr std::chrono::steady_clock::duration lower = std::chrono::milliseconds(100);
     constexpr std::chrono::steady_clock::duration upper = std::chrono::seconds(3);
     const FloatDuration delta_s((next_data.time - virtual_time) / time_scale);

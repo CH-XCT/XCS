@@ -9,13 +9,15 @@
 #include "Units/Units.hpp"
 #include "Language/Language.hpp"
 #include "Formatter/UserUnits.hpp"
+#include "Asset.hpp"
 #include "util/StaticString.hxx"
 
 
 void
 RenderGlidePolarInfo(Canvas &canvas, const PixelRect rc,
                      const ChartLook &chart_look,
-                     const GlidePolar &glide_polar)
+                     const GlidePolar &glide_polar,
+                     bool over_mtow)
 {
   canvas.Select(chart_look.label_font);
 
@@ -33,11 +35,17 @@ RenderGlidePolarInfo(Canvas &canvas, const PixelRect rc,
 
   double wl = glide_polar.GetWingLoading();
   if (wl != 0) {
-    FormatUserWingLoading(wl, value.buffer(), true);
+    FormatUserWingLoading(wl, value.buffer(), value.capacity(), true);
 
     text.Format("%s: %s", _("Wing loading"), value.c_str());
 
+    if (HasColors() && over_mtow)
+      canvas.SetTextColor(chart_look.text_color == COLOR_WHITE
+                           ? COLOR_INVERSE_RED
+                           : COLOR_RED);
+
     canvas.DrawText({left, rc.bottom - (int)Layout::Scale(35u)},
                     text);
+    canvas.SetTextColor(chart_look.text_color);
   }
 }

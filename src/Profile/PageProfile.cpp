@@ -6,6 +6,11 @@
 #include "Map.hpp"
 #include "PageSettings.hpp"
 #include "InfoBoxes/InfoBoxSettings.hpp"
+#include "util/NumberParser.hxx"
+#include "util/StaticString.hxx"
+#include "util/StringFormat.hpp"
+
+#include <stdio.h>
 
 /**
  * Old enum moved from PageSettings.
@@ -20,8 +25,8 @@ static void
 Load(const ProfileMap &map, PageLayout &_pl, const unsigned page)
 {
   char profileKey[32];
-  unsigned prefixLen = sprintf(profileKey, "Page%u", page);
-  if (prefixLen <= 0)
+  int prefixLen = StringFormat(profileKey, sizeof(profileKey), "Page%u", page);
+  if (prefixLen <= 0 || (size_t)prefixLen >= sizeof(profileKey))
     return;
 
   PageLayout pl = PageLayout::Default();
@@ -60,6 +65,64 @@ Load(const ProfileMap &map, PageLayout &_pl, const unsigned page)
       unsigned(pl.main) >= unsigned(PageLayout::Main::MAX))
     pl.main = PageLayout::Main::MAP;
 
+  strcpy(profileKey + prefixLen, "Overlay");
+  if (!map.GetEnum(profileKey, pl.overlay) ||
+      unsigned(pl.overlay) >= unsigned(PageLayout::Overlay::MAX))
+    pl.overlay = PageLayout::Overlay::NONE;
+
+  strcpy(profileKey + prefixLen, "RaspField");
+  map.Get(profileKey, pl.rasp_field);
+
+  strcpy(profileKey + prefixLen, "RaspTime");
+  if (!map.Get(profileKey, pl.rasp_time))
+    pl.rasp_time = PageLayout::RASP_TIME_AUTO;
+
+  strcpy(profileKey + prefixLen, "EdlTime");
+  if (!map.Get(profileKey, pl.edl_time))
+    pl.edl_time = PageLayout::EDL_TIME_AUTO;
+
+  strcpy(profileKey + prefixLen, "EdlIsobar");
+  map.Get(profileKey, pl.edl_isobar);
+
+  strcpy(profileKey + prefixLen, "XCThermLayer");
+  if (!map.Get(profileKey, pl.xctherm_layer))
+    pl.xctherm_layer = PageLayout::XCTHERM_LAYER_AUTO;
+
+  strcpy(profileKey + prefixLen, "XCThermTime");
+  if (!map.Get(profileKey, pl.xctherm_time))
+    pl.xctherm_time = PageLayout::XCTHERM_TIME_AUTO;
+
+  strcpy(profileKey + prefixLen, "SatelliteLayer");
+  if (!map.Get(profileKey, pl.satellite_layer) || pl.satellite_layer < 0)
+    pl.satellite_layer = PageLayout::SATELLITE_LAYER_DEFAULT;
+
+  strcpy(profileKey + prefixLen, "SkysightOverlay");
+  const char *skysight_overlay_value = map.Get(profileKey);
+  strcpy(profileKey + prefixLen, "SkysightOverlay");
+  if (const char *value = map.Get(profileKey); value != nullptr)
+    skysight_overlay_value = value;
+  if (skysight_overlay_value != nullptr && *skysight_overlay_value != '\0') {
+    pl.skysight_overlay = skysight_overlay_value;
+    if (pl.overlay == PageLayout::Overlay::NONE)
+      pl.overlay = PageLayout::Overlay::SKYSIGHT;
+  } else {
+    pl.skysight_overlay.clear();
+  }
+
+  strcpy(profileKey + prefixLen, "SkySightTime");
+  if (const char *value = map.Get(profileKey); value != nullptr) {
+    if (!ParseIntegerTo(std::string_view{value}, pl.skysight_time) ||
+        pl.skysight_time < PageLayout::SKYSIGHT_TIME_AUTO)
+      pl.skysight_time = PageLayout::SKYSIGHT_TIME_AUTO;
+  }
+
+  if (pl.overlay == PageLayout::Overlay::NONE &&
+      pl.bottom == PageLayout::Bottom::WEATHER_CONTROLS &&
+      pl.skysight_overlay.empty())
+    pl.overlay = PageLayout::Overlay::EDL;
+
+  pl.Normalise();
+
   _pl = pl;
 }
 
@@ -78,8 +141,8 @@ void
 Profile::Save(ProfileMap &map, const PageLayout &page, const unsigned i)
 {
   char profileKey[32];
-  unsigned prefixLen = sprintf(profileKey, "Page%u", i);
-  if (prefixLen <= 0)
+  int prefixLen = StringFormat(profileKey, sizeof(profileKey), "Page%u", i);
+  if (prefixLen <= 0 || (size_t)prefixLen >= sizeof(profileKey))
     return;
   strcpy(profileKey + prefixLen, "InfoBoxMode");
   map.Set(profileKey, page.infobox_config.auto_switch);
@@ -99,6 +162,38 @@ Profile::Save(ProfileMap &map, const PageLayout &page, const unsigned i)
 
   strcpy(profileKey + prefixLen, "Main");
   map.Set(profileKey, (unsigned)page.main);
+
+  strcpy(profileKey + prefixLen, "Overlay");
+  map.Set(profileKey, (unsigned)page.overlay);
+
+  strcpy(profileKey + prefixLen, "RaspField");
+  map.Set(profileKey, page.rasp_field);
+
+  strcpy(profileKey + prefixLen, "RaspTime");
+  map.Set(profileKey, page.rasp_time);
+
+  strcpy(profileKey + prefixLen, "EdlTime");
+  map.Set(profileKey, page.edl_time);
+
+  strcpy(profileKey + prefixLen, "EdlIsobar");
+  map.Set(profileKey, page.edl_isobar);
+
+  strcpy(profileKey + prefixLen, "XCThermLayer");
+  map.Set(profileKey, page.xctherm_layer);
+
+  strcpy(profileKey + prefixLen, "XCThermTime");
+  map.Set(profileKey, page.xctherm_time);
+
+  strcpy(profileKey + prefixLen, "SatelliteLayer");
+  map.Set(profileKey, page.satellite_layer);
+
+  strcpy(profileKey + prefixLen, "SkysightOverlay");
+  map.Set(profileKey, page.skysight_overlay.c_str());
+
+  strcpy(profileKey + prefixLen, "SkySightTime");
+  StaticString<32> skysight_time;
+  skysight_time.Format("%lld", (long long)page.skysight_time);
+  map.Set(profileKey, skysight_time.c_str());
 }
 
 

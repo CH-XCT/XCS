@@ -13,10 +13,8 @@
 #include "TopographyLook.hpp"
 #include "OverlayLook.hpp"
 #include "ui/canvas/Icon.hpp"
-#include "ui/canvas/Bitmap.hpp"
 #include "ui/canvas/Pen.hpp"
 #include "ui/canvas/Brush.hpp"
-#include "ui/canvas/Features.hpp"
 #include "Weather/Features.hpp"
 
 #ifdef HAVE_NOAA
@@ -40,11 +38,6 @@ struct MapLook {
 
   OverlayLook overlay;
 
-#ifdef HAVE_HATCHED_BRUSH
-  Bitmap above_terrain_bitmap;
-  Brush above_terrain_brush;
-#endif
-
   MaskedIcon terrain_warning_icon;
 
   Pen compass_pen;
@@ -59,6 +52,12 @@ struct MapLook {
   Pen reach_working_pen_thick;
 
   Pen track_line_pen;
+
+  /** Pen and brush for the Turn Back Marker (TBM) */
+  Pen tbm_pen;
+  Brush tbm_brush;
+
+  Pen distance_rings_pen;
 
   Pen contest_pens[3];
 

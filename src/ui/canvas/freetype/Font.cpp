@@ -76,10 +76,25 @@ FT_CEIL(FT_Long x) noexcept
 static unsigned
 NextChar(std::string_view &s) noexcept
 {
-  assert(!s.empty());
+  if (s.empty())
+    return 0;
 
   auto n = NextUTF8(s.data());
-  s.remove_prefix(n.second - s.data());
+  if (n.second == nullptr) {
+    /* NextUTF8() returns {0, nullptr} when the first byte is NUL;
+       pointer arithmetic with nullptr would be undefined behaviour
+       (and trips _GLIBCXX_ASSERTIONS on Debian/Ubuntu).  Consume the
+       rest of the view and report end-of-string instead. */
+    s = {};
+    return n.first;
+  }
+
+  /* Defensively clamp the step in case the UTF-8 sequence at the end
+     of the buffer is truncated and NextUTF8() walked past s.end(). */
+  std::size_t consumed = std::size_t(n.second - s.data());
+  if (consumed > s.size())
+    consumed = s.size();
+  s.remove_prefix(consumed);
   return n.first;
 }
 
@@ -257,6 +272,18 @@ ForEachGlyph(const FT_Face face, unsigned ascent_height, T &&text,
 
       x += FT_CEIL(metrics.horiAdvance);
     });
+}
+
+bool
+Font::HasGlyph(unsigned unicode) const noexcept
+{
+#ifndef ENABLE_OPENGL
+  const std::lock_guard lock{freetype_mutex};
+#endif
+
+  /* there is only this one font file and no fallback, so a character
+     the font does not have cannot be drawn at all */
+  return face != nullptr && FT_Get_Char_Index(face, unicode) != 0;
 }
 
 PixelSize

@@ -52,6 +52,12 @@ struct MarkdownLink {
 
   /** The URL to open when activated */
   std::string url;
+
+  /**
+   * For vhf: links from [text](url): original bracket text for radio name;
+   * empty otherwise.
+   */
+  std::string station_name;
 };
 
 /**
@@ -127,16 +133,44 @@ struct ParsedMarkdown {
  * Supports:
  * - Bold: **text** or __text__
  * - Headings: # H1, ## H2, ### H3 (at line start)
- * - List items: - item or * item (at line start)
+ * - List items: - item or * item (at line start); a leading "word:" prefix
+ *   (label with optional /._- in the name, then colon and whitespace) is bold
  * - Checkboxes: - [ ] unchecked, - [x] checked (at line start)
  * - Markdown links: [display text](url)
- * - Raw URLs: http://, https://, xcsoar://
+ * - Raw URLs: http://, https://, xcsoar://, vhf:
  * - Admonitions: !!! warning, !!! note, !!! important, !!! tip,
  *   !!! caution (at line start; colours the next heading)
  *
  * @param input The raw text to parse
  * @return Processed text with extracted links and style spans
  */
-[[gnu::pure]]
 ParsedMarkdown
 ParseMarkdown(const char *input);
+
+[[gnu::const]]
+constexpr bool
+IsMarkdownCheckboxStyle(TextStyle style) noexcept
+{
+  return style == TextStyle::Checkbox ||
+         style == TextStyle::CheckboxChecked;
+}
+
+/**
+ * Checked state of each checkbox in document order (1 = checked).
+ * @p toggled is XOR'd with the original Markdown marker, indexed by
+ * style span.
+ */
+[[gnu::pure]]
+std::vector<uint8_t>
+ReadMarkdownCheckboxStates(const ParsedMarkdown &parsed,
+                           const std::vector<uint8_t> &toggled) noexcept;
+
+/**
+ * Set #toggled so each checkbox matches @p checked (document order).
+ * @return false if @p checked size does not match the checkbox count
+ * (toggled is left unchanged).
+ */
+bool
+ApplyMarkdownCheckboxStates(const ParsedMarkdown &parsed,
+                            std::vector<uint8_t> &toggled,
+                            const std::vector<uint8_t> &checked) noexcept;

@@ -3,6 +3,10 @@
 
 #pragma once
 
+#include <cstddef>
+
+#include "time/RoughTime.hpp"
+
 struct PixelRect;
 class Canvas;
 struct ChartLook;
@@ -14,7 +18,7 @@ class ProtectedTaskManager;
 class TaskManager;
 
 void
-BarographCaption(char *buffer, const FlightStatistics &fs);
+BarographCaption(char *buffer, size_t buffer_size, const FlightStatistics &fs);
 
 void
 RenderBarographSpark(Canvas &canvas, const PixelRect rc,
@@ -33,4 +37,5 @@ RenderBarograph(Canvas &canvas, const PixelRect rc,
                 const FlightStatistics &fs,
                 const NMEAInfo &nmea_info,
                 const DerivedInfo &derived_info,
-                const ProtectedTaskManager *_task);
+                const ProtectedTaskManager *_task,
+                RoughTimeDelta utc_offset) noexcept;
