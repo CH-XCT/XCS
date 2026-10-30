@@ -39,11 +39,25 @@ ANDROID_ABI_DIR = $(ANDROID_BUNDLE_BASE)/lib/$(ANDROID_APK_LIB_ABI)
 
 ANDROID_BIN = $(TARGET_BIN_DIR)
 
+# The name of the APK and AAB files.  PROGRAM_NAME cannot be used here:
+# main.mk defines it only after this file has been read, and a rule
+# target is expanded right away, so the rule came out as
+# "bin/-debug.apk" and no rule for the branded name existed at all.
+# brand.mk has already run (from options.mk), so its BRAND_PROGRAM_NAME
+# is known; an unbranded tree keeps the upstream name.
+ANDROID_APK_NAME := $(or $(BRAND_PROGRAM_NAME),XCSoar)
+
 
 ### Outputs
 
 ANDROID_LIB_NAMES = xcsoar
 JAVA_PACKAGE = org.xcsoar
+
+# Application id base for the manifest.  The Java sources stay in
+# org.xcsoar (JAVA_PACKAGE above) - the manifest package is what the
+# user's device sees, and a brand config (build/brand.mk) replaces it
+# (e.g. de.opensoar)
+BRAND_ANDROID_PACKAGE ?= org.xcsoar
 
 # Use template manifest for all builds
 MANIFEST_TEMPLATE = android/AndroidManifest.xml.template
@@ -51,21 +65,21 @@ MANIFEST_TEMPLATE = android/AndroidManifest.xml.template
 # Determine package name for manifest based on build flags
 # Priority: FOSS > PLAY > TESTING > default
 ifeq ($(FOSS),y)
-MANIFEST_PACKAGE = org.xcsoar.foss
+MANIFEST_PACKAGE = $(BRAND_ANDROID_PACKAGE).foss
 MANIFEST_APP_LABEL = @string/app_name
 else ifeq ($(PLAY),y)
-MANIFEST_PACKAGE = org.xcsoar.play
+MANIFEST_PACKAGE = $(BRAND_ANDROID_PACKAGE).play
 MANIFEST_APP_LABEL = @string/app_name
 else ifeq ($(TESTING),y)
-MANIFEST_PACKAGE = org.xcsoar.testing
+MANIFEST_PACKAGE = $(BRAND_ANDROID_PACKAGE).testing
 MANIFEST_APP_LABEL = @string/app_name_testing
 else
-MANIFEST_PACKAGE = org.xcsoar
+MANIFEST_PACKAGE = $(BRAND_ANDROID_PACKAGE)
 MANIFEST_APP_LABEL = @string/app_name
 endif
 
 # Set XCSOAR_TESTING based on package name (for red resources in testing builds)
-ifeq ($(MANIFEST_PACKAGE),org.xcsoar.testing)
+ifeq ($(MANIFEST_PACKAGE),$(BRAND_ANDROID_PACKAGE).testing)
   TARGET_CPPFLAGS += -DXCSOAR_TESTING
 endif
 
@@ -74,15 +88,28 @@ MANIFEST_PROCESSED = $(NO_ARCH_OUTPUT_DIR)/AndroidManifest.xml
 MANIFEST_PACKAGE_STAMP = $(NO_ARCH_OUTPUT_DIR)/.manifest_package.stamp
 MANIFEST = $(MANIFEST_PROCESSED)
 
+# the stamp carries everything the processed manifest depends on
+# besides its template: the package, and the debuggable flag
+MANIFEST_STAMP_CONTENT = $(MANIFEST_PACKAGE) debug=$(DEBUG)
 $(MANIFEST_PACKAGE_STAMP): FORCE | $(NO_ARCH_OUTPUT_DIR)/dirstamp
-	@if [ ! -f $@ ] || [ "$$(cat $@ 2>/dev/null)" != "$(MANIFEST_PACKAGE)" ]; then \
-		echo "$(MANIFEST_PACKAGE)" > $@.tmp && mv $@.tmp $@; \
+	@if [ ! -f $@ ] || [ "$$(cat $@ 2>/dev/null)" != "$(MANIFEST_STAMP_CONTENT)" ]; then \
+		echo "$(MANIFEST_STAMP_CONTENT)" > $@.tmp && mv $@.tmp $@; \
 	fi
+
+# A DEBUG=y build declares itself debuggable, so that Android Studio
+# (Profile or Debug APK) and lldb can attach to it on an ordinary
+# device; release builds must not carry the flag (Play rejects them)
+ifeq ($(DEBUG),y)
+MANIFEST_DEBUGGABLE_SED = -e 's|<application|<application android:debuggable="true"|'
+else
+MANIFEST_DEBUGGABLE_SED =
+endif
 
 $(MANIFEST_PROCESSED): $(MANIFEST_TEMPLATE) $(MANIFEST_PACKAGE_STAMP) $(topdir)/VERSION.txt | $(NO_ARCH_OUTPUT_DIR)/dirstamp
 	@$(NQ)echo "  PROCESS $@"
 	$(Q)sed -e 's/@PACKAGE_NAME@/$(MANIFEST_PACKAGE)/g' \
 		-e 's|@APP_LABEL@|$(MANIFEST_APP_LABEL)|g' \
+		$(MANIFEST_DEBUGGABLE_SED) \
 		-e 's/android:versionCode="[0-9][0-9]*"/android:versionCode="$(ANDROID_VERSION_CODE)"/' \
 		-e 's/android:versionName="[^"]*"/android:versionName="$(ANDROID_VERSION_NAME)"/' \
 		$< > $@
@@ -197,7 +224,7 @@ JAVA_SOURCES := \
 
 # Images
 # Use red icon only for testing package (check package name, not just TESTING flag)
-ifeq ($(MANIFEST_PACKAGE),org.xcsoar.testing)
+ifeq ($(MANIFEST_PACKAGE),$(BRAND_ANDROID_PACKAGE).testing)
 ICON_SVG = $(topdir)/Data/graphics/logo_red.svg
 else
 ICON_SVG = $(topdir)/Data/graphics/logo.svg
@@ -379,17 +406,45 @@ $(SOUND_FILES): $(RAW_DIR)/%.ogg: Data/sound/%.wav | $(RAW_DIR)/dirstamp
 # XMLs
 ANDROID_XML_RES := $(wildcard android/res/*/*.xml)
 ANDROID_XML_RES_NO_STRINGS := $(filter-out android/res/values/strings.xml,$(ANDROID_XML_RES))
+
+# A brand may override the adaptive-icon background layer
+# (android/res/values*/ic_launcher.xml).  Those files are then
+# generated instead of copied; without the setting nothing changes.
+ANDROID_XML_RES_ICON :=
+ifneq ($(BRAND_ANDROID_ICON_BACKGROUND),)
+ANDROID_XML_RES_ICON := $(filter android/res/values%/ic_launcher.xml,$(ANDROID_XML_RES_NO_STRINGS))
+ANDROID_XML_RES_NO_STRINGS := $(filter-out $(ANDROID_XML_RES_ICON),$(ANDROID_XML_RES_NO_STRINGS))
+endif
+ANDROID_XML_RES_ICON_COPIES := $(patsubst android/res/%,$(RES_DIR)/%,$(ANDROID_XML_RES_ICON))
+
 ANDROID_XML_RES_COPIES_NO_STRINGS := $(patsubst android/res/%,$(RES_DIR)/%,$(ANDROID_XML_RES_NO_STRINGS))
 $(ANDROID_XML_RES_COPIES_NO_STRINGS): $(RES_DIR)/%: android/res/%
 	$(Q)-$(MKDIR) -p $(dir $@)
 	$(Q)cp $< $@
 
+# Special handling for strings.xml to replace product name; branded
+# builds also rewrite the testing label ("XCS-test"), unbranded
+# XCSoar builds keep it untouched
+ifeq ($(PRODUCT_NAME),XCSoar)
+BRAND_STRINGS_SED =
+else
+BRAND_STRINGS_SED = -e 's/XCS-test/$(PRODUCT_NAME)-test/g'
+endif
 $(RES_DIR)/values/strings.xml: android/res/values/strings.xml | $(RES_DIR)/values/dirstamp
 	$(Q)-$(MKDIR) -p $(dir $@)
-	$(Q)sed 's/XCSoar/$(PRODUCT_NAME)/g' $< > $@
+	$(Q)sed $(BRAND_STRINGS_SED) -e 's/XCSoar/$(PRODUCT_NAME)/g' $< > $@
+
+# Branded launcher background: the value is 8 hex digits (AARRGGBB)
+# without the leading "#" - see build/brand.mk.  "00000000" keeps the
+# transparent look the desktop icon has; day and night resource
+# variants get the same value.
+$(ANDROID_XML_RES_ICON_COPIES): $(RES_DIR)/%: android/res/% $(BRAND_CONFIG)
+	$(Q)-$(MKDIR) -p $(dir $@)
+	$(Q)sed -e '/<!--/,/-->/d' \
+		-e 's|\(<color name="ic_launcher_background">\)[^<]*|\1#$(BRAND_ANDROID_ICON_BACKGROUND)|' $< > $@
 
 # Convert resources to protobuf format with AAPT2 (build and unzip an apk)
-$(PROTOBUF_OUT_DIR)/dirstamp: $(PNG_FILES) $(FASTLANE_ICON) $(SOUND_FILES) $(ANDROID_XML_RES_COPIES_NO_STRINGS) $(RES_DIR)/values/strings.xml $(MANIFEST) | $(GEN_DIR)/dirstamp $(COMPILED_RES_DIR)/dirstamp
+$(PROTOBUF_OUT_DIR)/dirstamp: $(PNG_FILES) $(FASTLANE_ICON) $(SOUND_FILES) $(ANDROID_XML_RES_COPIES_NO_STRINGS) $(ANDROID_XML_RES_ICON_COPIES) $(RES_DIR)/values/strings.xml $(MANIFEST) | $(GEN_DIR)/dirstamp $(COMPILED_RES_DIR)/dirstamp
 	@$(NQ)echo "  AAPT2"
 	$(Q)find $(RES_DIR) -name dirstamp -type f -delete
 	$(Q)$(AAPT2) compile \
@@ -631,13 +686,13 @@ $(BUNDLE_BUILD_DIR)/unsigned.aab: $(BUNDLE_BUILD_DIR)/base.zip $(BUNDLE_CONFIG)
 		--modules $< --output $@
 
 # Debug targets
-.DELETE_ON_ERROR: $(ANDROID_BIN)/XCSoar-debug.aab
-$(ANDROID_BIN)/XCSoar-debug.aab: $(BUNDLE_BUILD_DIR)/unsigned.aab $(DEBUG_KEYSTORE) | $(ANDROID_BIN)/dirstamp
+.DELETE_ON_ERROR: $(ANDROID_BIN)/$(ANDROID_APK_NAME)-debug.aab
+$(ANDROID_BIN)/$(ANDROID_APK_NAME)-debug.aab: $(BUNDLE_BUILD_DIR)/unsigned.aab $(DEBUG_KEYSTORE) | $(ANDROID_BIN)/dirstamp
 	@$(NQ)echo "  SIGN    $@"
 	$(Q)cp $< $@
 	$(Q)$(JARSIGNER) -keystore $(DEBUG_KEYSTORE) -storepass $(DEBUG_KEY_PASSWORD) $@ $(DEBUG_KEY_ALIAS)
 
-$(ANDROID_BIN)/XCSoar-debug.apk: $(ANDROID_BIN)/XCSoar-debug.aab $(DEBUG_KEYSTORE)
+$(ANDROID_BIN)/$(ANDROID_APK_NAME)-debug.apk: $(ANDROID_BIN)/$(ANDROID_APK_NAME)-debug.aab $(DEBUG_KEYSTORE)
 	@$(NQ)echo "  APK     $@"
 	$(Q)$(BUNDLETOOL) build-apks --overwrite --mode=universal \
 		--ks=$(DEBUG_KEYSTORE) --ks-pass=pass:$(DEBUG_KEY_PASSWORD) --ks-key-alias=$(DEBUG_KEY_ALIAS) \
@@ -647,24 +702,24 @@ $(ANDROID_BIN)/XCSoar-debug.apk: $(ANDROID_BIN)/XCSoar-debug.aab $(DEBUG_KEYSTOR
 
 # Release-named targets.  Always depend on a keystore: the release
 # file when present, otherwise the generated debug key.
-.DELETE_ON_ERROR: $(ANDROID_BIN)/XCSoar.aab
-$(ANDROID_BIN)/XCSoar.aab: $(BUNDLE_BUILD_DIR)/unsigned.aab $(ANDROID_SIGN_KEYSTORE) | $(ANDROID_BIN)/dirstamp
+.DELETE_ON_ERROR: $(ANDROID_BIN)/$(ANDROID_APK_NAME).aab
+$(ANDROID_BIN)/$(ANDROID_APK_NAME).aab: $(BUNDLE_BUILD_DIR)/unsigned.aab $(ANDROID_SIGN_KEYSTORE) | $(ANDROID_BIN)/dirstamp
 	@$(NQ)echo "  SIGN    $@"
 	$(Q)cp $< $@
 	$(Q)$(JARSIGNER) -keystore $(ANDROID_SIGN_KEYSTORE) $(JARSIGNER_SIGN_PASSWD) $@ $(ANDROID_SIGN_ALIAS)
 
-$(ANDROID_BIN)/XCSoar.apk: $(ANDROID_BIN)/XCSoar.aab
+$(ANDROID_BIN)/$(ANDROID_APK_NAME).apk: $(ANDROID_BIN)/$(ANDROID_APK_NAME).aab
 	@$(NQ)echo "  APK     $@"
 	$(Q)set -e; \
 	if [ -n "$(BUNDLE_KS_PASS_FILE)" ]; then \
-		(umask 077; printf '%s\n' "$$ANDROID_KEYSTORE_PASS" > $(BUNDLE_KS_PASS_FILE)); \
+		umask 077; \
+		printf '%s\n' "$$ANDROID_KEYSTORE_PASS" > $(BUNDLE_KS_PASS_FILE); \
 	fi; \
 	trap 'rm -f $(BUNDLE_KS_PASS_FILE)' EXIT; \
 	$(BUNDLETOOL) build-apks --overwrite --mode=universal \
 		--ks=$(ANDROID_SIGN_KEYSTORE) --ks-key-alias=$(ANDROID_SIGN_ALIAS) $(BUNDLETOOL_SIGN_PASSWD) \
 		--bundle=$< \
 		--output=$(BUNDLE_BUILD_DIR)/apkset-release.apks; \
-	$(UNZIP) -p $(BUNDLE_BUILD_DIR)/apkset-release.apks universal.apk > $@; \
-	chmod 644 $@
+	$(UNZIP) -p $(BUNDLE_BUILD_DIR)/apkset-release.apks universal.apk > $@
 
 endif

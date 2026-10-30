@@ -11,7 +11,13 @@
 #include "Version.hpp"
 #include "LogFile.hpp"
 #include "CommandLine.hpp"
+#include "PowerControl.hpp"
+#ifdef IS_OPENVARIO
+#include "OpenVario/System/OpenVarioDevice.hpp"
+#endif
+#include "SystemConfig.hpp"
 #include "MainWindow.hpp"
+#include "ui/window/ContainerWindow.hpp"
 #include "Interface.hpp"
 #include "Look/GlobalFonts.hpp"
 #include "ui/window/Init.hpp"
@@ -95,6 +101,18 @@ Main()
     ShowPendingSystemToolResult();
 #endif
     ret = CommonInterface::main_window->RunEventLoop();
+
+    /* Code that hands the next step over to the script which started
+       the program (on the OpenVario: firmware upgrade, touch
+       calibration, reboot after switching the main app) announces it
+       with ContainerWindow::SetExitValue().  The event loop itself
+       always returns 0, so the value has to be picked up here, or the
+       script never learns what it was asked to do. */
+    if (const unsigned exit_value = ContainerWindow::GetExitValue();
+        exit_value != 0) {
+      LogFormat("Leaving with exit value %u", exit_value);
+      ret = exit_value;
+    }
   } else if (WasStartupCancelledByUser())
     /* quitting from the startup dialogs is a deliberate user action,
        not an error */
@@ -140,13 +158,31 @@ try {
     CommandLine::Parse(args);
   }
 
+#ifndef _WIN32
+  /* remember the command line: a restart needs it after the program
+     has shut down (PowerControl::Perform()) */
+  PowerControl::SaveCommandLine(argc, argv);
+#endif
+
   InitialiseDataPath();
+
+#ifdef IS_OPENVARIO
+  /* deliberately not in the global constructor: this needs the data
+     path, and globals of other translation units are not alive that
+     early */
+  ovdevice.Initialise();
+#endif
+
   CommandLine::ApplyPendingProfile();
+
+  /* device settings (not part of any profile) decide how the program
+     starts and how it is left */
+  SystemConfig::Load();
 
   // Write startup note + version to logfile
   LogFormat("Starting %s", XCSoar_ProductToken);
 
-  int ret = Main();
+  int ret = PowerControl::Perform(Main());
 
   bool power_action_succeeded = true;
   switch (UIActions::GetExitAction()) {

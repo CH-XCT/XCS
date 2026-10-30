@@ -4,8 +4,7 @@
 #pragma once
 
 #include "StaticString.hxx"
-
-#include <cstdlib>
+#include <stdlib.h>
 
 /**
  * @brief Convert a string to a version number and compare it to other version number

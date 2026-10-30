@@ -74,7 +74,8 @@ endif
 
 ####### splash logo
 
-SVG_SPLASH = Data/graphics/logo.svg Data/graphics/logo_red.svg
+SVG_SPLASH = Data/graphics/logo.svg Data/graphics/logo_red.svg \
+	$(wildcard Data/graphics/logo_sponsor.svg)
 PNG_SPLASH_320 = $(patsubst Data/graphics/%.svg,$(DATA)/graphics/%_320.png,$(SVG_SPLASH))
 BMP_SPLASH_320 = $(PNG_SPLASH_320:.png=.bmp)
 PNG_SPLASH_160 = $(patsubst Data/graphics/%.svg,$(DATA)/graphics/%_160.png,$(SVG_SPLASH))
@@ -148,6 +149,21 @@ endif
 
 ####### version
 
+# The title graphics carry @PROGRAM_NAME@ / @PROGRAM_VERSION@ tokens
+# (shared with the CMake build, which substitutes them the same way):
+# substitute product name and version before rendering, so the start
+# screen always shows the real brand and version.  It is VERSION and
+# not FULL_VERSION, because the title has room for the version only and
+# the CMake build puts the plain version there as well; the commit id
+# of an unreleased build stays in the version text of the program
+# (Version.cpp) and in the Windows file version.  The rule depends on
+# this file, so a change of the substitution reaches existing builds.
+BRAND_SVG_DIR = $(DATA)/graphics_brand
+$(BRAND_SVG_DIR)/%.svg: Data/graphics/%.svg $(BRAND_CONFIG) build/resource.mk | $(BRAND_SVG_DIR)/dirstamp
+	@$(NQ)echo "  BRAND   $@"
+	$(Q)sed -e 's/@PROGRAM_NAME@/$(PRODUCT_NAME)/g' \
+		-e 's|@PROGRAM_VERSION@|$(VERSION)|g' $< > $@
+
 SVG_TITLE = Data/graphics/title.svg Data/graphics/title_red.svg
 PNG_TITLE_110 = $(patsubst Data/graphics/%.svg,$(DATA)/graphics/%_110.png,$(SVG_TITLE))
 BMP_TITLE_110 = $(PNG_TITLE_110:.png=.bmp)
@@ -163,15 +179,15 @@ SVG_TITLE_WHITE = Data/graphics/title_white.svg Data/graphics/title_red_white.sv
 PNG_TITLE_WHITE_320_RGBA = $(patsubst Data/graphics/%.svg,$(DATA)/graphics2/%_320_rgba.png,$(SVG_TITLE_WHITE))
 PNG_TITLE_WHITE_640_RGBA = $(patsubst Data/graphics/%.svg,$(DATA)/graphics2/%_640_rgba.png,$(SVG_TITLE_WHITE))
 
-# render from SVG to PNG
-$(eval $(call rsvg-convert,$(PNG_TITLE_110),$(DATA)/graphics/%_110.png,Data/graphics/%.svg,--width=110))
-$(eval $(call rsvg-convert,$(PNG_TITLE_320),$(DATA)/graphics/%_320.png,Data/graphics/%.svg,--width=320))
-$(eval $(call rsvg-convert,$(PNG_TITLE_640),$(DATA)/graphics/%_640.png,Data/graphics/%.svg,--width=640))
-$(eval $(call rsvg-convert,$(PNG_TITLE_110_RGBA),$(DATA)/graphics2/%_110_rgba.png,Data/graphics/%.svg,--width=110))
-$(eval $(call rsvg-convert,$(PNG_TITLE_320_RGBA),$(DATA)/graphics2/%_320_rgba.png,Data/graphics/%.svg,--width=320))
-$(eval $(call rsvg-convert,$(PNG_TITLE_640_RGBA),$(DATA)/graphics2/%_640_rgba.png,Data/graphics/%.svg,--width=640))
-$(eval $(call rsvg-convert,$(PNG_TITLE_WHITE_320_RGBA),$(DATA)/graphics2/%_320_rgba.png,Data/graphics/%.svg,--width=320))
-$(eval $(call rsvg-convert,$(PNG_TITLE_WHITE_640_RGBA),$(DATA)/graphics2/%_640_rgba.png,Data/graphics/%.svg,--width=640))
+# render from SVG to PNG (from the token-substituted copies)
+$(eval $(call rsvg-convert,$(PNG_TITLE_110),$(DATA)/graphics/%_110.png,$(BRAND_SVG_DIR)/%.svg,--width=110))
+$(eval $(call rsvg-convert,$(PNG_TITLE_320),$(DATA)/graphics/%_320.png,$(BRAND_SVG_DIR)/%.svg,--width=320))
+$(eval $(call rsvg-convert,$(PNG_TITLE_640),$(DATA)/graphics/%_640.png,$(BRAND_SVG_DIR)/%.svg,--width=640))
+$(eval $(call rsvg-convert,$(PNG_TITLE_110_RGBA),$(DATA)/graphics2/%_110_rgba.png,$(BRAND_SVG_DIR)/%.svg,--width=110))
+$(eval $(call rsvg-convert,$(PNG_TITLE_320_RGBA),$(DATA)/graphics2/%_320_rgba.png,$(BRAND_SVG_DIR)/%.svg,--width=320))
+$(eval $(call rsvg-convert,$(PNG_TITLE_640_RGBA),$(DATA)/graphics2/%_640_rgba.png,$(BRAND_SVG_DIR)/%.svg,--width=640))
+$(eval $(call rsvg-convert,$(PNG_TITLE_WHITE_320_RGBA),$(DATA)/graphics2/%_320_rgba.png,$(BRAND_SVG_DIR)/%.svg,--width=320))
+$(eval $(call rsvg-convert,$(PNG_TITLE_WHITE_640_RGBA),$(DATA)/graphics2/%_640_rgba.png,$(BRAND_SVG_DIR)/%.svg,--width=640))
 
 # convert to uncompressed 8-bit BMP
 $(eval $(call convert-to-bmp-white,$(BMP_TITLE_110) $(BMP_TITLE_320) $(BMP_TITLE_640),%.bmp,%.png))
@@ -258,6 +274,19 @@ $(TEXT_COMPRESSED): $(DATA)/%.gz: % | $(DATA)/dirstamp
 	$(Q)gzip --best <$< >$@.$(RANDOM_NUMBER).tmp
 	$(Q)mv $@.$(RANDOM_NUMBER).tmp $@
 
+# the brand's own news (OpenSoar-News.md), embedded like NEWS.txt for
+# the About dialog.  The C symbol is derived from the file name, so
+# the "-" has to go: the archive is called OpenSoar_News.md.gz
+BRAND_NEWS = $(wildcard $(topdir)/OpenSoar-News.md)
+ifneq ($(BRAND_NEWS),)
+BRAND_NEWS_GZ = $(DATA)/OpenSoar_News.md.gz
+$(BRAND_NEWS_GZ): $(BRAND_NEWS) | $(DATA)/dirstamp
+	@$(NQ)echo "  GZIP    $@"
+	$(Q)gzip --best <$< >$@.$(RANDOM_NUMBER).tmp
+	$(Q)mv $@.$(RANDOM_NUMBER).tmp $@
+TEXT_COMPRESSED += $(BRAND_NEWS_GZ)
+endif
+
 RESOURCE_FILES =
 
 # Stamp file to track XCSOAR_TESTING state (what actually affects resources.txt)
@@ -295,12 +324,12 @@ $(TARGET_OUTPUT_DIR)/include/MakeResource.hpp: $(TARGET_OUTPUT_DIR)/resources.tx
 	$(Q)$(PERL) tools/GenerateMakeResource.pl <$< >$@.$(RANDOM_NUMBER).tmp
 	$(Q)mv $@.$(RANDOM_NUMBER).tmp $@
 
-$(TARGET_OUTPUT_DIR)/include/ResourceLookup_entries.cpp: $(TARGET_OUTPUT_DIR)/resources.txt tools/GenerateResourceLookup.pl | $(TARGET_OUTPUT_DIR)/include/dirstamp
+$(TARGET_OUTPUT_DIR)/include/ResourceLookup_entries.hpp: $(TARGET_OUTPUT_DIR)/resources.txt tools/GenerateResourceLookup.pl | $(TARGET_OUTPUT_DIR)/include/dirstamp
 	@$(NQ)echo "  GEN     $@"
 	$(Q)$(PERL) tools/GenerateResourceLookup.pl <$< >$@.$(RANDOM_NUMBER).tmp
 	$(Q)mv $@.$(RANDOM_NUMBER).tmp $@
 
-$(call SRC_TO_OBJ,$(SRC)/ResourceLookup.cpp): $(TARGET_OUTPUT_DIR)/include/ResourceLookup_entries.cpp $(TARGET_OUTPUT_DIR)/include/MakeResource.hpp
+$(call SRC_TO_OBJ,$(SRC)/ResourceLookup.cpp): $(TARGET_OUTPUT_DIR)/include/ResourceLookup_entries.hpp $(TARGET_OUTPUT_DIR)/include/MakeResource.hpp
 
 ifeq ($(TARGET_IS_ANDROID),n)
 ifneq ($(TARGET),IOS)
@@ -394,11 +423,21 @@ $(TARGET_OUTPUT_DIR)/XCSoar.manifest: Data/XCSoar.manifest.in \
 		$< >$@.$(RANDOM_NUMBER).tmp
 	$(Q)mv $@.$(RANDOM_NUMBER).tmp $@
 
+# WINDRESFLAGS is expanded in targets.mk, before options.mk appends
+# -DXCSOAR_TESTING to TARGET_CPPFLAGS, so windres never sees the
+# testing flag on its own: XCSoarIcon.rc would then ask for logo.ico
+# while make has only produced logo_red.ico, and the build fails with
+# "can't open icon file".  Hand the flag over explicitly, derived from
+# the same TESTING variable that picks WIN_ICON_ICO.
+ifeq ($(TESTING),y)
+WIN_ICON_WINDRESFLAGS = -DXCSOAR_TESTING
+endif
+
 $(TARGET_OUTPUT_DIR)/XCSoarIcon.rsc: Data/XCSoarIcon.rc $(WIN_ICON_ICO) \
 	$(topdir)/VERSION.txt $(TARGET_OUTPUT_DIR)/XCSoar.manifest \
 	| $(TARGET_OUTPUT_DIR)/dirstamp $(BUILD_TOOLCHAIN_TARGET)
 	@$(NQ)echo "  WINDRES $@"
-	$(Q)$(WINDRES) $(WINDRESFLAGS) $(WINDRES_VERSIONFLAGS) \
+	$(Q)$(WINDRES) $(WINDRESFLAGS) $(WIN_ICON_WINDRESFLAGS) $(WINDRES_VERSIONFLAGS) \
 		--include-dir $(DATA) \
 		--include-dir $(TARGET_OUTPUT_DIR) -o $@ $<
 

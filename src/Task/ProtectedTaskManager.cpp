@@ -11,10 +11,6 @@
 #include "Waypoint/LastUsed.hpp"
 #include "Waypoint/Waypoint.hpp"
 
-#include <string>
-
-static ProtectedTaskManager::GotoPersistedHandler goto_persisted;
-
 ProtectedTaskManager::ProtectedTaskManager(TaskManager &_task_manager,
                                            const TaskBehaviour &tb) noexcept
   :Guard<TaskManager>(_task_manager),
@@ -124,37 +120,14 @@ ProtectedTaskManager::IncrementActiveTaskPointArm(int offset) noexcept
   if(nextwp && nextwp->HasEntered()) nextwp->Reset();
 }
 
-void
-ProtectedTaskManager::SetGotoPersistedHandler(
-    GotoPersistedHandler handler) noexcept
-{
-  goto_persisted = handler;
-}
-
-bool
+bool 
 ProtectedTaskManager::DoGoto(WaypointPtr &&wp) noexcept
 {
-  if (wp == nullptr)
-    return false;
+  if (wp != nullptr)
+    LastUsedWaypoints::Add(*wp);
 
-  LastUsedWaypoints::Add(*wp);
-
-  const unsigned id = wp->id;
-  const GeoPoint location = wp->location;
-  const bool has_elevation = wp->HasElevation();
-  const double elevation = wp->elevation;
-  const std::string name = wp->name;
-
-  {
-    ExclusiveLease lease(*this);
-    if (!lease->DoGoto(std::move(wp)))
-      return false;
-  }
-
-  if (goto_persisted != nullptr && name != "(takeoff)")
-    goto_persisted(id, location, has_elevation, elevation, name);
-
-  return true;
+  ExclusiveLease lease(*this);
+  return lease->DoGoto(std::move(wp));
 }
 
 std::unique_ptr<OrderedTask>

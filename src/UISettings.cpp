@@ -8,8 +8,10 @@ void
 UISettings::SetDefaults() noexcept
 {
   display.SetDefaults();
+  vario_display.SetDefaults();
 
   menu_timeout = std::chrono::seconds{8 * 4};
+  startup_timeout = DEFAULT_STARTUP_TIMEOUT;
 
   scale = 100;
 
@@ -36,6 +38,7 @@ UISettings::SetDefaults() noexcept
 #endif
   show_zoom_button = show_menu_button;
   show_quickmenu_button = HasTouchScreen();
+  quick_menu_style = QuickMenuStyle::XCSOAR;
 
 #ifdef KOBO
   dark_mode = DarkMode::OFF;

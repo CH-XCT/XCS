@@ -6,13 +6,23 @@
 #include "TopographyRenderer.hpp"
 #include "Renderer/TransparentRendererCache.hpp"
 
+#ifdef ENABLE_OPENGL
+#include "Renderer/MapLayerCache.hpp"
+#endif
+
 /**
  * Class used to manage and render vector topography layers
  */
 class CachedTopographyRenderer {
   TopographyRenderer renderer;
 
-#ifndef ENABLE_OPENGL
+#ifdef ENABLE_OPENGL
+  /* Drawing all visible shapes takes about half a second per frame on
+     an OpenVario (Mali-400) when zoomed out far, and the map is
+     redrawn with every GPS fix even if nothing moves; see
+     #MapLayerCache. */
+  MapLayerCache cache;
+#else
   TransparentRendererCache cache;
 
   unsigned last_serial = 0;
@@ -25,18 +35,11 @@ public:
   {}
 
   void Flush() noexcept {
-#ifndef ENABLE_OPENGL
     cache.Invalidate();
-#endif
   }
 
-#ifdef ENABLE_OPENGL
-  void Draw(Canvas &canvas, const WindowProjection &projection) noexcept {
-    renderer.Draw(canvas, projection);
-  }
-#else
   void Draw(Canvas &canvas, const WindowProjection &projection) noexcept;
-#endif
+
 
   void DrawLabels(Canvas &canvas, const WindowProjection &projection,
                   LabelBlock &label_block) noexcept {

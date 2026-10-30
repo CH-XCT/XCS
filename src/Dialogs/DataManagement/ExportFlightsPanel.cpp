@@ -14,6 +14,7 @@
 #include "UIGlobals.hpp"
 #include "Look/DialogLook.hpp"
 #include "LocalPath.hpp"
+#include "Repository/FileType.hpp"
 #include "Storage/StorageDevice.hpp"
 #include "system/FileUtil.hpp"
 #include "Language/Language.hpp"
@@ -31,12 +32,6 @@
 #include "ui/event/Notify.hpp"
 #include "ui/event/DelayedNotify.hpp"
 #include "LogFile.hpp"
-
-#ifdef ANDROID
-#include "Android/Main.hpp"
-#include "Android/NativeView.hpp"
-#include "java/Global.hxx"
-#endif
 
 #include <chrono>
 #include <memory>
@@ -127,15 +122,26 @@ static std::unique_ptr<MultiFileDataField>
 ScanLogs(bool igc_only)
 {
   auto df = std::make_unique<MultiFileDataField>();
-  auto logs_path =
-    MakeLocalPath(GetFileTypeDefaultDir(FileType::IGC).c_str());
-  if (logs_path == nullptr || !Directory::Exists(logs_path))
-    return df;
 
-  if (igc_only)
-    df->Scan(logs_path, {FileType::IGC}, true);
-  else
-    df->Scan(logs_path, {FileType::IGC, FileType::NMEA}, true);
+  /* the IGC files are in "igc", the NMEA logs, the flight sensor logs
+     (*.lrsx) and the IGC files of older versions in "logs"; the WeGlide
+     upload shows only IGC files and searches "igc" alone */
+  const auto scan = [&df, igc_only](FileType folder){
+    auto path = MakeLocalPath(GetFileTypeDefaultDir(folder).c_str());
+    if (path == nullptr || !Directory::Exists(path))
+      return;
+
+    if (igc_only)
+      df->Scan(path, {FileType::IGC}, true);
+    else
+      /* the flight sensor logs play in the replay like the others */
+      df->Scan(path, {FileType::IGC, FileType::NMEA, FileType::SENSORLOG},
+               true);
+  };
+
+  scan(FileType::IGC);
+  if (!igc_only)
+    scan(FileType::NMEA);
   return df;
 }
 
@@ -277,26 +283,6 @@ PerformWeGlideUpload(FileMultiSelectWidget *file_widget)
   ShowMessageBox(msg, _("WeGlide Upload"),
                  MB_OK | (failed > 0 ? MB_ICONWARNING : MB_ICONINFORMATION));
 }
-
-#ifdef ANDROID
-static void
-PerformShare(FileMultiSelectWidget *file_widget)
-{
-  const auto selected = file_widget->GetSelectedPaths();
-  if (selected.empty()) {
-    ShowNeedFlightSelection();
-    return;
-  }
-
-  if (native_view == nullptr) {
-    ShowMessageBox(_("Sharing is not available."), C_("Button", "Share"),
-                   MB_OK | MB_ICONERROR);
-    return;
-  }
-
-  native_view->ShareFiles(Java::GetEnv(), selected);
-}
-#endif
 
 struct FlightContainer : public PropertyWidgetContainer {
   std::unique_ptr<FileMultiSelectWidget> file_list;
@@ -612,11 +598,6 @@ ShowExportFlightsDialog(ExportFlightsMode mode)
     dialog.AddButton(_("WeGlide Upload"), [&file_list]() {
       PerformWeGlideUpload(&file_list);
     });
-#ifdef ANDROID
-    dialog.AddSymbolButton("s", [&file_list]() {
-      PerformShare(&file_list);
-    });
-#endif
     dialog.AddButton(C_("Button", "Export"), [&file_list]() {
       PerformExport(&file_list);
     });

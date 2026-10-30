@@ -4,11 +4,14 @@
 #include "Device/Register.hpp"
 #include "Device/Driver.hpp"
 #include "Device/Driver/AirControlDisplay.hpp"
+#include "Device/Driver/Anemoi.hpp"
+#include "Device/Driver/AR62xx.hpp"
 #include "Device/Driver/CAI302.hpp"
 #include "Device/Driver/CaiGpsNav.hpp"
 #include "Device/Driver/CaiLNav.hpp"
 #include "Device/Driver/EW.hpp"
 #include "Device/Driver/Eye.hpp"
+#include "Device/Driver/FreeVario.hpp"
 #include "Device/Driver/AltairPro.hpp"
 #include "Device/Driver/Generic.hpp"
 #include "Device/Driver/Vega.hpp"
@@ -47,6 +50,10 @@
 #include "Device/Driver/Stratux.hpp"
 #include "Device/Driver/GDL90.hpp"
 #include "Device/Driver/LoEFGREN.hpp"
+#ifdef HAVE_REMOTE_STICK
+# include "Device/Driver/SteFly/RemoteStick.hpp"  // pulls in remote_stick_driver
+# include "Device/Driver/SteFly/RotaryPanel.hpp"  // pulls in rotary_panel_driver
+#endif
 #include "util/Macros.hpp"
 #include "util/StringAPI.hxx"
 
@@ -100,6 +107,13 @@ static const struct DeviceRegister *const driver_list[] = {
   &loe_fgren_driver,
   &lx160_driver,
   &gdl90_driver,
+  &anemoi_driver,
+  &ar62xx_driver,
+  &free_vario_driver,
+#ifdef HAVE_REMOTE_STICK
+  &remote_stick_driver,
+  &rotary_panel_driver,
+#endif
   nullptr
 };
 

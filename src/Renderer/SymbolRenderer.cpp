@@ -5,7 +5,6 @@
 #include "ui/canvas/Canvas.hpp"
 
 #include <algorithm>
-#include <cmath>
 
 namespace {
 
@@ -46,27 +45,6 @@ void
 DrawBarAt(Canvas &canvas, PixelPoint center, PixelSize margin) noexcept
 {
   canvas.DrawRectangle(PixelRect{center}.WithMargin(margin));
-}
-
-/** Filled arm between two nodes.  The brush is already selected. */
-void
-DrawArm(Canvas &canvas, PixelPoint a, PixelPoint b, int half) noexcept
-{
-  const int dx = b.x - a.x;
-  const int dy = b.y - a.y;
-  const int len = std::max(1, (int)std::lround(std::hypot(dx, dy)));
-  const int px = -dy * half / len;
-  const int py = dx * half / len;
-  if (px == 0 && py == 0)
-    return;
-
-  const BulkPixelPoint arm[] = {
-    {a.x + px, a.y + py},
-    {a.x - px, a.y - py},
-    {b.x - px, b.y - py},
-    {b.x + px, b.y + py},
-  };
-  canvas.DrawPolygon(arm, 4);
 }
 
 } // namespace
@@ -161,26 +139,88 @@ SymbolRenderer::DrawBolt(Canvas &canvas, PixelRect rc) noexcept
 }
 
 void
-SymbolRenderer::DrawShare(Canvas &canvas, PixelRect rc) noexcept
+SymbolRenderer::DrawMedia(Canvas &canvas, PixelRect rc, MediaSymbol symbol,
+                          unsigned max_draw_size) noexcept
 {
-  const unsigned min_dim = MinDimension(rc);
-  if (min_dim == 0)
+  if (MinDimension(rc) == 0)
     return;
 
-  /* Material share icon on a 24-grid.  The glyph is 20 units
-     tall, so dividing by 40 leaves about half the button as
-     margin around it. */
-  const int u = std::max(1, int(min_dim) / 40);
-  const auto c = rc.GetCenter();
-  const PixelPoint left{c.x - 6 * u, c.y};
-  const PixelPoint upper{c.x + 6 * u, c.y - 7 * u};
-  const PixelPoint lower{c.x + 6 * u, c.y + 7 * u};
-  const unsigned radius = std::max(2u, unsigned(3 * u));
-  const int half = std::max(1, u);
+  const unsigned size = DrawSize(rc, max_draw_size);
+  const auto center = rc.GetCenter();
+  const int s = int(size);
+  const unsigned bar_half = std::max(1u, size / 3);
 
-  DrawArm(canvas, left, upper, half);
-  DrawArm(canvas, left, lower, half);
-  canvas.DrawCircle(left, radius);
-  canvas.DrawCircle(upper, radius);
-  canvas.DrawCircle(lower, radius);
+  /* a filled triangle with its tip at x_tip, its base at x_base */
+  const auto triangle = [&](int x_tip, int x_base) {
+    const BulkPixelPoint t[] = {
+      {x_base, center.y - s},
+      {x_tip, center.y},
+      {x_base, center.y + s},
+    };
+    canvas.DrawTriangleFan(t, 3);
+  };
+
+  /* a vertical bar centred at x */
+  const auto bar = [&](int x) {
+    DrawBarAt(canvas, {x, center.y}, {bar_half, size});
+  };
+
+  switch (symbol) {
+  case MediaSymbol::PAUSE:
+    bar(center.x - int(2 * bar_half));
+    bar(center.x + int(2 * bar_half));
+    break;
+
+  case MediaSymbol::REWIND:
+    triangle(center.x - s, center.x);
+    triangle(center.x, center.x + s);
+    break;
+
+  case MediaSymbol::FORWARD:
+    triangle(center.x + s, center.x);
+    triangle(center.x, center.x - s);
+    break;
+
+  case MediaSymbol::SKIP_START:
+    bar(center.x - s);
+    triangle(center.x - s + int(2 * bar_half), center.x + s);
+    break;
+
+  case MediaSymbol::SKIP_END:
+    triangle(center.x + s - int(2 * bar_half), center.x - s);
+    bar(center.x + s);
+    break;
+
+  case MediaSymbol::TAKEOFF:
+    {
+      /* the departure symbol: an arrow lifting off the runway at 45
+         degrees - shaft, head, and the ground line it leaves */
+      const int o = std::max(1, s / 4);        /* shaft half width */
+      const int hw = std::max(o + 1, s / 2);   /* head half width */
+
+      const PixelPoint tail{center.x - s, center.y + s / 2};
+      const PixelPoint neck{center.x + s / 4, center.y - s / 4};
+      const PixelPoint tip{center.x + s, center.y - s};
+
+      const BulkPixelPoint shaft[] = {
+        {tail.x + o, tail.y + o},
+        {neck.x + o, neck.y + o},
+        {neck.x - o, neck.y - o},
+        {tail.x - o, tail.y - o},
+      };
+      canvas.DrawTriangleFan(shaft, 4);
+
+      const BulkPixelPoint head[] = {
+        {neck.x + hw, neck.y + hw},
+        {tip.x, tip.y},
+        {neck.x - hw, neck.y - hw},
+      };
+      canvas.DrawTriangleFan(head, 3);
+
+      /* the runway */
+      DrawBarAt(canvas, {center.x, center.y + s},
+                {size, std::max(1u, size / 4)});
+    }
+    break;
+  }
 }

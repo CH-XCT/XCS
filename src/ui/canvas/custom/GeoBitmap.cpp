@@ -27,11 +27,11 @@ TileData
 GeoBitmap::GetTile(const MapWindowProjection &projection,
                    uint16_t zoom_min, uint16_t zoom_max) noexcept
 {
-  constexpr double earth_circumference = 42e6;
-
-  const double diagonal = projection.GetScreenDistanceMeters();
-  const double ratio = earth_circumference / diagonal;
-  const auto zoom = (uint16_t)std::clamp((int)std::floor(std::log2(ratio)) + 1,
+  /* the map is drawn in Web Mercator; its zoom level is the tile level
+     whose pixels match the screen pixels.  The former estimate from
+     the screen diagonal chose a level one or two steps too coarse, so
+     every tile was magnified and looked blurred. */
+  const auto zoom = (uint16_t)std::clamp((int)std::lround(projection.GetZoomLevel()),
                                          (int)zoom_min, (int)zoom_max);
   return GetTile(projection.GetScreenBounds(), zoom);
 }
@@ -63,8 +63,12 @@ ParseTileBounds(std::string_view name)
 
   auto parse = [](std::string_view value) {
     uint32_t result = 0;
-    const auto [end, error] = std::from_chars(value.begin(), value.end(), result);
-    if (error != std::errc{} || end != value.end())
+    /* use data()/data()+size() instead of begin()/end(): from_chars
+       takes const char*, and on MSVC's STL the string_view iterators
+       are a distinct class type */
+    const char *const first = value.data(), *const last = first + value.size();
+    const auto [end, error] = std::from_chars(first, last, result);
+    if (error != std::errc{} || end != last)
       throw std::runtime_error("Unsupported geo image file");
 
     return result;

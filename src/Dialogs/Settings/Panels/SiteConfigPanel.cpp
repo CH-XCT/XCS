@@ -24,10 +24,8 @@ enum ControlIndex {
   FlarmFile,
   RaspFile,
   ChecklistFile,
-  UserRepositoriesList,
-#ifdef HAVE_DOWNLOAD_MANAGER
-  AutoUpdate,
-#endif
+  FrequenciesFile,
+  UserRepositoriesList
 };
 
 class SiteConfigPanel final : public RowFormWidget {
@@ -116,22 +114,21 @@ SiteConfigPanel::Prepare([[maybe_unused]] ContainerWindow &parent, [[maybe_unuse
           ProfileKeys::ChecklistFile,
           GetFileTypePatterns(FileType::CHECKLIST),
           FileType::CHECKLIST);
-  
+
+  AddFile(_("Radio frequencies"),
+          _("The frequency list shown by the frequency card: one "
+            "station per line, \"name : frequency\", or a JSON file "
+            "with a \"stations\" array."),
+          ProfileKeys::FrequenciesFile,
+          GetFileTypePatterns(FileType::FREQUENCIES),
+          FileType::FREQUENCIES);
+
   const char *user_repositories_list_value = Profile::Get(ProfileKeys::UserRepositoriesList, "");
 
   AddText(_("User repositories"),
           _("List of additional user repository URIs, separated by '|' character."),
           user_repositories_list_value);
   SetExpertRow(UserRepositoriesList);
-
-#ifdef HAVE_DOWNLOAD_MANAGER
-  bool auto_update = false;
-  Profile::Get(ProfileKeys::RepositoryAutoUpdate, auto_update);
-  AddBoolean(C_("Setting", "Auto update"),
-             _("At startup, download a newer copy of each file already "
-               "on this device. The progress bar shows the download."),
-             auto_update);
-#endif
 }
 
 bool
@@ -162,6 +159,11 @@ SiteConfigPanel::Save(bool &_changed) noexcept
 
   ChecklistFileChanged = SaveValueFileReader(ChecklistFile, ProfileKeys::ChecklistFile);
 
+  /* the frequency card reads its file every time it opens, so there
+     is nothing to invalidate; the profile entry is all that changes */
+  const bool frequencies_changed =
+    SaveValueFileReader(FrequenciesFile, ProfileKeys::FrequenciesFile);
+
   const std::string old_repos{Profile::Get(ProfileKeys::UserRepositoriesList, "")};
   std::string new_repos = old_repos;
   UserRepositoriesListChanged = SaveValue(
@@ -172,14 +174,7 @@ SiteConfigPanel::Save(bool &_changed) noexcept
   changed = WaypointFileChanged || AirfieldFileChanged ||
             AirspaceFileChanged || MapFileChanged || FlarmFileChanged ||
             RaspFileChanged || ChecklistFileChanged ||
-            UserRepositoriesListChanged;
-
-#ifdef HAVE_DOWNLOAD_MANAGER
-  bool auto_update = false;
-  Profile::Get(ProfileKeys::RepositoryAutoUpdate, auto_update);
-  changed |= SaveValue(AutoUpdate, ProfileKeys::RepositoryAutoUpdate,
-                       auto_update);
-#endif
+            frequencies_changed || UserRepositoriesListChanged;
 
   _changed |= changed;
 

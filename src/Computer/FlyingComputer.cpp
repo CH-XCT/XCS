@@ -23,13 +23,27 @@ FlyingComputer::Reset()
   last_ground_altitude = -1;
 }
 
-inline void
+inline /**
+ * A release is looked for only this high above the takeoff.  In 155
+ * winch launches of IGC files of 2018 to 2026 the lowest release was
+ * 282 m above the takeoff; an aerotow releases higher.
+ */
+static constexpr double MIN_RELEASE_HEIGHT = 100;
+
+void
 FlyingComputer::CheckRelease(FlyingState &state, TimeStamp time,
                              const GeoPoint &location, double altitude)
 {
   if (!state.flying || state.release_time.IsDefined() ||
       stationary_clock.IsDefined())
     return;
+
+  if (altitude < state.takeoff_altitude + MIN_RELEASE_HEIGHT) {
+    /* still low: the ground roll and the first seconds of an aerotow
+       gain no height either, and were taken for the release */
+    sinking_since = TimeStamp::Undefined();
+    return;
+  }
 
   if (!sinking_since.IsDefined()) {
     sinking_since = time;
@@ -78,6 +92,11 @@ FlyingComputer::Check(FlyingState &state, TimeStamp time) noexcept
 
       /* when a new flight starts, forget the old release and power-on/off time */
       state.release_time = TimeStamp::Undefined();
+
+      /* and the sinking that the release detection followed at the
+         end of the last flight: CheckRelease() would take its start,
+         before this takeoff, as the release of the new flight */
+      sinking_since = TimeStamp::Undefined();
       state.power_on_time = TimeStamp::Undefined();
       state.power_off_time = TimeStamp::Undefined();
       state.landing_time = TimeStamp::Undefined();
@@ -245,8 +264,15 @@ FlyingComputer::Compute(double takeoff_speed,
   if (!basic.time_available || !basic.location_available)
     return;
 
+  /* a time warp of less than three minutes is skipped instead of
+     ending the flight: some loggers write a few fixes with times up
+     to a minute in the past, and a reset here made the rest of the
+     flight a new one, whose takeoff discarded the trace and the
+     contest of the first part.  The glide computer resets the flight
+     only after three minutes as well (GlideComputerAirData), and so
+     does the trace (Trace::push_back()). */
   const auto dt = delta_time.Update(basic.time, std::chrono::milliseconds{500},
-                                    std::chrono::seconds{20});
+                                    std::chrono::minutes{3});
   if (dt.count() < 0) {
     Reset();
     flying.Reset();

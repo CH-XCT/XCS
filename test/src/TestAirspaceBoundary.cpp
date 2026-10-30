@@ -22,7 +22,6 @@
 #include "Engine/Task/Stats/TaskStats.hpp"
 #include "Geo/GeoVector.hpp"
 #include "Radio/TransponderCode.hpp"
-#include "time/BrokenDateTime.hpp"
 #include "TestUtil.hpp"
 #include "time/FloatDuration.hxx"
 
@@ -78,10 +77,8 @@ Circle(double east, double north, double radius, double base, double top,
   auto airspace =
     std::make_shared<AirspaceCircle>(Offset(kOrigin, east, north), radius);
   TransponderCode code;
-  airspace->SetProperties("volume", false,
-                          BrokenDateTime::Invalid(), BrokenDateTime::Invalid(),
-                          true, false,
-                          "", std::move(code), cls, cls, Alt(base), Alt(top));
+  airspace->SetProperties("volume", "", std::move(code), cls, cls, Alt(base),
+                          Alt(top));
   return airspace;
 }
 

@@ -20,7 +20,12 @@ GETTEXT_SOURCES = $(XCSOAR_SOURCES) \
 	$(wildcard $(SRC)/Dialogs/Device/Vega/*Parameters.hpp) \
 	$(SRC)/Language/FormatText.hpp \
 	$(SRC)/Weather/Rasp/RaspStore.cpp
-GETTEXT_EVENTS = Data/Input/default.xci
+ifeq ($(TARGET_IS_OPENVARIO),y)
+  GETTEXT_EVENTS = $(sort $(wildcard Data/Input/OpenVario/*.xci))
+else
+  GETTEXT_EVENTS = Data/Input/default.xci \
+    $(sort $(wildcard Data/Input/OpenSoar/*.xci))
+endif
 
 $(OUT)/po/cpp.pot: $(GETTEXT_SOURCES) | $(OUT)/po/dirstamp
 	@$(NQ)echo "  GEN     $@"

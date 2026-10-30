@@ -14,9 +14,6 @@ struct VarioInfo;
 class GlideRatioComputer {
   bool gr_calculator_initialised;
 
-  /** average_eff_time last given to the calculator. */
-  unsigned gr_average_period = 0;
-
   GlideRatioCalculator gr_calculator;
 
   GeoPoint last_location;

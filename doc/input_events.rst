@@ -38,16 +38,33 @@ The source file :file:`Data/Input/default.xci` contains the built-in
 bindings. It is compiled into XCSoar and also serves as a template
 for custom files.
 
-To use a custom file, go to
-**Menu > Config > System > Setup > Language, Input > Events**, select
-your ``.xci`` file, and restart XCSoar.
+OpenSoar keeps that file exactly as XCSoar has it and puts its own
+changes into :file:`Data/Input/OpenSoar/`.  The build reads those
+files after :file:`default.xci`, in the order of their names; an entry
+with the same mode and ``location`` (or key) replaces the XCSoar
+entry, just as a custom file does.
+
+The OpenVario build compiles the files in :file:`Data/Input/OpenVario/`
+instead.  They are a complete configuration of their own, split by use
+(glide computer events, keys, gestures, menu bar, quick menu, audio
+menu), and are read in the order of their names as well.
+
+To use custom files, go to
+**Menu > Config > System > Setup > Language, Input > Events**, tick
+your ``.xci`` files, and restart the program.
 
 Custom files are loaded **on top of** the built-in defaults: key and
 menu entries with the same mode and ``location`` (or key) overwrite the
-stock ones; everything else remains.  To replace the built-in map
-entirely instead of merging, put ``#CLEAR`` alone on the **first line**
-of the file (before any other records or comments).  That resets the
-in-memory defaults, then applies only the contents of your ``.xci``.
+stock ones; everything else remains.  Several files are read in the
+order of their names (not in the order they were ticked), so a file
+can override an entry of a file read before it; numbered names such
+as ``10-keys.xci`` and ``20-quickmenu.xci`` make that order visible.
+A file that cannot be read is skipped and logged, the others still
+apply.  To replace the built-in map entirely instead of merging, put
+``#CLEAR`` alone on the **first line** of a file (before any other
+records or comments).  That resets the in-memory configuration,
+including files read before it, then applies only the contents of
+this file and of the files after it.
 
 Default key bindings
 ~~~~~~~~~~~~~~~~~~~~
@@ -267,8 +284,12 @@ Event list
      (display current state).
  * - ``AirspaceWarnings``
    - Opens the airspace warnings dialog.
- * - ``Analysis``
-   - Displays the analysis/statistics dialog.
+ * - ``Analysis [PAGE]``
+   - Displays the analysis/statistics dialog.  Without an argument it
+     shows the page seen last; ``barograph``, ``climb``,
+     ``thermal_band``, ``vario_histogram``, ``task_speed``, ``wind``,
+     ``polar``, ``maccready``, ``temptrace``, ``task``, ``contest`` or
+     ``airspace`` open that page.
  * - ``ArmAdvance``
    - Controls waypoint advance trigger arming. Possible arguments:
      ``on`` (arm), ``off`` (disarm), ``toggle``, ``show``
@@ -302,6 +323,10 @@ Event list
    - Opens the task manager dialog.
  * - ``Checklist``
    - Displays the checklist dialog.
+ * - ``FrequencyCard``
+   - Displays the frequency card: the stations of the frequency list
+     file (System > Site Files > Radio frequencies); Enter sets the
+     selected one as standby frequency.
  * - ``ClearAirspaceWarnings``
    - Acknowledges all active airspace warnings.
  * - ``ClearStatusMessages``
@@ -400,6 +425,14 @@ Event list
      ``auto off``, ``auto show``, ``show`` (display current value).
  * - ``MainMenu``
    - Opens the main menu.
+ * - ``MapDisplay``
+   - Opens the dialog *Map Display* with the settings of the map that
+     are changed most often in flight: airspace and its labels,
+     waypoint labels, trail length, auto zoom, distance rings, the
+     small FLARM radar and thermal assistant on the map, and a button
+     for the page settings.  OK applies and saves them; only hiding
+     the airspace is not saved, so the airspace is back after a
+     restart.
  * - ``MarkLocation``
    - Marks the current location and creates a user waypoint marker.
      Use ``reset`` to erase all user markers.
@@ -449,6 +482,15 @@ Event list
    - Opens the Quick Guide dialog.
  * - ``QuickMenu``
    - Opens the quick menu dialog.
+ * - ``QuickMenuPhase P``
+   - Chooses the flight phase whose buttons the quick menu shows:
+     ``ground``, ``flight``, ``after`` or ``all``.
+ * - ``RecorderDownload N``
+   - Downloads a flight from Recorder 1 or Recorder 2 (``1`` or ``2``),
+     that is from the device chosen for it in the logger settings. Shows
+     the list of flights with the newest one selected. The macros
+     ``$(CheckRecorder1)`` and ``$(CheckRecorder2)`` disable a button
+     while that device is not connected.
  * - ``RepeatStatusMessage``
    - Repeats the last status message. If pressed repeatedly, will
      repeat previous status messages.
@@ -628,16 +670,83 @@ Built-in modes
 - ``infobox`` -- an InfoBox has been selected.
 - ``pan`` -- pan mode is active.
 - ``Menu`` -- a menu level is open.
-- ``RemoteStick`` -- contents of the **Quick Menu** (lightning / bolt
+- ``QuickMenu`` -- contents of the **Quick Menu** (lightning / bolt
   button, default ``F1``, or the ``ULDR`` gesture).  Softkeys with
-  ``mode=RemoteStick`` and a ``location`` appear in that grid.  Edit
+  ``mode=QuickMenu`` and a ``location`` appear in that grid.  Edit
   those records in a custom ``.xci`` to reorder or limit Quick Menu
-  entries.
+  entries.  XCSoar calls this mode ``RemoteStick``, after the SteFly
+  RemoteStick it was made for; that name is still read as
+  ``QuickMenu``.
+- ``QuickGround``, ``QuickFlight``, ``QuickAfter`` -- the Quick Menu
+  before the flight, in flight and after the landing, each a list of
+  its own with its own locations, so the same button can sit in
+  different places in each phase.  They belong to the quick menu style
+  *Dynamic*: there the Quick Menu shows the list of the current phase
+  and offers a button for each phase that has a list, plus *All* for
+  the complete ``QuickMenu``.  A phase without a list shows *All*.  The
+  style *XCSoar* always shows the complete ``QuickMenu``.  OpenSoar
+  brings lists for all three phases in
+  :file:`Data/Input/OpenSoar/51-quick-ground.xci` to
+  :file:`53-quick-after.xci` (and the same for OpenVario); a custom
+  file can replace any of their entries.  The
+  phase follows the flight on its own: it is *Ground* after the
+  start, *Flight* after the takeoff and *After* after the landing.
+  The ``QuickMenuPhase`` event chooses a phase as well, for example
+  from a key or a glide computer event.  Example::
+
+   mode=QuickFlight
+   type=key
+   data=0
+   event=Mode mc
+   label=MacCready
+   location=2
+   landscape=5:3
+
+  With the quick menu style *Dynamic* (**Menu > Config > System >
+  Look > Language, Input > Quick menu**), as many columns fit side by
+  side as the screen allows (three in portrait, up to seven in
+  landscape), and every button sits at its location, counted row by
+  row from the top left.  A location without a button stays an empty
+  cell, so the other buttons keep their places; this also holds for a
+  button that its label hides for the moment.  The style *XCSoar*
+  instead always shows three columns and closes the gaps.
+
+  The phase lists count their locations in three columns.  A wider
+  screen shows that picture in its middle, so every button keeps its
+  neighbours left, right, above and below.  The complete
+  ``QuickMenu`` fills the whole width instead.
+
+  A button can have a place of its own in each orientation:
+  ``portrait=N`` and ``landscape=N`` are used instead of ``location``
+  there, and ``landscape=C:N`` counts place N in C columns.  Such a
+  picture is centred on a wider screen as well; on a narrower one its
+  outer columns do not fit, and their buttons go to the first free
+  cells below it.  ``location`` stays what identifies the button, so a
+  later file can still replace it.  ``center=yes`` marks the button the
+  focus starts on; without it, the focus starts on the button nearest
+  to the middle.  If two buttons claim the same place, the one with
+  the lower location keeps it and the other takes the next free place.
+
+  There are no pages: the field grows downwards and scrolls.  Moving
+  down with the cursor keys, the focus stays on the last but one row
+  shown and the field moves on by one row, so the next row is always
+  in sight; a scroll bar at the right edge (its arrows move by one
+  row) and the rows in the title
+  (e.g. ``3-8/12``: rows 3 to 8 of 12) show where one is.  A debug
+  build shows the location in the corner of every cell, empty cells
+  included, followed by the button's own places (``p`` portrait,
+  ``l`` landscape), to check a list against the screen.  A
+  button that does nothing at the moment (shown in grey) still takes
+  the focus, in dark grey, and a click on it only beeps; so the focus
+  always moves straight in the direction of the key.
+
+  XCSoar reads such files too and ignores the new keys (with a line in
+  the log).
 - ``mc`` -- MacCready adjustment mode. Entered from ``mode=default`` via
   the ``Mode mc`` event (default key ``3``). Stick UP/DOWN adjust MC;
   RETURN toggles auto/manual MC; ESCAPE returns to ``default``.
 - ``weather`` -- weather overlay cursor bar mode. Enter from the quick
-  menu (**Forecast Controls** on RemoteStick) or via the ``Mode weather``
+  menu (**Forecast Controls** on QuickMenu) or via the ``Mode weather``
   event. Stick UP/DOWN step the secondary axis (layer, level, or
   altitude), LEFT/RIGHT step time, RETURN opens the time picker, ESCAPE
   returns to ``default``. In ``mode=weather``, F2 opens the secondary
@@ -659,7 +768,7 @@ Weather overlay mode (``mode=weather``)
 
 When a map page displays EDL, RASP, XC Therm, or SkySight overlay controls in the
 bottom cursor bar, open the quick menu (F1 or the ULDR gesture) and choose
-**Forecast Controls** (RemoteStick), or bind ``Mode weather`` elsewhere,
+**Forecast Controls** (QuickMenu), or bind ``Mode weather`` elsewhere,
 to enter ``mode=weather`` so stick and button bindings can adjust forecast
 time and the secondary axis without leaving the map. Pressing ESCAPE
 returns to ``default``.

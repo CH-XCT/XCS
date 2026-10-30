@@ -3,9 +3,6 @@
 
 #pragma once
 
-#include <span>
-#include <string>
-
 // changed only in config or by user interface
 // used in settings dialog
 extern bool DevicePortChanged;
@@ -21,6 +18,7 @@ extern bool RaspFileChanged;
 extern bool ChecklistFileChanged;
 extern bool UserRepositoriesListChanged;
 extern bool LanguageChanged;
+extern bool require_restart;
 
 struct UISettings;
 
@@ -37,13 +35,6 @@ SettingsEnter() noexcept;
  */
 void
 SettingsLeave(const UISettings &old_ui_settings);
-
-/**
- * Reload in-memory data when a download's data-directory path is a
- * Site file. Other files stay on disk.
- */
-void
-ApplyConfiguredDataFiles(std::span<const std::string> relative_paths);
 
 void
 SystemConfiguration();

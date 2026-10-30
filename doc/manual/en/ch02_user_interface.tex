@@ -524,23 +524,26 @@ page is configured.
 
 \subsection*{Modifying InfoBox content}
 
-A short press on an InfoBox (a tap or a click, lifting before the box
-fills) runs that InfoBox's action.  Some open a small dialogue, some
-open another screen, and some do nothing.  A short press of Enter
-does the same thing when the InfoBox is selected.
+(This section applies only when a touch-screen or mouse is present.)
 
-Press and hold until the box fills, then lift, to arrange the
-InfoBoxes.  Hold Enter until the box fills, then release, to do the
-same.  That is described in section~\ref{sec:arrange_infoboxes}.
+Some InfoBox values can be changed by the user by tapping the
+InfoBox with the touch-screen or mouse.  This brings up a small tabular dialogue:
 
-With a keyboard, Tab selects an InfoBox.  The cursor keys then move
-to the InfoBox in that direction on the screen: left to the one on
-the left, and likewise for right, up, and down.  When the map is
-showing and no dialogue or menu is open, Escape selects the first
-InfoBox.  Escape on an InfoBox returns to the map.
+\begin{description}
+\item[\bmenuw{Edit}]  
+  Allows the pilot to adjust the InfoBox setting (e.g.\ raise or lower the
+  MacCready setting)
 
-Examples of InfoBoxes that open a dialogue include the MacCready
-setting, wind, and QNH.
+\item[\bmenuw{Setup}]
+  Allows you to change the behaviour of the setting related to the InfoBox 
+  (for example, changing from auto to manual MacCready mode); or 
+  to change the InfoBox itself by pressing `\emph{Switch InfoBox}', then 
+  choosing from a list of all available InfoBoxes.
+
+\end{description}
+
+Examples of InfoBoxes that can
+be adjusted include MacCready setting, wind speed, and altitude (QNH).
 
 
 \subsection*{Rearranging InfoBoxes}\label{sec:arrange_infoboxes}
@@ -567,14 +570,12 @@ card follows the finger, holding no longer opens the list.  A second
 finger on the screen aborts the drag.
 
 Without a touch-screen the cursor keys and a remote stick select an
-InfoBox.  A short Enter takes the selected InfoBox, the cursor keys
-then move it, and Enter puts it down again.  Hold Enter until the
-card fills, then release, to open the list of available InfoBoxes,
-the same as holding a card.  While a card is taken, Enter puts it
-down and the card does not fill.  Putting an InfoBox down without
-having moved it opens that list too.  Tab leaves the cards and reaches the
-Help and Close buttons; so does a cursor step toward them (down on
-a portrait page, left on a landscape one).
+InfoBox.  Enter takes the selected InfoBox, the cursor keys then move
+it, and Enter puts it down again.  Taking an InfoBox and putting it
+down without having moved it opens the list of available InfoBoxes
+instead.  Tab leaves the cards and reaches the Help and Close
+buttons; so does a cursor step toward them (down on a portrait page,
+left on a landscape one).
 
 `\emph{Help}' explains how an InfoBox is moved and how it is replaced.
 `\emph{Close}' leaves the mode and keeps the new order, and so does the
@@ -718,9 +719,8 @@ up/down keys may be used to scroll through the text. Clicking the
 \bmenuw{$<$} and \bmenuw{$>$} buttons selects the previous/next
 checklist.  Tapping the text of a checkbox line toggles it.  A link
 on that line, such as a VHF frequency, still opens the link.
-Checkbox ticks come back when an unfinished flight is restored.
-Choosing a different checklist file clears them, and editing a
-page's text clears that page's ticks.
+Checkbox ticks stay until you leave XCSoar or choose a
+different checklist file. Editing a page's text clears its saved ticks.
 
 
 \subsection*{Text entry} \label{sec:textentry}

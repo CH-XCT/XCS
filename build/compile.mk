@@ -9,10 +9,19 @@ ifeq ($(USE_CCACHE),y)
   export CCACHE_CPP2 = yes
 endif
 
+EXE := $(findstring .exe,$(MAKE))
 AR = $(TCPREFIX)ar$(EXE)
 RANLIB = $(TCPREFIX)ranlib$(EXE)
 
-# $(EXE), $(CC) and $(CXX) are defined in build/set_compiler.mk.
+ifneq ($(ANALYZER),y)
+  ifeq ($(CLANG),y)
+    CXX = $(LLVM_PREFIX)clang++$(LLVM_SUFFIX)$(EXE)
+    CC = $(LLVM_PREFIX)clang$(LLVM_SUFFIX)$(EXE)
+  else
+    CXX = $(TCPREFIX)g++$(TCSUFFIX)$(EXE)
+    CC = $(TCPREFIX)gcc$(TCSUFFIX)$(EXE)
+  endif
+endif
 
 ifeq ($(CLANG),y)
   AS = $(CC)

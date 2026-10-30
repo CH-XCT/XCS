@@ -27,7 +27,6 @@
 #include "Observation/Publish.hpp"
 #include "LogFile.hpp"
 #include "Terrain/RasterTerrain.hpp"
-#include "Session/SessionState.hpp"
 
 using namespace CommonInterface;
 
@@ -38,15 +37,6 @@ SendGetComputerSettings() noexcept;
 
 static void
 UpdateMapScalePageInfo(UIState &state) noexcept;
-
-static void
-NoteSessionPolar() noexcept
-{
-  const auto &polar = GetComputerSettings().polar;
-  Session::NotePolar(polar.glide_polar_task.GetBallastLitres(),
-                     polar.glide_polar_task.GetCrewMass(),
-                     polar.bugs);
-}
 
 void
 XCSoarInterface::ReceiveGPS() noexcept
@@ -131,8 +121,6 @@ ActionInterface::SetBallastLitres(double ballast_litres, bool to_devices) noexce
                                               env);
     }
   }
-
-  NoteSessionPolar();
 }
 
 void
@@ -153,8 +141,6 @@ ActionInterface::SetBallastFraction(double fraction, bool to_devices) noexcept
                                               env);
     }
   }
-
-  NoteSessionPolar();
 }
 
 bool
@@ -182,8 +168,6 @@ ActionInterface::SetBugs(double bugs, bool to_devices) noexcept
     MessageOperationEnvironment env;
     backend_components->devices->PutBugs(bugs, env);
   }
-
-  NoteSessionPolar();
 }
 
 void
@@ -208,8 +192,6 @@ ActionInterface::SetCrewMass(double crew_mass, bool to_devices) noexcept
                                               polar.GetBallastOverload(),
                                               env);
   }
-
-  NoteSessionPolar();
 }
 
 void
@@ -435,6 +417,18 @@ UpdateMapScalePageInfo(UIState &state) noexcept
   state.page_overlay = overlay_layout.IsMapMain()
     ? overlay_layout.overlay
     : PageLayout::Overlay::NONE;
+
+  /* the full screen page (pan, or "Info Hide") has no base map of its
+     own; it keeps the one of the configured map page, whether or not
+     that page has a weather overlay */
+  const bool full_screen_special =
+    pages.special_page.IsDefined() &&
+    pages.special_page == PageLayout::FullScreen();
+  const PageLayout &base_map_layout =
+    full_screen_special && configured.IsMapMain() ? configured : layout;
+  state.page_base_map = base_map_layout.IsMapMain()
+    ? base_map_layout.base_map
+    : PageLayout::BaseMap::TERRAIN_TOPOGRAPHY;
 
   state.map_scale_page_title.clear();
 

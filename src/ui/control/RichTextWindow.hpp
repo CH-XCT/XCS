@@ -109,9 +109,6 @@ class RichTextWindow : public LinkableWindow {
   /** Checkbox toggle states (non-zero = toggled from original) */
   mutable std::vector<uint8_t> checkbox_toggled;
 
-  void (*checkbox_toggled_cb)(void *) noexcept = nullptr;
-  void *checkbox_toggled_ctx = nullptr;
-
   /** Checkbox hit rectangles for click detection (window space). */
   struct CheckboxRect {
     PixelRect rect;
@@ -179,13 +176,13 @@ private:
   const Bitmap *LoadImage(const std::string &url) const noexcept;
 
   /**
-   * Find the block image (if any) whose placeholder text falls
-   * within [line_start, line_start+line_length).
+   * The block images on a wrapped line: one, or the members of an
+   * image row (MarkdownImage::row_size) in row order; empty when the
+   * line carries no block image.
    */
-  [[gnu::pure]]
-  const MarkdownImage *FindBlockImageForLine(
-    std::size_t line_start,
-    std::size_t line_length) const noexcept;
+  std::vector<const MarkdownImage *>
+  BlockImagesForLine(std::size_t line_start,
+                     std::size_t line_length) const noexcept;
 
   /**
    * Find any image (block or inline) whose placeholder position
@@ -424,15 +421,6 @@ public:
    * Toggle a checkbox state.
    */
   void ToggleCheckbox(std::size_t style_index) noexcept;
-
-  /**
-   * Called after a checkbox toggle.  @p ctx is the pointer passed here.
-   */
-  void SetCheckboxToggledCallback(void (*callback)(void *) noexcept,
-                                  void *ctx) noexcept {
-    checkbox_toggled_cb = callback;
-    checkbox_toggled_ctx = ctx;
-  }
 
   /** Checked state of each checkbox in document order (1 = checked). */
   [[gnu::pure]]

@@ -5,18 +5,16 @@
 
 struct QRSymbol;
 class Canvas;
-class MaskedIcon;
 struct PixelRect;
 
 /**
- * Draw a QR symbol as sharp black modules on white.
+ * Draw a QR symbol as sharp black modules on white, with the swift
+ * in the centre.
  *
  * The symbol is centred in @p rc and scaled by whole modules, so the
- * edges stay crisp on OpenGL and on the memory canvas.  The centre
- * covers only the square @ref QRCodeCentreMark() allows.  Without
- * @p centre the swift is drawn there.
+ * edges stay crisp on OpenGL and on the memory canvas.  The swift
+ * covers only the square @ref QRCodeCentreMark() allows.
  */
 void DrawQRSymbol(Canvas &canvas,
                   const PixelRect &rc,
-                  const QRSymbol &symbol,
-                  const MaskedIcon *centre = nullptr) noexcept;
+                  const QRSymbol &symbol) noexcept;

@@ -9,11 +9,81 @@
 #include "UIGlobals.hpp"
 #include "Interface.hpp"
 #include "Components.hpp"
+#include "BackendComponents.hpp"
+#include "CalculationThread.hpp"
+#include "MergeThread.hpp"
 #include "Replay/Replay.hpp"
 #include "Form/DataField/Base.hpp"
 #include "Language/Language.hpp"
 #include "Repository/FileType.hpp"
+#include "system/Path.hpp"
 #include "Form/DataField/File.hpp"
+#include "Form/Button.hpp"
+#include "Form/ButtonPanel.hpp"
+#include "Widget/ButtonPanelWidget.hpp"
+#include "Renderer/ButtonRenderer.hpp"
+#include "Renderer/SymbolRenderer.hpp"
+#include "Look/ButtonLook.hpp"
+#include "Look/DialogLook.hpp"
+#include "ui/canvas/Canvas.hpp"
+#include "ui/control/ProgressBar.hpp"
+#include "Screen/Layout.hpp"
+#include "ui/event/PeriodicTimer.hpp"
+#include "time/BrokenTime.hpp"
+#include "util/StaticString.hxx"
+
+#include <algorithm>
+#include <chrono>
+#include <memory>
+
+/**
+ * The play/pause toggle: it renders the pause bars while the replay
+ * is playing, the play triangle while it is paused or off.
+ */
+class PlayPauseButtonRenderer final : public ButtonRenderer {
+  ButtonFrameRenderer frame_renderer;
+  const Replay &replay;
+
+public:
+  PlayPauseButtonRenderer(const ButtonLook &_look,
+                          const Replay &_replay) noexcept
+    :frame_renderer(_look), replay(_replay) {}
+
+  void DrawButton(Canvas &canvas, const PixelRect &rc,
+                  ButtonState state) const noexcept override {
+    frame_renderer.DrawButton(canvas, rc, state);
+
+    const ButtonLook &look = frame_renderer.GetLook();
+
+    canvas.SelectNullPen();
+
+    switch (state) {
+    case ButtonState::DISABLED:
+      canvas.Select(look.disabled.brush);
+      break;
+
+    case ButtonState::FOCUSED:
+    case ButtonState::PRESSED:
+      canvas.Select(look.focused.foreground_brush);
+      break;
+
+    case ButtonState::SELECTED:
+      canvas.Select(look.selected.foreground_brush);
+      break;
+
+    case ButtonState::ENABLED:
+      canvas.Select(look.standard.foreground_brush);
+      break;
+    }
+
+    const PixelRect draw_rc = frame_renderer.GetDrawingRect(rc, state);
+    if (replay.IsActive() && !replay.IsPaused())
+      SymbolRenderer::DrawMedia(canvas, draw_rc,
+                                SymbolRenderer::MediaSymbol::PAUSE);
+    else
+      SymbolRenderer::DrawArrow(canvas, draw_rc, SymbolRenderer::RIGHT);
+  }
+};
 
 class ReplayControlWidget final
   : public RowFormWidget
@@ -21,24 +91,134 @@ class ReplayControlWidget final
   enum Controls {
     FILE,
     RATE,
+    STATUS,
   };
 
   Replay &replay;
+
+  ButtonPanelWidget *buttons_widget = nullptr;
+  Button *play_button = nullptr;
+
+  /** shown in place of the position row while seeking or
+      fast-forwarding */
+  ProgressBar progress_bar;
+
+  UI::PeriodicTimer status_timer{[this]{ UpdateStatus(); }};
+
+  /** the current status update period; short while a seek runs, so
+      the progress bar moves smoothly */
+  std::chrono::steady_clock::duration status_interval{};
 
 public:
   ReplayControlWidget(Replay &_replay, const DialogLook &look) noexcept
     :RowFormWidget(look), replay(_replay) {}
 
-  void CreateButtons(WidgetDialog &dialog) noexcept {
-    dialog.AddButton(_("Start"), [this](){ OnStartClicked(); });
-    dialog.AddButton(_("Stop"), [this](){ OnStopClicked(); });
-    dialog.AddButton("+10'", [this](){ OnFastForwardClicked(); });
+  void SetButtonPanel(ButtonPanelWidget &_buttons) noexcept {
+    buttons_widget = &_buttons;
+  }
+
+  /* virtual methods from class Widget */
+  void Show(const PixelRect &rc) noexcept override {
+    RowFormWidget::Show(rc);
+    status_interval = {};
+    UpdateStatus();
+  }
+
+  void Hide() noexcept override {
+    status_timer.Cancel();
+    RowFormWidget::Hide();
   }
 
 private:
-  void OnStopClicked() noexcept;
-  void OnStartClicked() noexcept;
+  /**
+   * The status row below the settings: the current fix number, its
+   * UTC time and - when the input can tell - how much of the file
+   * has been played.
+   */
+  void UpdateStatus() noexcept {
+    StaticString<64> text;
+
+    if (!replay.IsActive()) {
+      text = "-";
+    } else {
+      text.Format("#%u", replay.GetFixCount());
+
+      const TimeStamp t = replay.GetVirtualTime();
+      if (t.IsDefined()) {
+        const unsigned second_of_day =
+          unsigned(std::chrono::duration_cast<std::chrono::seconds>(t.ToDuration()).count())
+          % 86400u;
+        const BrokenTime bt = BrokenTime::FromSecondOfDayChecked(second_of_day);
+        text.AppendFormat("  %02u:%02u:%02u UTC",
+                          bt.hour, bt.minute, bt.second);
+      }
+
+      const double progress = replay.GetProgress();
+      if (progress >= 0)
+        text.AppendFormat("  (%u %%)",
+                          unsigned(std::clamp(progress, 0., 1.) * 100));
+
+      if (replay.IsPaused())
+        text.AppendFormat("  %s", _("paused"));
+    }
+
+    SetText(STATUS, text.c_str());
+
+    /* while a seek runs, the progress bar takes the position row's
+       place */
+    const bool busy = replay.IsActive() && replay.IsSeeking();
+
+    /* update quickly while the bar shows, so it moves smoothly */
+    const auto interval = busy
+      ? std::chrono::milliseconds(100)
+      : std::chrono::milliseconds(500);
+    if (interval != status_interval) {
+      status_interval = interval;
+      status_timer.Schedule(interval);
+    }
+
+    if (busy && progress_bar.IsDefined()) {
+      const double progress = replay.GetProgress();
+      progress_bar.SetValue(progress >= 0
+                            ? unsigned(std::clamp(progress, 0., 1.) * 1000)
+                            : 0);
+
+      if (!progress_bar.IsVisible()) {
+        progress_bar.Move(GetControl(STATUS).GetPosition());
+        SetRowVisible(STATUS, false);
+        progress_bar.Show();
+      }
+    } else if (progress_bar.IsDefined() && progress_bar.IsVisible()) {
+      progress_bar.Hide();
+      SetRowVisible(STATUS, true);
+    }
+
+    /* the play/pause button follows the engine state */
+    if (play_button != nullptr)
+      play_button->Invalidate();
+  }
+
+  /** the tape deck, one row, left to right */
+  void CreateTapeButtons(ButtonPanel &panel) noexcept {
+    panel.AddSymbol("|<", [this](){ OnResetClicked(); });
+    panel.AddSymbol("T/O", [this](){ OnTakeoffClicked(); });
+    panel.AddSymbol("<<", [this](){ OnRewindClicked(); });
+    play_button =
+      panel.Add(std::make_unique<PlayPauseButtonRenderer>(GetLook().button,
+                                                          replay),
+                [this](){ OnPlayPauseClicked(); });
+    panel.AddSymbol(">>", [this](){ OnFastForwardClicked(); });
+    panel.AddSymbol(">|", [this](){ OnEndClicked(); });
+  }
+
+private:
+  bool StartFromFile() noexcept;
+  void OnPlayPauseClicked() noexcept;
+  void OnResetClicked() noexcept;
+  void OnTakeoffClicked() noexcept;
+  void OnRewindClicked() noexcept;
   void OnFastForwardClicked() noexcept;
+  void OnEndClicked() noexcept;
 
   static bool EditReplayFile(const char *caption, DataField &df,
                              const char *help_text);
@@ -54,9 +234,9 @@ ReplayControlWidget::Prepare([[maybe_unused]] ContainerWindow &parent,
                              [[maybe_unused]] const PixelRect &rc) noexcept
 {
   WndProperty &file = *AddFile(_("Flight"),
-          _("Name of file to replay. May be an IGC file (.igc) or a raw NMEA log file (.nmea). Leave blank to run the demo."),
+          _("Name of file to replay. May be an IGC file (.igc), a raw NMEA log file (.nmea) or a flight sensor log (.lrsx). Leave blank to run the demo."),
           {},
-          {FileType::NMEA, FileType::IGC},
+          {FileType::NMEA, FileType::IGC, FileType::SENSORLOG},
           true);
   file.SetEditCallback(EditReplayFile);
   LoadValue(FILE, replay.GetFilename());
@@ -69,16 +249,37 @@ ReplayControlWidget::Prepare([[maybe_unused]] ContainerWindow &parent,
   GetDataField(RATE).SetOnModified([this]{
     replay.SetTimeScale(GetValueFloat(RATE));
   });
+
+  AddReadOnly(_("Position"),
+              _("The current fix number, its UTC time, and how much of the file has been played.  "
+                "The buttons work like a tape deck: |< back to the start, "
+                "T/O jump to the takeoff, << jump back 10 minutes, "
+                "play/pause, >> forward 10 minutes, >| play the rest at "
+                "once - the whole flight appears in the trail and the "
+                "statistics.  |<, T/O and << jump only: paused stays "
+                "paused.  \"Hide\" leaves the replay running; \"Cancel\" "
+                "ends it."),
+              "-");
+
+  {
+    /* a real progress bar, hidden for now: while a seek or the fast
+       forward is under way it appears in place of the position row */
+    ContainerWindow &panel = (ContainerWindow &)GetWindow();
+
+    WindowStyle style;
+    style.Hide();
+
+    progress_bar.Create(panel,
+                        InitialControlRect(Layout::GetMinimumControlHeight()),
+                        style);
+    progress_bar.SetRange(0, 1000);
+  }
+
+  CreateTapeButtons(buttons_widget->GetButtonPanel());
 }
 
-inline void
-ReplayControlWidget::OnStopClicked() noexcept
-{
-  replay.Stop();
-}
-
-inline void
-ReplayControlWidget::OnStartClicked() noexcept
+inline bool
+ReplayControlWidget::StartFromFile() noexcept
 {
   const Path path = GetValueFile(FILE);
 
@@ -86,13 +287,148 @@ ReplayControlWidget::OnStartClicked() noexcept
     replay.Start(path, CommonInterface::GetSystemSettings().devices[0]);
   } catch (...) {
     ShowError(std::current_exception(), _("Replay"));
+    return false;
   }
+
+  return true;
+}
+
+inline void
+ReplayControlWidget::OnPlayPauseClicked() noexcept
+{
+  if (replay.IsActive() && !replay.IsPaused()) {
+    /* pause; another press continues from here */
+    replay.SetTimeScale(0);
+    UpdateStatus();
+    return;
+  }
+
+  if (!replay.IsActive()) {
+    if (!StartFromFile())
+      return;
+  }
+
+  double rate = GetValueFloat(RATE);
+  if (rate <= 0) {
+    rate = 1;
+    LoadValue(RATE, rate);
+  }
+  replay.SetTimeScale(rate);
+  UpdateStatus();
+}
+
+/**
+ * Rewind to the very beginning of the file, keeping the play/pause
+ * state: a running replay starts over playing, a paused (or not yet
+ * started) one lands paused on the first fix.
+ */
+inline void
+ReplayControlWidget::OnResetClicked() noexcept
+{
+  const bool was_playing = replay.IsActive() && !replay.IsPaused();
+
+  if (replay.IsActive()) {
+    const AllocatedPath path{replay.GetFilename()};
+    try {
+      replay.Start(path, CommonInterface::GetSystemSettings().devices[0]);
+    } catch (...) {
+      ShowError(std::current_exception(), _("Replay"));
+      return;
+    }
+  } else if (!StartFromFile())
+    return;
+
+  if (!was_playing)
+    replay.SetTimeScale(0);
+
+  UpdateStatus();
+}
+
+/**
+ * Jump to the takeoff point - also backwards, by rewinding the file
+ * first.  Like "Reset" this only positions the tape: it keeps
+ * playing when it was playing, otherwise it waits there for play.
+ */
+inline void
+ReplayControlWidget::OnTakeoffClicked() noexcept
+{
+  const bool was_playing = replay.IsActive() && !replay.IsPaused();
+
+  if (replay.IsActive()) {
+    /* rewind, so the takeoff is found even when the replay is
+       already beyond it */
+    const AllocatedPath path{replay.GetFilename()};
+    try {
+      replay.Start(path, CommonInterface::GetSystemSettings().devices[0]);
+    } catch (...) {
+      ShowError(std::current_exception(), _("Replay"));
+      return;
+    }
+  } else if (!StartFromFile())
+    return;
+
+  if (!was_playing)
+    replay.SetTimeScale(0);
+
+  replay.SeekTakeoff();
+  UpdateStatus();
+}
+
+inline void
+ReplayControlWidget::OnRewindClicked() noexcept
+{
+  if (!replay.IsActive())
+    return;
+
+  const TimeStamp t = replay.GetVirtualTime();
+  if (!t.IsDefined())
+    return;
+
+  replay.SeekTo(t - FloatDuration{std::chrono::minutes{10}});
+  UpdateStatus();
 }
 
 inline void
 ReplayControlWidget::OnFastForwardClicked() noexcept
 {
-  replay.FastForward(std::chrono::minutes{10});
+  /* a jump, like "<<" - not the engine's fast forward, which plays
+     the span through the computers at high speed */
+  if (!replay.IsActive())
+    return;
+
+  const TimeStamp t = replay.GetVirtualTime();
+  if (!t.IsDefined())
+    return;
+
+  replay.SeekTo(t + FloatDuration{std::chrono::minutes{10}});
+  UpdateStatus();
+}
+
+/**
+ * ">|": play the rest of the file through the computers at once, so
+ * the whole flight lands in the trail and the statistics (barogram,
+ * distances, speeds), then hold at the landing.
+ */
+inline void
+ReplayControlWidget::OnEndClicked() noexcept
+{
+  /* one processed fix per ten seconds of flight: coarse enough to
+     rush through a long log, fine enough for barogram and totals -
+     this is a simulation shortcut, not real life */
+  constexpr FloatDuration end_interval = std::chrono::seconds{10};
+
+  /* pressed with no replay running, it plays the whole file into
+     the trail and the statistics */
+  if (!replay.IsActive() && !StartFromFile())
+    return;
+
+  auto *merge_thread = backend_components->merge_thread.get();
+  auto *calc_thread = backend_components->calculation_thread.get();
+  if (merge_thread == nullptr || calc_thread == nullptr)
+    return;
+
+  replay.PlayToEnd(*merge_thread, *calc_thread, end_interval);
+  UpdateStatus();
 }
 
 bool
@@ -122,11 +458,24 @@ void
 ShowReplayDialog(Replay &replay) noexcept
 {
   const DialogLook &look = UIGlobals::GetDialogLook();
-  ReplayControlWidget *widget = new ReplayControlWidget(replay, look);
+
+  auto control = std::make_unique<ReplayControlWidget>(replay, look);
+  auto *panel =
+    new ButtonPanelWidget(std::move(control),
+                          ButtonPanelWidget::Alignment::BOTTOM);
+  ((ReplayControlWidget &)panel->GetWidget()).SetButtonPanel(*panel);
+
   WidgetDialog dialog(WidgetDialog::Auto{}, UIGlobals::GetMainWindow(),
-                      look, _("Replay"), widget);
-  widget->CreateButtons(dialog);
-  dialog.AddButton(_("Close"), mrOK);
+                      look, _("Replay"), panel);
+
+  /* "Hide" only closes the window - the replay keeps running */
+  dialog.AddButton(_("Hide"), mrOK);
+
+  /* "Cancel" ends the replay altogether */
+  dialog.AddButton(_("Cancel"), [&replay, &dialog](){
+    replay.Stop();
+    dialog.SetModalResult(mrCancel);
+  });
 
   dialog.ShowModal();
 }

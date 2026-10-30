@@ -27,12 +27,22 @@ static constexpr float MERGE_VARIO_NULL_BAND = 0.05f;
  * Hardware/CPU.cpp. The strong definition in CPU.cpp overrides this
  * in the main binary.
  */
+#ifdef _MSC_VER
+/* no weak symbols on MSVC/COFF: emulate via /alternatename - if
+   Hardware/CPU.cpp is linked its strong definition wins, otherwise
+   the reference resolves to this fallback (see FLARM/Details.cpp for
+   the same idiom) */
+bool IsSlowCPUFallback() noexcept { return false; }
+#pragma comment(linker, \
+  "/alternatename:?IsSlowCPU@@YA_NXZ=?IsSlowCPUFallback@@YA_NXZ")
+#else
 [[gnu::weak]]
 bool
 IsSlowCPU() noexcept
 {
   return false;
 }
+#endif
 
 [[gnu::const]]
 static bool
@@ -338,8 +348,10 @@ TraceComputer::Update(const ComputerSettings &settings_computer,
       ArchiveMergeVarioForLegUnlocked(leg_start, point.GetTime());
   }
 
-  // only contest requires trace_sprint
-  if (settings_computer.contest.enable) {
+  /* only the contest and the log book (DMSt triangle) need these
+     traces */
+  if (settings_computer.contest.enable ||
+      settings_computer.logger.enable_flight_logger) {
     sprint.push_back(point);
     contest.push_back(point);
   }

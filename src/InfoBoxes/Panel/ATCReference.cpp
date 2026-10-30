@@ -12,7 +12,6 @@
 #include "Engine/Waypoint/Waypoints.hpp"
 #include "Dialogs/Waypoint/WaypointDialogs.hpp"
 #include "DataComponents.hpp"
-#include "Session/SessionState.hpp"
 
 enum Controls {
   WAYPOINT,
@@ -71,7 +70,6 @@ ATCReferencePanel::Prepare(ContainerWindow &parent,
                                            CommonInterface::Basic().location);
     if (waypoint != nullptr) {
       location = waypoint->location;
-      Session::NoteAtcReference(location);
       UpdateValues();
     }
   });
@@ -79,7 +77,6 @@ ATCReferencePanel::Prepare(ContainerWindow &parent,
   AddButton(_("Clear"), [this](){
     auto &location = CommonInterface::SetComputerSettings().poi.atc_reference;
     location.SetInvalid();
-    Session::ClearAtcReference();
     UpdateValues();
   });
 

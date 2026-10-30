@@ -5,8 +5,11 @@
 
 #include "util/Compiler.h"
 
+#include <cstdint>
+
 struct InputConfig;
 class Menu;
+class Path;
 
 typedef void (*pt2Event)(const char *);
 
@@ -32,14 +35,56 @@ Menu *
 GetMenu(const char *mode) noexcept;
 
 /**
+ * The flight phases with a quick menu of their own.
+ */
+enum class QuickMenuPhase : uint8_t {
+  /** the complete quick menu, independent of the flight */
+  ALL,
+  GROUND,
+  FLIGHT,
+  AFTER,
+};
+
+/**
+ * The flight phase whose quick menu is shown.  It follows the takeoff
+ * and landing events and can be switched in the quick menu or with
+ * the QuickMenuPhase event.
+ */
+[[gnu::pure]]
+QuickMenuPhase
+GetQuickMenuPhase() noexcept;
+
+void
+SetQuickMenuPhase(QuickMenuPhase phase) noexcept;
+
+/**
+ * The name of the mode that holds the quick menu of a phase in the
+ * xci files: "QuickMenu" for all of them, "QuickGround",
+ * "QuickFlight" and "QuickAfter".
+ */
+[[gnu::const]]
+const char *
+GetQuickMenuMode(QuickMenuPhase phase) noexcept;
+
+/**
  * Load the default input file (Data/Input/default.xci).
  */
 void LoadDefaults(InputConfig &input_config);
 
 /**
- * Throws on error.
+ * Load the defaults and then the user's files from the profile
+ * setting ProfileKeys::InputFileList.  A file that cannot be read is
+ * logged and skipped.
  */
 void readFile();
+
+/**
+ * The order in which readFile() reads the user's files: by file
+ * name, so that numbered names define which file overrides which.
+ */
+[[gnu::pure]]
+bool
+IsReadBefore(Path a, Path b) noexcept;
 
 void
 setMode(Mode mode) noexcept;
@@ -160,9 +205,11 @@ void eventBallast(const char *misc);
 void eventBugs(const char *misc);
 void eventCalculator(const char *misc);
 void eventChecklist(const char *misc);
+void eventFrequencyCard(const char *misc);
 void eventClearAirspaceWarnings(const char *misc);
 void eventAirspaceWarnings(const char *misc);
 void eventClearStatusMessages(const char *misc);
+void eventLogbook(const char *misc);
 void eventLogger(const char *misc);
 void eventMacCready(const char *misc);
 void eventMainMenu(const char *misc);
@@ -226,7 +273,9 @@ void eventCredits(const char *misc);
 void eventDarkMode(const char *misc);
 void eventWeather(const char *misc);
 void eventQuickMenu(const char *misc);
+void eventQuickMenuPhase(const char *misc);
 void eventArrangeInfoBoxes(const char *misc);
+void eventRecorderDownload(const char *misc);
 void eventFileManager(const char *misc);
 void eventDataManagement(const char *misc);
 void eventExportFlights(const char *misc);
@@ -238,6 +287,7 @@ void eventUploadIGCFile(const char *misc);
 void eventOrientationCruise(const char *misc);
 void eventOrientationCircling(const char *misc);
 void eventDistanceRings(const char *misc);
+void eventMapDisplay(const char *misc);
 // -------
 
 } // namespace InputEvents

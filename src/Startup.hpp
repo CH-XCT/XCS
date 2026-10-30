@@ -20,10 +20,9 @@ WasStartupCancelledByUser() noexcept;
 
 /**
  * Write all user state which is only kept in memory (the profile
- * settings, the session file, and the FLARM databases) to disk.
- * Apart from the regular shutdown, this is called whenever the
- * operating system may kill the process without notifying us again,
- * e.g. when iOS suspends the app.
+ * settings and the FLARM databases) to disk.  Apart from the regular
+ * shutdown, this is called whenever the operating system may kill the
+ * process without notifying us again, e.g. when iOS suspends the app.
  */
 void
 SaveUserState() noexcept;

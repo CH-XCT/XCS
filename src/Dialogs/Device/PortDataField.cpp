@@ -7,6 +7,14 @@
 #include "Language/Language.hpp"
 #include "util/StringCompare.hxx"
 
+#ifdef HAVE_REMOTE_STICK
+# include "Interface.hpp"
+# include "SystemSettings.hpp"
+# include "Device/Features.hpp"  // REMOTE_PORT
+# include "util/StringAPI.hxx"
+# include "Device/Driver/SteFly/Discovery.hpp"
+#endif
+
 #ifdef HAVE_POSIX
 #include "Device/Port/TTYEnumerator.hpp"
 #endif
@@ -59,6 +67,30 @@ static constexpr struct {
 /** the number of fixed port types (excludes Serial, Bluetooth and IOIOUart) */
 static constexpr unsigned num_port_types = std::size(port_types) - 1;
 
+/**
+ * Return the port path that has been claimed by the fixed SteFly
+ * RemoteStick slot at REMOTE_PORT (see Startup.cpp) - a COM port on
+ * Windows, a tty on Linux or a UsbSerialHelper id on Android - or
+ * nullptr if no RemoteStick was auto-detected this session.
+ *
+ * The port-picker dropdown for the regular device slots skips this
+ * path so the user cannot accidentally re-select the same physical
+ * port and race the RemoteStick descriptor.  On non-RemoteStick
+ * builds this is a compile-time nullptr.
+ */
+[[gnu::pure]]
+static const char *
+GetStePortReserved() noexcept
+{
+#ifdef HAVE_REMOTE_STICK
+  const DeviceConfig &cfg =
+    CommonInterface::GetSystemSettings().devices[REMOTE_PORT];
+  if (cfg.UsesPort() && !cfg.path.empty())
+    return cfg.path.c_str();
+#endif
+  return nullptr;
+}
+
 static unsigned
 AddPort(DataFieldEnum &df, DeviceConfig::PortType type,
         const char *text, const char *display_string=nullptr,
@@ -83,9 +115,27 @@ DetectSerialPorts(DataFieldEnum &df) noexcept
 
   unsigned sort_start = df.Count();
 
+  /* skip the port the SteFly RemoteStick has been auto-bound to
+     (REMOTE_PORT slot); nullptr when nothing was auto-detected */
+  const char *const reserved = GetStePortReserved();
+
   bool found = false;
   const char *path;
   while ((path = enumerator.Next()) != nullptr) {
+    if (reserved != nullptr && StringIsEqual(path, reserved))
+      continue;
+
+#ifdef HAVE_REMOTE_STICK
+    // On Android the RemoteStick slot is opened through the
+    // UsbSerialHelper, so its path is a USB id and never equals a
+    // device node. Some Android devices still expose the stick as
+    // /dev/ttyUSB* or /dev/ttyACM*; hide that node too, otherwise a
+    // regular slot could open the same stick a second time.
+    if (reserved != nullptr &&
+        SteFly::IsUsbTty(path, SteFly::VID_STEFLY, SteFly::PID_REMOTE_STICK))
+      continue;
+#endif
+
     const char *display_string = StringAfterPrefix(path, "/dev/");
     if (display_string == nullptr)
       display_string = path;
@@ -132,6 +182,10 @@ try {
   RegistryKey devicemap{hardware, "DEVICEMAP"};
   RegistryKey serialcomm{devicemap, "SERIALCOMM"};
 
+  /* skip the port the SteFly RemoteStick has been auto-bound to
+     (REMOTE_PORT slot); nullptr when nothing was auto-detected */
+  const char *const reserved = GetStePortReserved();
+
   for (unsigned i = 0;; ++i) {
     char name[128];
     char value[64];
@@ -143,6 +197,9 @@ try {
 
     if (type != REG_SZ)
       // weird
+      continue;
+
+    if (reserved != nullptr && StringIsEqual(value, reserved))
       continue;
 
     const char *path = value;
@@ -272,6 +329,15 @@ void
 UpdatePortEntry(DataFieldEnum &df, DeviceConfig::PortType type,
                 const char *value, const char *name) noexcept
 {
+  // The Android port picker reports every USB serial device it sees,
+  // including the RemoteStick that the fixed REMOTE_PORT slot already
+  // owns. Offering it for a regular slot would let two descriptors
+  // fight over one device, so it is left out like on the serial list.
+  if (const char *const reserved = GetStePortReserved();
+      reserved != nullptr && type == DeviceConfig::PortType::ANDROID_USB_SERIAL &&
+      StringIsEqual(value, reserved))
+    return;
+
   for (std::size_t i = 0, n = df.Count(); i < n; ++i) {
     const auto &item = df[i];
     if (DeviceConfig::PortType(item.GetId() >> 16) == type &&

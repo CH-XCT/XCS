@@ -37,6 +37,9 @@ GetFileTypePatterns(const FileType file_type) noexcept
   case FileType::NMEA:
     return "*.nmea\0";
 
+  case FileType::SENSORLOG:
+    return "*.lrsx\0";
+
   case FileType::RASP:
     return "*-rasp*.dat\0";
 
@@ -52,11 +55,17 @@ GetFileTypePatterns(const FileType file_type) noexcept
   case FileType::CHECKLIST:
     return "*.xcc\0xcsoar-checklist.txt\0";
 
+  case FileType::FREQUENCIES:
+    return "*.xcf\0";
+
   case FileType::PROFILE:
     return "*.prf\0";
 
   case FileType::PLANE:
     return "*.xcp\0";
+
+  case FileType::IMAGE:
+    return "*.img.gz\0";
 
   case FileType::UNKNOWN:
   case FileType::COUNT:
@@ -95,8 +104,19 @@ GetFileTypeDefaultDir(const FileType file_type)
   case FileType::CHECKLIST:
     return AllocatedPath("checklists");
 
+  case FileType::FREQUENCIES:
+    return AllocatedPath("frequencies");
+
   case FileType::IGC:
+    /* the IGC files of the program's own logger and those downloaded
+       from an external logger, apart from the NMEA logs, so a picker
+       for the IGC files (WeGlide upload) lists only flights; older
+       IGC files in "logs" are still found where NMEA and IGC files
+       are listed together (replay) */
+    return AllocatedPath("igc");
+
   case FileType::NMEA:
+  case FileType::SENSORLOG:
     return AllocatedPath("logs");
 
   case FileType::PLANE:
@@ -111,6 +131,7 @@ GetFileTypeDefaultDir(const FileType file_type)
   case FileType::PROFILE:
     return AllocatedPath("profiles");
 
+  case FileType::IMAGE:
   case FileType::UNKNOWN:
   case FileType::COUNT:
     return nullptr;

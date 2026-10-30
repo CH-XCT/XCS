@@ -34,7 +34,9 @@ https://xcsoar.readthedocs.io/en/latest/input_events.html
 #include "Menu/ButtonLabel.hpp"
 #include "Profile/Keys.hpp"
 #include "Menu/MenuData.hpp"
-#include "io/ConfiguredFile.hpp"
+#include "Profile/Profile.hpp"
+#include "system/Path.hpp"
+#include "LogFile.hpp"
 #include "io/FileReader.hxx"
 #include "io/BufferedReader.hxx"
 #include "Pan.hpp"
@@ -52,6 +54,7 @@ https://xcsoar.readthedocs.io/en/latest/input_events.html
 
 #include "lua/InputEvent.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <stdio.h>
 #include <memory>
@@ -103,6 +106,13 @@ processGo(unsigned event_id) noexcept;
 
 static InputConfig input_config;
 
+/**
+ * Before the flight the quick menu offers what is needed on the
+ * ground; see GetQuickMenuPhase().
+ */
+static InputEvents::QuickMenuPhase quick_menu_phase =
+  InputEvents::QuickMenuPhase::GROUND;
+
 // Read the data files
 void
 InputEvents::readFile()
@@ -112,12 +122,35 @@ InputEvents::readFile()
 
   LoadDefaults(input_config);
 
-  // Read in user defined configuration file
-  auto reader = OpenConfiguredFile(ProfileKeys::InputFile);
-  if (reader) {
-    BufferedReader buffered_reader{*reader};
-    ::ParseInputFile(input_config, buffered_reader);
+  /* Read the user's files on top of the defaults.  They are sorted
+     by name, like the built-in OpenVario files, so that numbered
+     names define which file overrides which, independent of the
+     order in which they were ticked. */
+  auto paths = Profile::GetMultiplePaths(ProfileKeys::InputFileList,
+                                         nullptr);
+  std::stable_sort(paths.begin(), paths.end(),
+                   [](const AllocatedPath &a, const AllocatedPath &b){
+                     return IsReadBefore(a, b);
+                   });
+
+  for (const auto &path : paths) {
+    /* a missing or broken file must not keep the others from
+       being read */
+    try {
+      FileReader reader{path};
+      BufferedReader buffered_reader{reader};
+      ::ParseInputFile(input_config, buffered_reader);
+      LogFmt("Input events file loaded: {}", path.c_str());
+    } catch (...) {
+      LogError(std::current_exception(), "Failed to load input events file");
+    }
   }
+}
+
+bool
+InputEvents::IsReadBefore(Path a, Path b) noexcept
+{
+  return StringCompare(a.GetBase().c_str(), b.GetBase().c_str()) < 0;
 }
 
 void
@@ -526,6 +559,14 @@ InputEvents::processGlideComputer_real(unsigned gce_id) noexcept
   if (gce_id >= GCE_COUNT)
     return false;
 
+  /* the quick menu follows the flight on its own, so this does not
+     depend on the input configuration; an event bound below can
+     still choose another phase */
+  if (gce_id == GCE_TAKEOFF)
+    quick_menu_phase = QuickMenuPhase::FLIGHT;
+  else if (gce_id == GCE_LANDING)
+    quick_menu_phase = QuickMenuPhase::AFTER;
+
   event_id = input_config.GC2Event[gce_id];
   if (event_id > 0) {
     InputEvents::processGo(event_id);
@@ -572,6 +613,38 @@ InputEvents::GetMenu(const char *mode) noexcept
   int m = input_config.LookupMode(mode);
   if (m >= 0) return &input_config.menus[m];
   else return NULL;
+}
+
+InputEvents::QuickMenuPhase
+InputEvents::GetQuickMenuPhase() noexcept
+{
+  return quick_menu_phase;
+}
+
+void
+InputEvents::SetQuickMenuPhase(QuickMenuPhase phase) noexcept
+{
+  quick_menu_phase = phase;
+}
+
+const char *
+InputEvents::GetQuickMenuMode(QuickMenuPhase phase) noexcept
+{
+  switch (phase) {
+  case QuickMenuPhase::ALL:
+    break;
+
+  case QuickMenuPhase::GROUND:
+    return "QuickGround";
+
+  case QuickMenuPhase::FLIGHT:
+    return "QuickFlight";
+
+  case QuickMenuPhase::AFTER:
+    return "QuickAfter";
+  }
+
+  return "QuickMenu";
 }
 
 void

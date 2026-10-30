@@ -14,6 +14,7 @@
 #include "Formatter/UserUnits.hpp"
 #include "Formatter/UserGeoPointFormatter.hpp"
 #include "UIState.hpp"
+#include "Interface.hpp"
 #include "Renderer/FinalGlideBarRenderer.hpp"
 #include "Terrain/RasterTerrain.hpp"
 #include "util/Macros.hpp"
@@ -36,6 +37,7 @@
 #endif
 
 #include <algorithm> // for std::clamp()
+#include <cmath>
 
 #if DEBUG_ALL_MAP_OVERLAYS
 #include "Engine/Task/Stats/ElementStat.hpp"
@@ -414,12 +416,18 @@ GlueMapWindow::DrawGPSStatus(Canvas &canvas, const MapHudLayout &layout,
   const PixelRect &area = layout.bottom;
   const int clear_bottom = area.bottom - int(layout.scale_title_clearance);
 
-  const int row_height = std::max((int)icon->GetSize().height,
+  /* scale the icon to at least the text height - the icon variant
+     picked for low pixel densities can be much smaller */
+  const unsigned icon_height =
+    std::max(icon->GetSize().height, font.GetHeight());
+  const PixelSize icon_size = icon->GetScaledSize(icon_height);
+
+  const int row_height = std::max((int)icon_size.height,
                                   (int)font.GetHeight());
   PixelPoint p(area.left, clear_bottom - row_height);
-  icon->Draw(canvas, p);
+  icon->Draw(canvas, p, icon_height);
 
-  p.x += icon->GetSize().width + Layout::FastScale(4);
+  p.x += icon_size.width + Layout::FastScale(4);
   p.y = clear_bottom - (int)font.GetAscentHeight()
     - ((row_height - (int)font.GetHeight()) / 2);
 
@@ -450,11 +458,19 @@ GlueMapWindow::DrawFlightMode(Canvas &canvas,
   else
     bmp = &look.cruise_mode_icon;
 
-  offset += int(bmp->GetSize().width);
+  /* the icon variant picked for low pixel densities can end up
+     smaller than a fingertip; stretch it so the symbol is always
+     about 7 mm tall */
+  const unsigned target_height =
+    std::max(bmp->GetSize().height, Layout::vdpi * 7 / 25);
+  const PixelSize size = bmp->GetScaledSize(target_height);
+
+  offset += int(size.width);
 
   bmp->Draw(canvas,
             PixelPoint(area.right - offset,
-                       area.bottom - int(bmp->GetSize().height)));
+                       area.bottom - int(size.height)),
+            target_height);
 
   // draw flarm status
   if (!GetMapSettings().show_flarm_alarm_level && !DEBUG_ALL_MAP_OVERLAYS)
@@ -489,6 +505,62 @@ GlueMapWindow::DrawFlightMode(Canvas &canvas,
                        area.bottom - int(bmp->GetSize().height)));
 }
 
+bool
+GlueMapWindow::IsFinalGlideBarShown(const MapSettings &settings,
+                                    const ComputerSettings &computer,
+                                    const DerivedInfo &calculated) noexcept
+{
+  if (settings.final_glide_bar_display_mode ==
+      FinalGlideBarDisplayMode::OFF)
+    return false;
+
+  /* the bar needs a valid task solution (see FinalGlideBarRenderer) */
+  const TaskStats &task_stats = calculated.task_stats;
+  const ElementStat &total = task_stats.total;
+  const GlideResult &solution = total.solution_remaining;
+  const GlideResult &solution_mc0 = total.solution_mc0;
+
+  if (!task_stats.task_valid || !solution.IsOk() || !solution_mc0.IsDefined())
+    return false;
+
+  if (settings.final_glide_bar_display_mode ==
+      FinalGlideBarDisplayMode::AUTO) {
+    const GlideSettings &glide_settings = computer.task.glide;
+    if (solution_mc0.SelectAltitudeDifference(glide_settings) < -1000 &&
+        solution.SelectAltitudeDifference(glide_settings) < -1000)
+      return false;
+  }
+
+  return true;
+}
+
+bool
+GlueMapWindow::IsOnFinalGlideBar(PixelPoint p) const noexcept
+{
+  /* drawn only near the own position, see Render() */
+  if (!IsNearSelf() ||
+      !IsFinalGlideBarShown(CommonInterface::GetMapSettings(),
+                            CommonInterface::GetComputerSettings(),
+                            CommonInterface::Calculated()))
+    return false;
+
+  /* DrawFinalGlide() hands the renderer the bottom slot of the HUD
+     layout, not the whole window: the HUD leaves out what lies under
+     stretched InfoBoxes, and the slot keeps a padding from its edges.
+     The bar is 18 (scaled) pixels wide at the right edge of that slot
+     and moves up and down around its middle; the strip is at least a
+     finger wide */
+  const PixelRect rc = GetHudLayout().bottom;
+  const int width = std::max<int>(Layout::Scale(18) * 2,
+                                  Layout::GetHitRadius());
+  const int quarter = rc.GetHeight() / 4;
+
+  /* to the right, the padding up to the window edge counts as well:
+     a finger at the very edge means the bar */
+  return p.x >= rc.right - width && p.x < GetClientRect().right &&
+    p.y >= rc.top + quarter && p.y < rc.bottom - quarter;
+}
+
 void
 GlueMapWindow::DrawFinalGlide(Canvas &canvas,
                               const MapHudLayout &layout) const noexcept
@@ -502,23 +574,9 @@ GlueMapWindow::DrawFinalGlide(Canvas &canvas,
                                 glide_settings, true);
   return;
 #else
-
-  if (GetMapSettings().final_glide_bar_display_mode==FinalGlideBarDisplayMode::OFF)
+  if (!IsFinalGlideBarShown(GetMapSettings(), GetComputerSettings(),
+                            Calculated()))
     return;
-
-  if (GetMapSettings().final_glide_bar_display_mode==FinalGlideBarDisplayMode::AUTO) {
-    const TaskStats &task_stats = Calculated().task_stats;
-    const ElementStat &total = task_stats.total;
-    const GlideResult &solution = total.solution_remaining;
-    const GlideResult &solution_mc0 = total.solution_mc0;
-
-    if (!task_stats.task_valid || !solution.IsOk() || !solution_mc0.IsDefined())
-      return;
-
-    if (solution_mc0.SelectAltitudeDifference(glide_settings) < -1000 &&
-        solution.SelectAltitudeDifference(glide_settings) < -1000)
-      return;
-  }
 
   final_glide_bar_renderer.Draw(canvas, area, Calculated(),
                                 glide_settings,
@@ -614,6 +672,7 @@ GlueMapWindow::DrawMapScale(Canvas &canvas, const MapHudLayout &layout,
   unsigned contour_spacing_m = 0;
   const auto &terrain = GetMapSettings().terrain;
   if (projection.IsValid() &&
+      GetBaseMap() == PageLayout::BaseMap::TERRAIN_TOPOGRAPHY &&
       terrain.enable && terrain.contours != Contours::OFF &&
       background.AreContoursVisible())
     contour_spacing_m = background.GetContourSpacing();
@@ -665,6 +724,19 @@ GlueMapWindow::DrawMapScale(Canvas &canvas, const MapHudLayout &layout,
     buffer.AppendFormat(
         "BALLAST %d LITERS ",
         (int)GetComputerSettings().polar.glide_polar_task.GetBallastLitres());
+
+  /* the zoom level, when the map sits on one of the levels of the
+     scale list: raster tiles are then shown pixel for pixel */
+  if (const double zoom = projection.GetZoomLevel();
+      std::fabs(zoom - std::round(zoom)) < 0.01)
+    buffer.AppendFormat("Z%d ", int(std::lround(zoom)));
+
+#ifdef HAVE_BASE_MAP_TILES
+  /* the OpenStreetMap licence requires the attribution to be visible
+     wherever the tiles are */
+  if (GetBaseMap() == PageLayout::BaseMap::OSM)
+    buffer += "\xc2\xa9 OpenStreetMap ";
+#endif
 
   if (buffer.empty() && DEBUG_ALL_MAP_OVERLAYS)
     buffer = "Map title";

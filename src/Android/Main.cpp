@@ -28,6 +28,8 @@
 #include "Language/Language.hpp"
 #include "Language/LanguageGlue.hpp"
 #include "LocalPath.hpp"
+#include "SystemConfig.hpp"
+#include "PowerControl.hpp"
 #include "LogFile.hpp"
 #include "Version.hpp"
 #include "Screen/Debug.hpp"
@@ -284,6 +286,10 @@ try {
   InitialiseDataPath();
   AtScopeExit() { DeinitialiseDataPath(); };
 
+  /* device settings (not part of any profile) decide how the program
+     starts and how it is left */
+  SystemConfig::Load();
+
   LogFormat("Starting %s", XCSoar_ProductToken);
 
   TextUtil::Initialise(env);
@@ -384,6 +390,12 @@ try {
   }
 
   Shutdown();
+
+  /* "Restart" cannot exec() on Android the way it does on the other
+     targets: hand the wish to the Java side, which starts a fresh
+     instance right before System.exit() ends this process */
+  if (PowerControl::Get() == PowerAction::RESTART)
+    native_view->RequestRestart(env);
 } catch (...) {
   /* if an error occurs, rethrow the C++ exception as Java exception,
      to be displayed by the Java glue code */

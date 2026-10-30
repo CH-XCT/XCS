@@ -59,6 +59,14 @@ static std::list<AllocatedPath> data_paths;
 
 static AllocatedPath cache_path;
 
+/**
+ * Settings that belong to the device, not to a profile or a data
+ * directory: deliberately outside the data path (and not below it),
+ * so that copying or replacing the data directory does not carry
+ * them along.
+ */
+static AllocatedPath system_config_path;
+
 Path
 GetPrimaryDataPath() noexcept
 {
@@ -78,10 +86,6 @@ SetPrimaryDataPath(Path path) noexcept
     data_paths.erase(i);
 
   data_paths.emplace_front(path);
-
-#ifndef ANDROID
-  cache_path = LocalPath("cache");
-#endif
 }
 
 void
@@ -92,10 +96,6 @@ SetSingleDataPath(Path path) noexcept
 
   data_paths.clear();
   data_paths.emplace_front(path);
-
-#ifndef ANDROID
-  cache_path = LocalPath("cache");
-#endif
 }
 
 AllocatedPath
@@ -356,20 +356,223 @@ VisitDataFiles(const char* filter, File::Visitor &visitor)
     Directory::VisitSpecificFiles(i, filter, visitor, true);
 }
 
+/**
+ * Where the device keeps settings that must not travel with the data
+ * directory.  Each platform has a place for this; the data path is
+ * only the last resort, and even then it is a hidden sibling
+ * directory, never a subdirectory.
+ */
+static AllocatedPath
+FindSystemConfigPath() noexcept
+{
+#if defined(IS_OPENVARIO)
+  /* not $HOME/.config: the home directory is on the root filesystem,
+     which every image upgrade replaces, and with it the device ports
+     and the other device settings.  The data partition (mounted as
+     'data' in the home directory) survives an upgrade. */
+  if (const char *home = getenv("HOME"); home != nullptr && *home != '\0') {
+    const std::string dir = std::string{home}
+      + DIR_SEPARATOR_S "data" DIR_SEPARATOR_S ".config" DIR_SEPARATOR_S PRODUCT_NAME_LC;
+    return AllocatedPath{Path{dir.c_str()}};
+  }
+#elif defined(ANDROID)
+  /* private internal storage: invisible to the user, kept when the
+     cache is cleared */
+  if (auto path = context->GetFilesDir(Java::GetEnv()); path != nullptr)
+    return path;
+#elif defined(KOBO)
+  /* next to the data directory on the partition the user sees */
+  return AllocatedPath{Path{KOBO_USER_DATA DIR_SEPARATOR_S "." PRODUCT_NAME_LC}};
+#elif defined(_WIN32)
+  {
+    wchar_t buffer[MAX_PATH];
+    if (SHGetSpecialFolderPathW(nullptr, buffer, CSIDL_LOCAL_APPDATA, true)) {
+      const std::string local_app_data = WideToUTF8(buffer);
+      if (!local_app_data.empty())
+        return AllocatedPath::Build(local_app_data.c_str(), PRODUCT_NAME);
+    }
+  }
+#elif defined(HAVE_POSIX)
+  if (const char *xdg = getenv("XDG_CONFIG_HOME");
+      xdg != nullptr && *xdg != '\0') {
+    const std::string dir = std::string{xdg} + DIR_SEPARATOR_S PRODUCT_NAME_LC;
+    return AllocatedPath{Path{dir.c_str()}};
+  }
+
+  if (const char *home = getenv("HOME"); home != nullptr && *home != '\0') {
+    const std::string dir = std::string{home}
+      + DIR_SEPARATOR_S ".config" DIR_SEPARATOR_S PRODUCT_NAME_LC;
+    return AllocatedPath{Path{dir.c_str()}};
+  }
+#endif
+
+  /* last resort: a hidden directory beside the data directory */
+  if (const auto parent = GetPrimaryDataPath().GetParent(); parent != nullptr)
+    return AllocatedPath::Build(parent, Path{"." PRODUCT_NAME_LC});
+
+  return nullptr;
+}
+
+/**
+ * Where do the cache files go?
+ *
+ * Not into the data directory: that one belongs to the user, who
+ * copies and backs it up, and temporary files have no business being
+ * carried along.  Each product gets its own directory, because the
+ * contents differ - the SkySight files of XCSoar and OpenSoar do not
+ * look alike.  On the OpenVario the place is fixed on the data
+ * partition and deliberately does not follow -datapath=: the root
+ * filesystem is small and must not fill up with cache files.
+ */
+static AllocatedPath
+FindCachePath() noexcept
+{
+#if defined(IS_OPENVARIO)
+  /* the data partition is mounted as 'data' in the home directory.  The
+     product directory below it is not needed today, since XCSoar still
+     keeps its cache in its data directory, but it is where the same rule
+     would put it once that changes - better here from the start than
+     moved later. */
+  if (const char *home = getenv("HOME"); home != nullptr && *home != '\0') {
+    const std::string dir = std::string{home}
+      + DIR_SEPARATOR_S "data" DIR_SEPARATOR_S ".cache" DIR_SEPARATOR_S PRODUCT_NAME;
+    return AllocatedPath{Path{dir.c_str()}};
+  }
+#elif defined(KOBO)
+  /* unchanged: the Kobo keeps its cache in the data directory */
+#elif defined(_WIN32)
+  {
+    wchar_t buffer[MAX_PATH];
+    if (SHGetSpecialFolderPathW(nullptr, buffer, CSIDL_LOCAL_APPDATA, true)) {
+      const std::string local_app_data = WideToUTF8(buffer);
+      if (!local_app_data.empty())
+        return AllocatedPath::Build(local_app_data.c_str(),
+                                    PRODUCT_NAME DIR_SEPARATOR_S ".cache");
+    }
+  }
+#elif defined(HAVE_POSIX)
+  if (const char *xdg = getenv("XDG_CACHE_HOME");
+      xdg != nullptr && *xdg != '\0') {
+    const std::string dir = std::string{xdg} + DIR_SEPARATOR_S PRODUCT_NAME;
+    return AllocatedPath{Path{dir.c_str()}};
+  }
+
+  if (const char *home = getenv("HOME"); home != nullptr && *home != '\0') {
+    const std::string dir = std::string{home}
+      + DIR_SEPARATOR_S ".cache" DIR_SEPARATOR_S PRODUCT_NAME;
+    return AllocatedPath{Path{dir.c_str()}};
+  }
+#endif
+
+  /* last resort: inside the data directory, where it used to live */
+  return LocalPath("cache");
+}
+
 Path
 GetCachePath() noexcept
 {
+  /* a program that sets its data path without InitialiseDataPath(),
+     such as a test, gets the same cache directory the main program
+     would get, instead of a null path */
+  if (cache_path == nullptr)
+    cache_path = FindCachePath();
+
   return cache_path;
 }
 
 AllocatedPath
 MakeCacheDirectory(const char *name) noexcept
 {
-  Directory::Create(cache_path);
-  auto path = AllocatedPath::Build(cache_path, Path(name));
+  const Path cache = GetCachePath();
+  Directory::Create(cache);
+  auto path = AllocatedPath::Build(cache, Path(name));
   Directory::Create(path);
   return path;
 }
+
+#ifdef IS_OPENVARIO
+
+/**
+ * Copy a small file byte by byte.  The two places are on different
+ * partitions, so rename() cannot be used, and the copy helpers of
+ * the io library are not available to everything that links this
+ * file.
+ */
+static bool
+CopySmallFile(const char *src, const char *dest) noexcept
+{
+  FILE *in = fopen(src, "rb");
+  if (in == nullptr)
+    return false;
+
+  FILE *out = fopen(dest, "wb");
+  if (out == nullptr) {
+    fclose(in);
+    return false;
+  }
+
+  bool ok = true;
+  char buffer[4096];
+  size_t n;
+  while ((n = fread(buffer, 1, sizeof(buffer), in)) > 0)
+    if (fwrite(buffer, 1, n, out) != n) {
+      ok = false;
+      break;
+    }
+
+  if (ferror(in))
+    ok = false;
+  fclose(in);
+  if (fclose(out) != 0)
+    ok = false;
+  if (!ok)
+    unlink(dest);
+  return ok;
+}
+
+/**
+ * Up to 7.45.25.t13 the device settings were kept in
+ * $HOME/.config/opensoar on the root filesystem.  Move them to the
+ * data partition once, when the new directory does not exist yet, so
+ * that an installation updated by package (not by a new image) keeps
+ * its device ports.
+ */
+static void
+MigrateSystemConfig() noexcept
+{
+  if (system_config_path == nullptr || Directory::Exists(system_config_path))
+    return;
+
+  const char *home = getenv("HOME");
+  if (home == nullptr || *home == '\0')
+    return;
+
+  const std::string old_dir = std::string{home}
+    + DIR_SEPARATOR_S ".config" DIR_SEPARATOR_S PRODUCT_NAME_LC;
+  if (!Directory::Exists(Path{old_dir.c_str()}))
+    return;
+
+  try {
+    Directory::CreateRecursive(system_config_path);
+  } catch (...) {
+    return;
+  }
+
+  struct Mover final : File::Visitor {
+    Path dest_dir;
+    explicit Mover(Path _dest_dir) noexcept:dest_dir(_dest_dir) {}
+
+    void Visit(Path path, Path filename) override {
+      const auto dest = AllocatedPath::Build(dest_dir, filename);
+      if (CopySmallFile(path.c_str(), dest.c_str()))
+        unlink(path.c_str());
+    }
+  } mover{system_config_path};
+
+  Directory::VisitFiles(Path{old_dir.c_str()}, mover);
+}
+
+#endif /* IS_OPENVARIO */
 
 void
 InitialiseDataPath()
@@ -389,7 +592,13 @@ InitialiseDataPath()
 
   // TODO: delete the old cache directory in product data directory?
 #else
-  cache_path = LocalPath("cache");
+  cache_path = FindCachePath();
+#endif
+
+  system_config_path = FindSystemConfigPath();
+
+#ifdef IS_OPENVARIO
+  MigrateSystemConfig();
 #endif
 }
 
@@ -397,6 +606,27 @@ void
 DeinitialiseDataPath() noexcept
 {
   data_paths.clear();
+}
+
+Path
+GetSystemConfigPath() noexcept
+{
+  return system_config_path;
+}
+
+Path
+MakeSystemConfigPath() noexcept
+{
+  if (system_config_path == nullptr)
+    return nullptr;
+
+  try {
+    Directory::Create(system_config_path);
+  } catch (...) {
+    return nullptr;
+  }
+
+  return system_config_path;
 }
 
 void

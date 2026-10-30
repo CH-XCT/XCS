@@ -16,6 +16,7 @@ bool RaspFileChanged = false;
 bool ChecklistFileChanged = false;
 bool UserRepositoriesListChanged = false;
 bool LanguageChanged = false;
+bool require_restart = false;
 
 void
 SettingsEnter() noexcept

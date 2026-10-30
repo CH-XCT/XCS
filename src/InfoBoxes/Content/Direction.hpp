@@ -9,7 +9,5 @@ class InfoBoxContentTrack : public InfoBoxContent
 {
 public:
   void Update(InfoBoxData &data) noexcept override;
-
-  [[gnu::pure]]
-  const InfoBoxPanel *GetDialogContent() noexcept override;
+  bool HandleKey(const InfoBoxKeyCodes keycode) noexcept override;
 };

@@ -2,6 +2,8 @@
 // Copyright The XCSoar Project
 
 #include "Dialogs/Dialogs.h"
+#include "Dialogs/Message.hpp"
+#include "Dialogs/PowerDialog.hpp"
 #include "Widget/ArrowPagerWidget.hpp"
 #include "Widget/CreateWindowWidget.hpp"
 #include "Dialogs/WidgetDialog.hpp"
@@ -24,6 +26,7 @@
 #include "Panels/LoggerConfigPanel.hpp"
 #include "Panels/AirspaceConfigPanel.hpp"
 #include "Panels/SiteConfigPanel.hpp"
+#include "Panels/SystemConfigPanel.hpp"
 #include "Panels/MapDisplayConfigPanel.hpp"
 #include "Panels/WaypointDisplayConfigPanel.hpp"
 #include "Panels/SymbolsConfigPanel.hpp"
@@ -38,6 +41,7 @@
 #include "Panels/GaugesConfigPanel.hpp"
 #include "Panels/MapOverlaysConfigPanel.hpp"
 #include "Panels/TrafficConfigPanel.hpp"
+#include "Panels/VarioDisplayConfigPanel.hpp"
 #include "Panels/VarioConfigPanel.hpp"
 #include "Panels/TaskRulesConfigPanel.hpp"
 #include "Panels/TaskDefaultsConfigPanel.hpp"
@@ -46,6 +50,7 @@
 #include "Interface.hpp"
 #include "Language/Language.hpp"
 #include "Audio/Features.hpp"
+#include "UtilsSettings.hpp"
 #include "net/http/Features.hpp"
 
 #ifdef HAVE_HTTP
@@ -84,6 +89,13 @@
 #include "Panels/WeGlideConfigPanel.hpp"
 #include "Panels/NetworkConfigPanel.hpp"
 
+#ifdef IS_OPENVARIO
+#include "OpenVario/SystemSettingsWidget.hpp"
+#include "OpenVario/DisplaySettingsWidget.hpp"
+#include "OpenVario/FileMenuWidget.hpp"
+#include "OpenVario/ExtraWidget.hpp"
+#endif
+
 #if defined(__linux__) && !defined(__ANDROID__) && !defined(KOBO)
 #include "Panels/SystemdConfigPanel.hpp"
 #ifdef USE_POLL_EVENT
@@ -99,8 +111,9 @@ static unsigned current_page;
 // TODO: eliminate global variables
 static ArrowPagerWidget *pager;
 
-static constexpr TabMenuPage files_pages[] = {
+static constexpr TabMenuPage system_pages[] = {
   { N_("Site Files"), CreateSiteConfigPanel },
+  { NC_("Setting", "System"), CreateSystemConfigPanel },
   { nullptr, nullptr }
 };
 
@@ -142,6 +155,7 @@ static constexpr TabMenuPage look_pages[] = {
   { N_("InfoBox Sets"), CreateInfoBoxesConfigPanel },
   { N_("Layout"), CreateLayoutConfigPanel },
   { N_("Pages"), CreatePagesConfigPanel },
+  { N_("Vario Display"), CreateVarioDisplayConfigPanel },
   { N_("Vario"), CreateVarioConfigPanel },
   { nullptr, nullptr }
 };
@@ -196,8 +210,21 @@ static constexpr TabMenuPage setup_pages[] = {
   { nullptr, nullptr }
 };
 
+#ifdef IS_OPENVARIO
+static constexpr TabMenuPage openvario_pages[] = {
+  { N_("System Settings"), CreateSystemSettingsWidget },
+  { N_("Display Settings"), CreateDisplaySettingsWidget },
+  { N_("File Transfer"), CreateFileMenuWidget },
+#ifndef NDEBUG
+  /* remove with a better firmware upgrade */
+  { N_("Advanced Menu (temp)"), CreateExtraWidget },
+#endif
+  { nullptr, nullptr }
+};
+#endif
+
 static constexpr TabMenuGroup main_menu_captions[] = {
-  { N_("Site Files"), files_pages },
+  { NC_("Menu", "System"), system_pages },
   { N_("Map Display"), map_pages },
   { N_("Glide Computer"), computer_pages },
   { N_("Gauges"), gauge_pages },
@@ -206,6 +233,9 @@ static constexpr TabMenuGroup main_menu_captions[] = {
   { N_("Weather"), weather_pages },
   { NC_("Menu", "Services"), online_pages },
   { NC_("Menu", "Setup"), setup_pages },
+#ifdef IS_OPENVARIO
+  { "OpenVario", openvario_pages },
+#endif
 };
 
 static void
@@ -548,6 +578,9 @@ void dlgConfigurationShowModal()
     }
   }
 
-  if (dialog.GetChanged() || expert_changed)
+  if (dialog.GetChanged() || expert_changed) {
     Profile::Save();
+    if (require_restart)
+      OfferRestart(_("Changes to configuration saved."));
+  }
 }

@@ -6,6 +6,7 @@
 #include "RouteComputer.hpp"
 #include "TraceComputer.hpp"
 #include "ContestComputer.hpp"
+#include "LogbookComputer.hpp"
 #include "Engine/Navigation/Aircraft.hpp"
 #include "time/Validity.hpp"
 
@@ -23,6 +24,8 @@ class TaskComputer
   TraceComputer trace;
 
   ContestComputer contest;
+
+  LogbookComputer logbook;
 
   AircraftState last_state;
   bool valid_last_state;
@@ -74,6 +77,13 @@ public:
                        const ComputerSettings &settings_computer);
 
   void ResetFlight(const bool full=true);
+
+  /**
+   * Forget the trace and the contest results of the previous flight:
+   * at a takeoff, a new flight begins, and its contest and log book
+   * values must not include the one before.
+   */
+  void ResetTrace() noexcept;
 
   void SetTerrain(const RasterTerrain* _terrain);
 

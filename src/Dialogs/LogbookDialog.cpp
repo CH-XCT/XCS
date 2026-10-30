@@ -1,0 +1,1012 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The XCSoar Project
+
+#include "LogbookDialog.hpp"
+#include "Dialogs/WidgetDialog.hpp"
+#include "Dialogs/Message.hpp"
+#include "Dialogs/Error.hpp"
+#include "Widget/ListWidget.hpp"
+#include "Widget/RowFormWidget.hpp"
+#include "Form/Button.hpp"
+#include "Form/DataField/Enum.hpp"
+#include "Form/Draw.hpp"
+#include "ui/canvas/Canvas.hpp"
+#include "Dialogs/DataManagement/StorageLocationPickerDialog.hpp"
+#include "Storage/StorageUtil.hpp"
+#include "Storage/StorageDevice.hpp"
+#include "Language/FormatText.hpp"
+#include "system/FileUtil.hpp"
+#include "Screen/Layout.hpp"
+#include "Logger/Logbook.hpp"
+#include "Logger/LogbookBuilder.hpp"
+#include "Dialogs/JobDialog.hpp"
+#include "Job/Job.hpp"
+#include "Operation/Operation.hpp"
+#include "Operation/ProxyOperationEnvironment.hpp"
+#include "Repository/FileType.hpp"
+#include "LocalPath.hpp"
+#include "Components.hpp"
+#include "DataComponents.hpp"
+#include "BackendComponents.hpp"
+#include "Logger/Logger.hpp"
+#include "Logger/NMEALogger.hpp"
+#include <Message.hpp>
+#include "LogFile.hpp"
+#include "DataFilePath.hpp"
+#include "system/Path.hpp"
+#include "Formatter/UserUnits.hpp"
+#include "Interface.hpp"
+#include "UIGlobals.hpp"
+#include "Look/DialogLook.hpp"
+#include "Language/Language.hpp"
+#include "util/StaticString.hxx"
+
+#include <fmt/format.h>
+
+#include <algorithm>
+#include <cassert>
+#include <exception>
+#include <vector>
+
+/* this macro exists in the WIN32 API */
+#ifdef DELETE
+#undef DELETE
+#endif
+
+/**
+ * The pilot reads the times of the log book in local time; the file
+ * keeps UTC.
+ */
+[[gnu::pure]]
+static BrokenDateTime
+ToLocal(const BrokenDateTime &utc) noexcept
+{
+  if (!utc.IsPlausible())
+    return utc;
+
+  return utc + CommonInterface::GetComputerSettings().utc_offset.ToDuration();
+}
+
+static StaticString<16>
+FormatHHMM(const BrokenDateTime &utc) noexcept
+{
+  StaticString<16> buffer;
+  if (utc.IsPlausible()) {
+    const auto local = ToLocal(utc);
+    buffer.Format("%02u:%02u", local.hour, local.minute);
+  } else
+    buffer = "--:--";
+  return buffer;
+}
+
+static StaticString<16>
+FormatDate(const BrokenDateTime &utc) noexcept
+{
+  const auto local = ToLocal(utc);
+  StaticString<16> buffer;
+  buffer.Format("%04u-%02u-%02u", local.year, local.month, local.day);
+  return buffer;
+}
+
+static StaticString<16>
+FormatFlightTime(const LogbookEntry &entry) noexcept
+{
+  StaticString<16> buffer;
+  if (entry.HasFlightTime()) {
+    const auto minutes = std::chrono::duration_cast<std::chrono::minutes>(entry.GetFlightTime()).count();
+    buffer.Format("%u:%02u", unsigned(minutes / 60), unsigned(minutes % 60));
+  } else
+    buffer.clear();
+  return buffer;
+}
+
+static const char *
+GetShapeName(LogbookStatistics::DMStShape shape) noexcept
+{
+  switch (shape) {
+  case LogbookStatistics::DMStShape::NONE:
+    break;
+  case LogbookStatistics::DMStShape::QUADRILATERAL:
+    return _("Free distance");
+  case LogbookStatistics::DMStShape::TRIANGLE:
+    return _("Triangle");
+  case LogbookStatistics::DMStShape::OUT_AND_RETURN:
+    return _("Out and return");
+  }
+
+  return "";
+}
+
+/**
+ * The details of one flight; the values the computer cannot know
+ * (launch, crew, remark) can be edited.
+ */
+class LogbookEntryWidget final : public RowFormWidget {
+  enum Rows {
+    DATE,
+    TAKEOFF,
+    LANDING,
+    RELEASE,
+    DURATION,
+    AIRCRAFT,
+    FREE,
+    DMST,
+    MAX_ALTITUDE,
+    LOG_FILE,
+    RECORDER,
+    OTHER_FILES,
+    WEGLIDE,
+    LAUNCH,
+    PILOT,
+    COPILOT,
+    REMARK,
+  };
+
+  LogbookEntry &entry;
+
+public:
+  LogbookEntryWidget(const DialogLook &look, LogbookEntry &_entry) noexcept
+    :RowFormWidget(look), entry(_entry) {}
+
+  /* virtual methods from class Widget */
+  void Prepare(ContainerWindow &parent, const PixelRect &rc) noexcept override;
+  bool Save(bool &changed) noexcept override;
+};
+
+void
+LogbookEntryWidget::Prepare([[maybe_unused]] ContainerWindow &parent,
+                            [[maybe_unused]] const PixelRect &rc) noexcept
+{
+  AddReadOnly(_("Date"), nullptr, FormatDate(entry.takeoff));
+
+  StaticString<128> text;
+  text.Format("%s  %s", FormatHHMM(entry.takeoff).c_str(),
+              entry.takeoff_place.c_str());
+  AddReadOnly(C_("Logbook", "Takeoff"), nullptr, text);
+
+  text.Format("%s  %s", FormatHHMM(entry.landing).c_str(),
+              entry.landing_place.c_str());
+  AddReadOnly(C_("Logbook", "Landing"), nullptr, text);
+
+  AddReadOnly(_("Release"),
+              _("The release from the tow or winch, or the end of the "
+                "engine run of a self-launch: the scored flight begins "
+                "here."),
+              entry.release.IsPlausible()
+              ? FormatHHMM(entry.release).c_str()
+              : "");
+
+  AddReadOnly(_("Flight time"), nullptr, FormatFlightTime(entry));
+
+  text.Format("%s  %s  %s", entry.aircraft.c_str(),
+              entry.registration.c_str(), entry.competition_id.c_str());
+  AddReadOnly(_("Aircraft"), nullptr, text);
+
+  if (entry.free_distance > 0) {
+    text = FormatUserDistance(entry.free_distance, true, 1).c_str();
+    if (entry.free_speed > 0)
+      text.AppendFormat("  %s",
+                        FormatUserSpeed(entry.free_speed / 3.6).c_str());
+  } else
+    text.clear();
+  AddReadOnly(_("Free distance"),
+              _("The free distance over up to five turn points (six legs), "
+                "as the OLC classic rules score it, and the speed from its "
+                "first to its last point."),
+              text);
+
+  if (entry.dmst_distance > 0)
+    text.Format("%s  %.1f %s  %s",
+                FormatUserDistance(entry.dmst_distance, true, 1).c_str(),
+                entry.dmst_points, _("pts"),
+                GetShapeName(entry.dmst_shape));
+  else
+    text.clear();
+  AddReadOnly("DMSt",
+              _("Distance and points by the DMSt rules, with the index of "
+                "the plane and the bonus of the shape."),
+              text);
+
+  if (entry.max_altitude >= 0)
+    AddReadOnly(_("Max. altitude"), nullptr,
+                FormatUserAltitude(entry.max_altitude).c_str());
+  else
+    AddReadOnly(_("Max. altitude"), nullptr, "");
+
+  AddReadOnly(_("Log file"), nullptr, entry.log_file.c_str());
+
+  text.Format("%s %s  %s", entry.recorder_code.c_str(),
+              entry.recorder_serial.c_str(), entry.recorder_type.c_str());
+  AddReadOnly(_("Flight recorder"),
+              _("The manufacturer code, the serial number and the type from "
+                "the header of the IGC file."),
+              text);
+
+  AddReadOnly(_("Other files"),
+              _("The other recordings of this flight (another logger, the "
+                "NMEA log), best first; the log file above is the best one."),
+              entry.other_files.c_str());
+
+  if (entry.weglide_id > 0)
+    text.Format("https://www.weglide.com/flight/%llu",
+                (unsigned long long)entry.weglide_id);
+  else
+    text.clear();
+  AddReadOnly(_("WeGlide"),
+              _("The flight on WeGlide, noted after the upload."),
+              text);
+
+  static constexpr StaticEnumChoice launch_list[] = {
+    { LogbookEntry::Launch::UNKNOWN, N_("Unknown") },
+    { LogbookEntry::Launch::WINCH, N_("Winch") },
+    { LogbookEntry::Launch::AEROTOW, N_("Aerotow") },
+    { LogbookEntry::Launch::SELF, N_("Self-launch") },
+    nullptr
+  };
+  AddEnum(_("Launch"),
+          _("Estimated from the climb after the takeoff; correct it if "
+            "it is wrong."),
+          launch_list, unsigned(entry.launch));
+
+  AddText(_("Pilot"), nullptr, entry.pilot.c_str());
+  AddText(_("Co-pilot"), nullptr, entry.copilot.c_str());
+  AddText(_("Remark"), nullptr, entry.remark.c_str());
+}
+
+bool
+LogbookEntryWidget::Save(bool &_changed) noexcept
+{
+  bool changed = false;
+
+  changed |= SaveValueEnum(LAUNCH, entry.launch);
+  changed |= SaveValue(PILOT, entry.pilot);
+  changed |= SaveValue(COPILOT, entry.copilot);
+  changed |= SaveValue(REMARK, entry.remark);
+
+  _changed |= changed;
+  return true;
+}
+
+/**
+ * The index of the files read for the log book, beside it.
+ */
+static AllocatedPath
+GetIndexPath() noexcept
+{
+  return LogbookDataPath("logbook-files.txt");
+}
+
+/**
+ * Reads the recorded files in the background while the dialog shows
+ * the progress.
+ */
+class LogbookUpdateJob final : public Job {
+  const std::vector<Logbook::NewFile> &files;
+  const Logbook::ReadSettings &settings;
+  const Logbook::MoveSettings &move;
+
+public:
+  Logbook::UpdateResult result;
+  std::exception_ptr error;
+
+  LogbookUpdateJob(const std::vector<Logbook::NewFile> &_files,
+                   const Logbook::ReadSettings &_settings,
+                   const Logbook::MoveSettings &_move) noexcept
+    :files(_files), settings(_settings), move(_move) {}
+
+  void Run(OperationEnvironment &env) override {
+    /* the builder reports the bare file name; the dialog says what is
+       being done with it */
+    class AnalysisOperationEnvironment final
+      : public ProxyOperationEnvironment {
+    public:
+      using ProxyOperationEnvironment::ProxyOperationEnvironment;
+
+      void SetText(const char *text) noexcept override {
+        StaticString<256> buffer;
+        buffer.Format(_("Analysis for the log book: %s"), text);
+        ProxyOperationEnvironment::SetText(buffer.c_str());
+      }
+    } analysis_env{env};
+
+    try {
+      result = Logbook::Update(LogbookDataPath("logbook.csv"),
+                               GetIndexPath(), files, settings, analysis_env,
+                               move);
+    } catch (...) {
+      error = std::current_exception();
+    }
+  }
+};
+
+/**
+ * Read the files not yet in the log book.
+ *
+ * @return true if the log book may have changed
+ */
+static bool
+RunLogbookUpdate() noexcept
+{
+  std::vector<Logbook::NewFile> files;
+  try {
+    /* this program writes IGC files into "igc" and the NMEA logs into
+       "logs", older versions both into "logs" */
+    std::vector<AllocatedPath> folders;
+    folders.push_back(LocalPath(GetFileTypeDefaultDir(FileType::IGC)));
+    folders.push_back(LocalPath(GetFileTypeDefaultDir(FileType::NMEA)));
+    files = Logbook::FindNewFiles(GetIndexPath(), folders);
+  } catch (...) {
+    LogError(std::current_exception(), "Log book: failed to list the files");
+    return false;
+  }
+
+  /* the files being written right now are read when they are
+     complete, and must not be moved */
+  if (backend_components != nullptr) {
+    AllocatedPath busy[2];
+    if (backend_components->nmea_logger != nullptr)
+      busy[0] = backend_components->nmea_logger->GetPath();
+    if (backend_components->igc_logger != nullptr)
+      busy[1] = backend_components->igc_logger->GetActivePath();
+
+    std::erase_if(files, [&busy](const Logbook::NewFile &file){
+      for (const auto &path : busy)
+        if (path != nullptr && path == file.path)
+          return true;
+      return false;
+    });
+  }
+
+  if (files.empty())
+    return false;
+
+  /* this is the program's own data directory: older IGC files go into
+     "igc", files without a flight into "no-flight" beside them */
+  Logbook::MoveSettings move;
+  move.igc_folder = LocalPath(GetFileTypeDefaultDir(FileType::IGC));
+  move.no_flight = true;
+
+  Logbook::ReadSettings settings;
+  if (data_components != nullptr)
+    settings.waypoints = data_components->waypoints.get();
+  settings.handicap = CommonInterface::GetComputerSettings().contest.handicap;
+  settings.recorders =
+    Logbook::GetRecorders(CommonInterface::GetComputerSettings().logger);
+  settings.coordinate_format =
+    CommonInterface::GetUISettings().format.coordinate_format;
+
+  LogbookUpdateJob job(files, settings, move);
+  JobDialog(UIGlobals::GetMainWindow(), UIGlobals::GetDialogLook(),
+            _("Log book"), job, true);
+
+  if (job.error) {
+    ShowError(job.error, _("Log book"));
+    return true;
+  }
+
+  const auto &r = job.result;
+  StaticString<256> text;
+  text.Format(_("Log book: %u flight(s) from %u of %u file(s)"),
+              r.flights, r.files_read, (unsigned)files.size());
+  if (r.moved_igc > 0)
+    text.AppendFormat(", %s: %u", _("moved to igc"), r.moved_igc);
+  if (r.moved_no_flight > 0)
+    text.AppendFormat(", %s: %u", _("moved to no-flight"), r.moved_no_flight);
+  if (r.cancelled)
+    text.AppendFormat(" (%s)", _("the rest follows at the next start"));
+  Message::AddMessage(text);
+  return true;
+}
+
+void
+UpdateLogbook() noexcept
+{
+  RunLogbookUpdate();
+}
+
+bool
+RebuildLogbook() noexcept
+{
+  if (ShowMessageBox(_("Build the log book again from all recorded files? "
+                       "The current one is kept as logbook-DATE.csv "
+                       "in the folder logs, including all changes made "
+                       "by hand."),
+                     _("Log book"), MB_YESNO | MB_ICONQUESTION) != IDYES)
+    return false;
+
+  try {
+    /* the old log books go into "logs", so the data directory keeps
+       only the current one */
+    Logbook::Retire(LogbookDataPath("logbook.csv"), GetIndexPath(),
+                    LogsDataSavePath("logbook.csv").GetParent());
+  } catch (...) {
+    ShowError(std::current_exception(), _("Log book"));
+    return false;
+  }
+
+  RunLogbookUpdate();
+  return true;
+}
+
+/**
+ * The list of all flights, newest first.
+ */
+/**
+ * The columns of the table of flights.
+ */
+enum class LogbookColumn : uint8_t {
+  DATE,
+  TAKEOFF,
+  LANDING,
+  DURATION,
+  LAUNCH,
+  PLACE,
+  PILOT,
+  REGISTRATION,
+  FREE_DISTANCE,
+  DMST_DISTANCE,
+  DMST_POINTS,
+};
+
+struct LogbookColumnLayout {
+  LogbookColumn column;
+  int x;
+  unsigned width;
+  bool right_aligned;
+};
+
+/**
+ * The list of all flights, newest first, as a table: one row per
+ * flight, with a header above it.  On a narrow screen the less
+ * important columns are left out; the details of a flight show all.
+ */
+class LogbookListWidget final : public ListWidget {
+  const AllocatedPath path;
+
+  /** oldest first, as in the file */
+  std::vector<LogbookEntry> entries;
+
+  WndOwnerDrawFrame header;
+  unsigned row_height = 0, padding = 0;
+
+  std::vector<LogbookColumnLayout> columns;
+
+  WidgetDialog *form = nullptr;
+  Button *details_button = nullptr, *delete_button = nullptr;
+
+public:
+  LogbookListWidget() noexcept
+    :path(LogbookDataPath("logbook.csv")) {}
+
+  void CreateButtons(WidgetDialog &dialog) noexcept;
+
+private:
+  [[gnu::pure]]
+  unsigned ToEntryIndex(unsigned list_index) const noexcept {
+    assert(list_index < entries.size());
+    return entries.size() - 1 - list_index;
+  }
+
+  void Load() noexcept;
+  bool Store() noexcept;
+  void UpdateButtons() noexcept;
+
+  void ShowDetails(unsigned list_index) noexcept;
+  void DeleteClicked() noexcept;
+  void ExportClicked() noexcept;
+
+  /** The header above, the list below */
+  [[gnu::pure]]
+  std::pair<PixelRect, PixelRect> Split(const PixelRect &rc) const noexcept;
+
+  void UpdateColumns(unsigned width) noexcept;
+  void PaintHeader(Canvas &canvas, const PixelRect &rc) noexcept;
+
+public:
+  /* virtual methods from class Widget */
+  void Prepare(ContainerWindow &parent, const PixelRect &rc) noexcept override;
+  void Unprepare() noexcept override;
+  void Show(const PixelRect &rc) noexcept override;
+  void Hide() noexcept override;
+  void Move(const PixelRect &rc) noexcept override;
+
+protected:
+  /* virtual methods from ListItemRenderer */
+  void OnPaintItem(Canvas &canvas, PixelRect rc,
+                   unsigned idx) noexcept override;
+
+  /* virtual methods from ListCursorHandler */
+  bool CanActivateItem([[maybe_unused]] unsigned index) const noexcept override {
+    return true;
+  }
+
+  void OnActivateItem(unsigned index) noexcept override {
+    ShowDetails(index);
+  }
+};
+
+void
+LogbookListWidget::Load() noexcept
+{
+  try {
+    entries = Logbook::Read(path);
+
+    /* the file is in the order the flights were recorded; an entry
+       added by hand may be out of place, the list shows them by time */
+    std::stable_sort(entries.begin(), entries.end(),
+                     [](const LogbookEntry &a, const LogbookEntry &b){
+                       return a.takeoff < b.takeoff;
+                     });
+  } catch (...) {
+    ShowError(std::current_exception(), _("Log book"));
+    entries.clear();
+  }
+
+  GetList().SetLength(entries.size());
+  GetList().Invalidate();
+  UpdateButtons();
+}
+
+bool
+LogbookListWidget::Store() noexcept
+{
+  try {
+    Logbook::Write(path, entries);
+    return true;
+  } catch (...) {
+    ShowError(std::current_exception(), _("Failed to save file."));
+    return false;
+  }
+}
+
+void
+LogbookListWidget::UpdateButtons() noexcept
+{
+  const bool empty = entries.empty();
+  if (details_button != nullptr)
+    details_button->SetEnabled(!empty);
+  if (delete_button != nullptr)
+    delete_button->SetEnabled(!empty);
+  if (form != nullptr)
+    form->ResyncButtonPanelSelection();
+}
+
+void
+LogbookListWidget::CreateButtons(WidgetDialog &dialog) noexcept
+{
+  form = &dialog;
+  details_button = dialog.AddButton(_("Details"), [this](){
+    ShowDetails(GetList().GetCursorIndex());
+  });
+  delete_button = dialog.AddButton(C_("Button", "Delete"),
+                                   [this](){ DeleteClicked(); });
+  dialog.AddButton(_("Rebuild"), [this](){
+    if (RebuildLogbook())
+      Load();
+  });
+  dialog.AddButton(_("Export"), [this](){ ExportClicked(); });
+  UpdateButtons();
+}
+
+static const char *
+GetColumnTitle(LogbookColumn column) noexcept
+{
+  switch (column) {
+  case LogbookColumn::DATE:
+    return _("Date");
+  case LogbookColumn::TAKEOFF:
+    return C_("Logbook", "Takeoff");
+  case LogbookColumn::LANDING:
+    return C_("Logbook", "Landing");
+  case LogbookColumn::DURATION:
+    return _("Time");
+  case LogbookColumn::LAUNCH:
+    return C_("Logbook", "L");
+  case LogbookColumn::PLACE:
+    return _("Place");
+  case LogbookColumn::PILOT:
+    return _("Pilot");
+  case LogbookColumn::REGISTRATION:
+    return _("Registration");
+  case LogbookColumn::FREE_DISTANCE:
+    return _("Free");
+  case LogbookColumn::DMST_DISTANCE:
+    return _("DMSt");
+  case LogbookColumn::DMST_POINTS:
+    return _("pts");
+  }
+
+  return "";
+}
+
+/**
+ * The shape of the DMSt distance as one letter: F free distance (up to
+ * three turn points), T triangle, R out and return.  The solvers do
+ * not find closed quadrilaterals (Q), polygons (M) or out-only flights
+ * (O).
+ */
+static char
+GetShapeLetter(LogbookStatistics::DMStShape shape) noexcept
+{
+  switch (shape) {
+  case LogbookStatistics::DMStShape::NONE:
+    break;
+  case LogbookStatistics::DMStShape::QUADRILATERAL:
+    return 'F';
+  case LogbookStatistics::DMStShape::TRIANGLE:
+    return 'T';
+  case LogbookStatistics::DMStShape::OUT_AND_RETURN:
+    return 'R';
+  }
+
+  return ' ';
+}
+
+static StaticString<64>
+FormatCell(const LogbookEntry &e, LogbookColumn column) noexcept
+{
+  StaticString<64> text;
+  text.clear();
+  switch (column) {
+  case LogbookColumn::DATE:
+    text = FormatDate(e.takeoff).c_str();
+    break;
+  case LogbookColumn::TAKEOFF:
+    text = FormatHHMM(e.takeoff).c_str();
+    break;
+  case LogbookColumn::LANDING:
+    text = FormatHHMM(e.landing).c_str();
+    break;
+  case LogbookColumn::DURATION:
+    text = FormatFlightTime(e).c_str();
+    break;
+  case LogbookColumn::LAUNCH:
+    text = Logbook::ToString(e.launch);
+    break;
+  case LogbookColumn::PLACE:
+    text = e.takeoff_place.c_str();
+    break;
+  case LogbookColumn::PILOT:
+    text = e.pilot.c_str();
+    break;
+  case LogbookColumn::REGISTRATION:
+    text = e.registration.c_str();
+    break;
+  case LogbookColumn::FREE_DISTANCE:
+    if (e.free_distance > 0)
+      text = FormatUserDistance(e.free_distance).c_str();
+    break;
+  case LogbookColumn::DMST_DISTANCE:
+    if (e.dmst_distance > 0)
+      text.Format("%s %c", FormatUserDistance(e.dmst_distance).c_str(),
+                  GetShapeLetter(e.dmst_shape));
+    break;
+  case LogbookColumn::DMST_POINTS:
+    if (e.dmst_points > 0)
+      text.Format("%.0f", e.dmst_points);
+    break;
+  }
+
+  return text;
+}
+
+/**
+ * The width a column needs: its title or the widest value it can show
+ * (for the place, a short name; longer ones are cut).
+ */
+static unsigned
+GetColumnWidth(const Font &font, const Font &bold, LogbookColumn column,
+               unsigned padding) noexcept
+{
+  const char *sample = "";
+  switch (column) {
+  case LogbookColumn::DATE:
+    sample = "2026-07-14";
+    break;
+  case LogbookColumn::TAKEOFF:
+  case LogbookColumn::LANDING:
+    sample = "00:00";
+    break;
+  case LogbookColumn::DURATION:
+    sample = "10:00";
+    break;
+  case LogbookColumn::LAUNCH:
+    sample = "W";
+    break;
+  case LogbookColumn::PLACE:
+    sample = "Aalen-Elchingen";
+    break;
+  case LogbookColumn::PILOT:
+    sample = "Max Mustermann";
+    break;
+  case LogbookColumn::REGISTRATION:
+    sample = "D-KAAA";
+    break;
+  case LogbookColumn::FREE_DISTANCE:
+    sample = "1000 km";
+    break;
+  case LogbookColumn::DMST_DISTANCE:
+    sample = "1000 km T";
+    break;
+  case LogbookColumn::DMST_POINTS:
+    sample = "1000";
+    break;
+  }
+
+  return std::max(font.TextSize(sample).width,
+                  bold.TextSize(GetColumnTitle(column)).width) +
+    2 * padding;
+}
+
+void
+LogbookListWidget::UpdateColumns(unsigned width) noexcept
+{
+  const DialogLook &look = UIGlobals::GetDialogLook();
+  const Font &font = *look.list.font;
+  const Font &bold = *look.list.font_bold;
+
+  /* by importance: the last ones are left out first when the screen
+     is too narrow */
+  static constexpr LogbookColumn by_importance[] = {
+    LogbookColumn::DATE,
+    LogbookColumn::TAKEOFF,
+    LogbookColumn::DURATION,
+    LogbookColumn::FREE_DISTANCE,
+    LogbookColumn::PLACE,
+    LogbookColumn::DMST_POINTS,
+    LogbookColumn::LANDING,
+    LogbookColumn::DMST_DISTANCE,
+    LogbookColumn::PILOT,
+    LogbookColumn::LAUNCH,
+    LogbookColumn::REGISTRATION,
+  };
+
+  unsigned n = std::size(by_importance);
+  unsigned widths[std::size(by_importance)];
+  while (true) {
+    unsigned total = 0;
+    for (unsigned i = 0; i < n; ++i)
+      total += widths[i] = GetColumnWidth(font, bold, by_importance[i],
+                                          padding);
+    if (total <= width || n <= 3)
+      break;
+    --n;
+  }
+
+  /* in the order of the table */
+  columns.clear();
+  int x = 0;
+  for (unsigned c = 0; c <= unsigned(LogbookColumn::DMST_POINTS); ++c)
+    for (unsigned i = 0; i < n; ++i)
+      if (unsigned(by_importance[i]) == c) {
+        const auto column = by_importance[i];
+        columns.push_back({column, x, widths[i],
+                           column == LogbookColumn::FREE_DISTANCE ||
+                           column == LogbookColumn::DMST_DISTANCE ||
+                           column == LogbookColumn::DMST_POINTS});
+        x += widths[i];
+      }
+
+  /* the place gets the rest of the width */
+  if (x < int(width))
+    for (auto i = columns.begin(); i != columns.end(); ++i)
+      if (i->column == LogbookColumn::PLACE) {
+        const int extra = int(width) - x;
+        i->width += extra;
+        for (auto j = std::next(i); j != columns.end(); ++j)
+          j->x += extra;
+        break;
+      }
+}
+
+std::pair<PixelRect, PixelRect>
+LogbookListWidget::Split(const PixelRect &rc) const noexcept
+{
+  PixelRect top = rc, bottom = rc;
+  top.bottom = top.top + int(row_height);
+  bottom.top = top.bottom;
+  return {top, bottom};
+}
+
+static void
+DrawCell(Canvas &canvas, const PixelRect &row,
+         const LogbookColumnLayout &column, unsigned padding,
+         const char *text) noexcept
+{
+  const int left = row.left + column.x + int(padding);
+  const unsigned space = column.width > 2 * padding
+    ? column.width - 2 * padding
+    : 0;
+  const int y = (row.top + row.bottom - int(canvas.GetFontHeight())) / 2;
+
+  int x = left;
+  if (column.right_aligned) {
+    const unsigned w = canvas.CalcTextWidth(text);
+    if (w < space)
+      x = left + int(space - w);
+  }
+
+  canvas.DrawClippedText({x, y}, space - unsigned(x - left), text);
+}
+
+void
+LogbookListWidget::PaintHeader(Canvas &canvas, const PixelRect &rc) noexcept
+{
+  const DialogLook &look = UIGlobals::GetDialogLook();
+  canvas.Clear(look.list.selected.background_color);
+  canvas.Select(*look.list.font_bold);
+  canvas.SetTextColor(look.list.selected.text_color);
+  canvas.SetBackgroundTransparent();
+
+  for (const auto &column : columns)
+    DrawCell(canvas, rc, column, padding, GetColumnTitle(column.column));
+}
+
+void
+LogbookListWidget::Prepare(ContainerWindow &parent,
+                           const PixelRect &rc) noexcept
+{
+  const DialogLook &look = UIGlobals::GetDialogLook();
+  /* a visible gap between the columns, also where a long place name
+     is cut off */
+  padding = std::max(Layout::GetTextPadding(),
+                     look.list.font->GetHeight() / 4);
+  row_height = std::max(look.list.font->GetHeight(),
+                        look.list.font_bold->GetHeight()) + 4 * padding;
+  UpdateColumns(rc.GetWidth());
+
+  const auto [header_rc, list_rc] = Split(rc);
+
+  WindowStyle style;
+  style.Hide();
+  header.Create(parent, header_rc, style,
+                [this](Canvas &canvas, const PixelRect &r){
+                  PaintHeader(canvas, r);
+                });
+
+  CreateList(parent, look, list_rc, row_height);
+  Load();
+}
+
+void
+LogbookListWidget::Unprepare() noexcept
+{
+  header.Destroy();
+  ListWidget::Unprepare();
+}
+
+void
+LogbookListWidget::Show(const PixelRect &rc) noexcept
+{
+  UpdateColumns(rc.GetWidth());
+  const auto [header_rc, list_rc] = Split(rc);
+  header.MoveAndShow(header_rc);
+  ListWidget::Show(list_rc);
+}
+
+void
+LogbookListWidget::Hide() noexcept
+{
+  header.Hide();
+  ListWidget::Hide();
+}
+
+void
+LogbookListWidget::Move(const PixelRect &rc) noexcept
+{
+  UpdateColumns(rc.GetWidth());
+  const auto [header_rc, list_rc] = Split(rc);
+  header.Move(header_rc);
+  header.Invalidate();
+  ListWidget::Move(list_rc);
+  GetList().Invalidate();
+}
+
+void
+LogbookListWidget::OnPaintItem(Canvas &canvas, const PixelRect rc,
+                               unsigned list_index) noexcept
+{
+  const LogbookEntry &e = entries[ToEntryIndex(list_index)];
+
+  canvas.Select(*UIGlobals::GetDialogLook().list.font);
+  for (const auto &column : columns)
+    DrawCell(canvas, rc, column, padding,
+             FormatCell(e, column.column).c_str());
+}
+
+void
+LogbookListWidget::ShowDetails(unsigned list_index) noexcept
+{
+  if (list_index >= entries.size())
+    return;
+
+  LogbookEntry &entry = entries[ToEntryIndex(list_index)];
+  LogbookEntry edited = entry;
+
+  const DialogLook &look = UIGlobals::GetDialogLook();
+  TWidgetDialog<LogbookEntryWidget>
+    dialog(WidgetDialog::Auto{}, UIGlobals::GetMainWindow(), look,
+           _("Flight"));
+  dialog.SetWidget(look, edited);
+  dialog.AddButton(_("OK"), mrOK);
+  dialog.AddButton(_("Cancel"), mrCancel);
+
+  /* on OK, the dialog has saved the widget into "edited" already */
+  if (dialog.ShowModal() != mrOK || !dialog.GetChanged())
+    return;
+
+  entry = std::move(edited);
+  Store();
+  GetList().Invalidate();
+}
+
+void
+LogbookListWidget::DeleteClicked() noexcept
+{
+  const unsigned list_index = GetList().GetCursorIndex();
+  if (list_index >= entries.size())
+    return;
+
+  if (ShowMessageBox(_("Delete this flight from the log book?"),
+                     C_("Button", "Delete"), MB_YESNO) != IDYES)
+    return;
+
+  entries.erase(entries.begin() + ToEntryIndex(list_index));
+  Store();
+
+  GetList().SetLength(entries.size());
+  GetList().Invalidate();
+  UpdateButtons();
+}
+
+void
+LogbookListWidget::ExportClicked() noexcept
+{
+  if (!File::Exists(path)) {
+    ShowMessageBox(_("The log book is empty."), _("Log book"),
+                   MB_OK | MB_ICONINFORMATION);
+    return;
+  }
+
+  /* a USB stick or SD card, as for exporting flights; an OpenVario has
+     no file manager, and a spreadsheet on a PC reads the file */
+  const AllocatedPath target = PickStorageLocation();
+  if (target == nullptr)
+    return;
+
+  const auto device = FindDeviceByName(target);
+  if (!device) {
+    StaticString<64> message;
+    FormatDeviceNotFound(message, N_("Target"));
+    ShowMessageBox(message, _("Log book"), MB_OK | MB_ICONERROR);
+    return;
+  }
+
+  /* beside the exported flights (ExportFlightsPanel); an older copy
+     is replaced */
+  const AllocatedPath remote{"xcsoar_flights/logbook.csv"};
+  try {
+    device->CopyFromLocal(path, remote, nullptr);
+  } catch (...) {
+    ShowError(std::current_exception(), _("Log book"));
+    return;
+  }
+
+  StaticString<256> message;
+  message.Format(_("The log book was copied to %s."),
+                 device->Name().c_str());
+  ShowMessageBox(message, _("Log book"), MB_OK | MB_ICONINFORMATION);
+}
+
+void
+ShowLogbookDialog() noexcept
+{
+  TWidgetDialog<LogbookListWidget>
+    dialog(WidgetDialog::Full{}, UIGlobals::GetMainWindow(),
+           UIGlobals::GetDialogLook(), _("Log book"));
+  dialog.SetWidget();
+  dialog.GetWidget().CreateButtons(dialog);
+  dialog.AddButton(_("Close"), mrOK);
+  dialog.EnableCursorSelection();
+  dialog.ShowModal();
+}

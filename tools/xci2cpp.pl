@@ -54,13 +54,27 @@ sub append(\@\%\%) {
     push @$all, $record;
 }
 
+# Old mode names that are still accepted; see src/Input/InputParser.cpp
+my %mode_aliases = (RemoteStick => 'QuickMenu');
+
 sub get_mode($) {
     my $name = shift;
+    $name = $mode_aliases{$name} if exists $mode_aliases{$name};
     return $mode_map{$name} if exists $mode_map{$name};
     push @modes, $name;
     my $i = $#modes;
     $mode_map{$name} = $i;
     return $i;
+}
+
+# The place of a quick menu button, see ParsePlace() in
+# src/Input/InputParser.cpp: returns (columns, location)
+sub parse_place($) {
+    my $value = shift;
+    return (0, 0) unless defined $value;
+    return ($1, $2) if $value =~ /^(\d+):(\d+)$/;
+    return (0, $1) if $value =~ /^(\d+)$/;
+    die "Invalid place: $value\n";
 }
 
 sub commit(\%) {
@@ -92,7 +106,14 @@ sub commit(\%) {
         $label =~ s|\\([^rn\\])|\\\\$1|g if ($label);
         $label = '' unless defined $label;
         my $location = $rec->{location};
-        push @labels, [ $mode_id, $label, $location, $event_id ]
+        # the placement in the quick menu, see Menu::Placement
+        # "C:N" is location N counted in C columns
+        my ($portrait_columns, $portrait) = parse_place($rec->{portrait});
+        my ($landscape_columns, $landscape) = parse_place($rec->{landscape});
+        my $center = ($rec->{center} || '') =~ /^(yes|1)$/ ? 'true' : 'false';
+        push @labels, [ $mode_id, $label, $location, $portrait, $landscape,
+                        $portrait_columns, $landscape_columns,
+                        $center, $event_id ]
           if defined $location;
 
         next unless $event_id > 0;
@@ -156,6 +177,13 @@ while (<>) {
         print STDERR "Error on $line - $_\n";
     }
 
+    # A record ends with its file, even without a trailing empty
+    # line; otherwise it would merge with the first record of the
+    # next file when several files are given.
+    if (eof) {
+        append(@all, %indices, %$current);
+        $current = { event => [] };
+    }
 }
 
 append(@all, %indices, %$current);
@@ -214,10 +242,11 @@ print "};\n";
 
 print "static constexpr struct flat_label default_labels[] = {\n";
 foreach my $l (@labels) {
-    my ($mode, $label, $location, $event) = @$l;
-    print qq|  { $mode, $location, $event, "$label" },\n|;
+    my ($mode, $label, $location, $portrait, $landscape,
+        $portrait_columns, $landscape_columns, $center, $event) = @$l;
+    print qq|  { $mode, $location, $portrait, $landscape, $portrait_columns, $landscape_columns, $center, $event, "$label" },\n|;
 }
-print "  { 0, 0, 0, NULL },\n";
+print "  { 0, 0, 0, 0, 0, 0, false, 0, NULL },\n";
 print "};\n";
 
 print "static constexpr struct flat_gesture_map default_gesture2event[] = {\n";

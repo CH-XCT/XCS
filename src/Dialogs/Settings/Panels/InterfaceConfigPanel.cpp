@@ -20,6 +20,12 @@
 #include "Hardware/Vibrator.hpp"
 #include "Repository/FileType.hpp"
 #include "Version.hpp"
+#include "Input/InputEvents.hpp"
+#include "util/IterableSplitString.hxx"
+
+#include <algorithm>
+#include <string>
+#include <vector>
 
 using namespace std::chrono;
 
@@ -29,7 +35,9 @@ enum ControlIndex {
   LanguageFile,
 #endif
   MenuTimeout,
+  StartupTimeout,
   TextInput,
+  QuickMenuStyle,
 #ifdef HAVE_VIBRATOR
   HapticFeedback,
 #endif
@@ -75,12 +83,15 @@ InterfaceConfigPanel::Prepare(ContainerWindow &parent,
 
   RowFormWidget::Prepare(parent, rc);
 
-  AddFile(_("Events"),
-          _("The Input Events file defines the menu system and how XCSoar responds to "
-            "button presses and events from external devices."),
-          ProfileKeys::InputFile,
-          GetFileTypePatterns(FileType::XCI),
-          FileType::XCI);
+  AddMultipleFiles(_("Events"),
+                   _("The Input Events files define the menu system and how "
+                     "OpenSoar responds to button presses and events from "
+                     "external devices.  They are read on top of the "
+                     "built-in configuration in the order of their names, "
+                     "so a file can override an entry of a file before it."),
+                   ProfileKeys::InputFileList,
+                   GetFileTypePatterns(FileType::XCI),
+                   FileType::XCI);
   SetExpertRow(InputFile);
 
 #ifdef HAVE_NLS
@@ -131,6 +142,13 @@ InterfaceConfigPanel::Prepare(ContainerWindow &parent,
               settings.menu_timeout / 2);
   SetExpertRow(MenuTimeout);
 
+  AddDuration(_("Startup timeout"),
+              _("How long the profile dialog waits at startup before it "
+                "continues with the preselected profile.  Any input stops "
+                "the countdown; zero waits for the user."),
+              seconds{0}, minutes{2}, seconds{1},
+              settings.startup_timeout);
+
   static constexpr StaticEnumChoice text_input_list[] = {
     { DialogSettings::TextInputStyle::Default, N_("Default") },
     { DialogSettings::TextInputStyle::Keyboard, N_("Keyboard") },
@@ -147,6 +165,20 @@ InterfaceConfigPanel::Prepare(ContainerWindow &parent,
   /* on-screen keyboard doesn't work without a pointing device
      (mouse or touch screen) */
   SetRowAvailable(TextInput, HasPointer());
+
+  static constexpr StaticEnumChoice quick_menu_style_list[] = {
+    { UISettings::QuickMenuStyle::XCSOAR, N_("XCSoar"),
+      N_("Three columns, the buttons in the order of their locations, "
+         "page by page.") },
+    { UISettings::QuickMenuStyle::DYNAMIC, N_("Dynamic"),
+      N_("As many columns as fit, every button at its location, and a "
+         "list of its own for ground, flight and after landing.") },
+    nullptr
+  };
+
+  AddEnum(_("Quick menu"),
+          _("How the quick menu arranges its buttons."),
+          quick_menu_style_list, (unsigned)settings.quick_menu_style);
 
 #ifdef HAVE_VIBRATOR
   static constexpr StaticEnumChoice haptic_feedback_list[] = {
@@ -206,14 +238,45 @@ InterfaceConfigPanel::Prepare(ContainerWindow &parent,
   SetExpertRow(DisclaimerAccepted);
 }
 
+/**
+ * Store the input events files in the order in which they are read,
+ * so that the row shows that order and not the order of ticking.
+ */
+static void
+SortInputFileList() noexcept
+{
+  std::vector<std::string> files;
+  for (const auto i : TIterableSplitString(
+         Profile::Get(ProfileKeys::InputFileList, ""), '|'))
+    if (!i.empty())
+      files.emplace_back(i);
+
+  std::stable_sort(files.begin(), files.end(),
+                   [](const std::string &a, const std::string &b){
+                     return InputEvents::IsReadBefore(Path(a.c_str()),
+                                                      Path(b.c_str()));
+                   });
+
+  std::string value;
+  for (const auto &i : files) {
+    if (!value.empty())
+      value += '|';
+    value += i;
+  }
+
+  Profile::Set(ProfileKeys::InputFileList, value.c_str());
+}
+
 bool
 InterfaceConfigPanel::Save(bool &_changed) noexcept
 {
   UISettings &settings = CommonInterface::SetUISettings();
   bool changed = false;
 
-  if (SaveValueFileReader(InputFile, ProfileKeys::InputFile))
-    InputFileChanged = changed = true;
+  if (SaveValueMultiFileReader(InputFile, ProfileKeys::InputFileList)) {
+    SortInputFileList();
+    require_restart = changed = true;
+  }
 
 #ifdef HAVE_NLS
   WndProperty *wp = (WndProperty *)&GetControl(LanguageFile);
@@ -272,8 +335,18 @@ InterfaceConfigPanel::Save(bool &_changed) noexcept
     changed = true;
   }
 
+  duration<unsigned> startup_timeout = GetValueTime(StartupTimeout);
+  if (settings.startup_timeout != startup_timeout) {
+    settings.startup_timeout = startup_timeout;
+    Profile::Set(ProfileKeys::StartupTimeout, startup_timeout);
+    changed = true;
+  }
+
   if (HasPointer())
     changed |= SaveValueEnum(TextInput, ProfileKeys::AppTextInputStyle, settings.dialog.text_input_style);
+
+  changed |= SaveValueEnum(QuickMenuStyle, ProfileKeys::QuickMenuStyle,
+                           settings.quick_menu_style);
 
 #ifdef HAVE_VIBRATOR
   changed |= SaveValueEnum(HapticFeedback, ProfileKeys::HapticFeedback, settings.haptic_feedback);

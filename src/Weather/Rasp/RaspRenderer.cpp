@@ -175,9 +175,7 @@ RaspRenderer::Generate(const WindowProjection &projection,
     last_ramp_hash = materialized_color_ramp.hash;
   }
 
-  /* A new forecast shares this view, so the pan shortcut would keep
-     the previous samples. */
-  raster_renderer.ScanMap(*map, projection, map != last_map);
+  raster_renderer.ScanMap(*map, projection);
 
   const unsigned contour_spacing =
     ContourSpacing(contour_density, height_scale);

@@ -2,7 +2,6 @@
 // Copyright The XCSoar Project
 
 #include "io/BackupPaths.hpp"
-#include "Compatibility/path.h"
 #include "TestUtil.hpp"
 
 int main()
@@ -17,16 +16,12 @@ int main()
   ok1(!IsBackupExcludedPath("logs/flight.igc"));
 
   ok1(MakeArchiveNameIfUnderRoot(Path(nullptr), Path("/data")).empty());
-  ok1(MakeArchiveNameIfUnderRoot(
-        Path(DIR_SEPARATOR_S "data" DIR_SEPARATOR_S "xcsoar.prf"),
-        Path(DIR_SEPARATOR_S "data")) == "xcsoar.prf");
-  ok1(MakeArchiveNameIfUnderRoot(
-        Path(DIR_SEPARATOR_S "data" DIR_SEPARATOR_S "logs"
-             DIR_SEPARATOR_S "a.igc"),
-        Path(DIR_SEPARATOR_S "data")) == "logs/a.igc");
-  ok1(MakeArchiveNameIfUnderRoot(
-        Path(DIR_SEPARATOR_S "other" DIR_SEPARATOR_S "a.igc"),
-        Path(DIR_SEPARATOR_S "data")).empty());
+  ok1(MakeArchiveNameIfUnderRoot(Path("/data/xcsoar.prf"),
+                                 Path("/data")) == "xcsoar.prf");
+  ok1(MakeArchiveNameIfUnderRoot(Path("/data/logs/a.igc"),
+                                 Path("/data")) == "logs/a.igc");
+  ok1(MakeArchiveNameIfUnderRoot(Path("/other/a.igc"),
+                                 Path("/data")).empty());
 
   return exit_status();
 }

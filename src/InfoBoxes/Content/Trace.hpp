@@ -4,6 +4,7 @@
 #pragma once
 
 #include "InfoBoxes/Content/Base.hpp"
+#include "InfoBoxes/Content/Altitude.hpp"
 
 class Validity;
 class TraceVariableHistory;
@@ -43,7 +44,7 @@ public:
   void OnCustomPaint(Canvas &canvas, const PixelRect &rc) noexcept override;
 };
 
-class InfoBoxContentBarogram : public InfoBoxContent
+class InfoBoxContentBarogram : public InfoBoxContentAltitude
 {
 public:
   void Update(InfoBoxData &data) noexcept override;

@@ -282,55 +282,6 @@ Shutdown clears each network client's store pointer in its
 ``BeginShutdown()`` before that client's work is cancelled, and clears
 the map pointer before ``delete data_components``.
 
-.. _loading-configured-files:
-
-Loading configured files
-~~~~~~~~~~~~~~~~~~~~~~~~
-
-A file on disk is not the in-memory object.  Three kinds of source
-feed the lists in `Origin stores`_.
-
-**Map zip.**  The configured ``.xcm`` supplies ``terrain.jp2`` and
-``topology.tpl``.  It may also contain ``waypoints.cup`` or
-``waypoints.xcw``, ``airspace.txt``, and ``airfields.txt``.  Those
-members are still read: map waypoints only when no primary or watched
-waypoint file produced a row; ``airspace.txt`` is merged with the
-configured OpenAir files; ``airfields.txt`` is applied as waypoint
-details.  :file:`SettingsLeave` therefore treats ``MapFileChanged`` as
-a waypoint, airspace, airfield, terrain, and topography change.
-
-**Profile path.**  A Site files entry is one source: the map file, a
-waypoint or airspace list, FLARMNet, RASP, the checklist, or the input
-file.  Reloading one origin deletes only that origin's rows.
-
-**Live feed.**  NOTAM, traffic, Cloud, and SkyLines are not files.
-NOTAM replaces ``AirspaceOrigin::NOTAM`` and leaves file airspace in
-place.  Traffic (:file:`FLARM/List`) keeps one slot per aircraft id,
-updated and expired in place.
-
-The reload runs on the UI thread.  A download callback queues the
-path and :file:`UI::Notify` delivers it.  Waypoint and airspace edits
-suspend the other threads (:file:`ScopeSuspendAllThreads`, or
-:file:`SuspendAllThreads` inside :file:`SettingsLeave`) and bump
-``Serial`` on the list.
-
-**Map zip finished loading.**  :file:`MainWindow::LoadTerrain` reads
-the zip on a worker.  :file:`OnTerrainLoaded` then installs the
-terrain, fills waypoint elevations that were missing, updates home,
-and sets airspace ground levels.  Topography and the waypoint and
-airspace files stay as they were.
-
-**File Manager, or startup auto-update.**
-:file:`ApplyConfiguredDataFiles` compares each downloaded path with
-the Site files profile keys.  A path that is not selected is left on
-disk.  A match sets the same flags Setup uses and calls
-:file:`SettingsEnter` / :file:`SettingsLeave`.  An updated ``.xcm``
-still reloads the zip's waypoint, airspace, and airfield members.  An
-OpenAir update drops file and map airspace rows, rereads them, and
-clears airspace warnings; NOTAM rows stay.  Startup auto-update skips
-that reload while flying: the new file stays on disk until the next
-start.
-
 Background file jobs
 ~~~~~~~~~~~~~~~~~~~~
 
@@ -829,20 +780,8 @@ Murphy; NASA 9.3.3.4.7).  Do not invent a parallel gesture language.
    is armed is a drag or a cancel, not a tap.
 
 -  Cursor keys and a remote stick must reach the same actions as
-   touch.  On a selected InfoBox, the arrow keys move to the InfoBox
-   in that screen direction (``InfoBoxArrange::FindNeighbour``): left
-   is left, right is right, and they do not follow the slot number.
-   Enter does what a short press does.  Holding Enter until the hold
-   is armed, then releasing, opens arrange, the same as a long press.
-   In arrange mode that hold opens the InfoBox list.  A short Enter
-   there takes or puts down the selected card, and does not also
-   open the list.
-   Escape on the map, with no
-   dialogue, menu, or special page open, selects the first InfoBox.
-   Escape on a selected InfoBox returns to the map.  A long press,
-   and the arrange screen, are the same action.  E-paper skips hold
-   animation
-   (``HasEPaper()`` / ``IsSlowCPU()``).
+   touch.  E-paper skips hold animation (``HasEPaper()`` /
+   ``IsSlowCPU()``).
 
 Main graphics
 ~~~~~~~~~~~~~

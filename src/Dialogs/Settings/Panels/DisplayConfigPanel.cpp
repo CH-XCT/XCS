@@ -2,6 +2,7 @@
 // Copyright The XCSoar Project
 
 #include "DisplayConfigPanel.hpp"
+#include "SystemConfig.hpp"
 #include "ui/canvas/Features.hpp" // for DRAW_MOUSE_CURSOR
 #include "ui/window/Features.hpp" // for HAVE_FULL_SCREEN_SETTING
 #include "Profile/Keys.hpp"
@@ -21,9 +22,13 @@
 #include "Widget/StaticHelpTextWidget.hpp"
 #include "MainWindow.hpp"
 #include "LogFile.hpp"
+
+#include <algorithm>
+#include <iterator>
 #include "Language/Language.hpp"
 #include "Widget/RowFormWidget.hpp"
 #include "UIGlobals.hpp"
+#include "UtilsSettings.hpp"
 #include "Asset.hpp"
 #include "util/Macros.hpp"
 #include "util/StaticString.hxx"
@@ -211,19 +216,80 @@ static constexpr StaticEnumChoice display_orientation_list[] = {
   nullptr
 };
 
-static void
-FillDpiChoices(DataFieldEnum &df, unsigned value) noexcept
+void
+FillDpiChoices(DataFieldEnum &df, unsigned value,
+               unsigned device_dpi) noexcept
 {
-  static constexpr unsigned dpi_choices[] = {
-    120, 160, 240, 260, 280, 300, 340, 360, 400, 420, 520,
+  /* some displays report a wrong physical size, so the automatic
+     resolution is off; a value with a display named after it is the
+     measured resolution of that display, so the pilot does not have
+     to measure it again */
+  static constexpr struct {
+    unsigned dpi;
+    const char *display;
+  } dpi_choices[] = {
+    { 120, nullptr },
+
+    /* 5.7" panel with 640 x 480 pixels and a visible area of
+       115 x 87 mm (SteFlyNav, Android), measured 141 dpi; 140 is the
+       density the device itself is set to, and the difference does
+       not show */
+    { 140, "5.7\", 640x480 px" },
+
+    { 160, nullptr },
+
+    /* 7.0" panel with 1024 x 600 pixels (SteFlyNav 7.0", Android): the
+       device is set to a density of 180 (ro.sf.lcd_density) and
+       reports the placeholder 213 dpi; from the diagonal it has about
+       170 dpi */
+    { 180, "7.0\", 1024x600 px" },
+
+    { 240, nullptr },
+    { 260, nullptr },
+    { 280, nullptr },
+    { 300, nullptr },
+    { 340, nullptr },
+    { 360, nullptr },
+    { 400, nullptr },
+    { 420, nullptr },
+    { 520, nullptr },
   };
 
-  df.AddChoice(0, _("Automatic"));
-  for (unsigned dpi : dpi_choices) {
-    StaticString<20> buffer;
+  if (device_dpi > 0) {
+    StaticString<48> buffer;
+    buffer.Format("%s (%u dpi)", _("Device setting"), device_dpi);
+    df.AddChoice(0, buffer);
+  } else
+    df.AddChoice(0, _("Automatic"));
+
+  /* a value written into the file by hand (e.g. 145) is not in the
+     list; it is offered at its place in the order, so the dialog
+     shows it and keeps it */
+  const bool listed = value == 0 ||
+    std::any_of(std::begin(dpi_choices), std::end(dpi_choices),
+                [value](const auto &c){ return c.dpi == value; });
+  bool added = listed;
+
+  auto add = [&df](unsigned dpi, const char *display) {
+    StaticString<48> buffer;
     buffer.Format(_("%u dpi"), dpi);
+    if (display != nullptr)
+      buffer.AppendFormat(" (%s)", display);
     df.AddChoice(dpi, buffer);
+  };
+
+  for (const auto &c : dpi_choices) {
+    if (!added && value < c.dpi) {
+      add(value, nullptr);
+      added = true;
+    }
+
+    add(c.dpi, c.display);
   }
+
+  if (!added)
+    add(value, nullptr);
+
   df.SetValue(value);
 }
 
@@ -275,7 +341,7 @@ DisplayConfigPanel::Prepare(ContainerWindow &parent,
                                 _("The display resolution is used to adapt line widths, "
                                   "font size, landable size and more."));
   FillDpiChoices(*(DataFieldEnum *)wp_dpi->GetDataField(),
-                 ui_settings.custom_dpi);
+                 ui_settings.custom_dpi, SystemConfig::Get().custom_dpi);
   wp_dpi->RefreshDisplay();
   SetExpertRow(CustomDPI);
 
@@ -354,14 +420,8 @@ DisplayConfigPanel::Save(bool &_changed) noexcept
   }
 
   if (SaveValueEnum(CustomDPI, ProfileKeys::CustomDPI,
-                    ui_settings.custom_dpi)) {
-    changed = true;
-    if (CommonInterface::main_window != nullptr) {
-      CommonInterface::main_window->Initialise();
-      CommonInterface::main_window->ReinitialiseLook();
-      CommonInterface::main_window->ReinitialiseLayout();
-    }
-  }
+                    ui_settings.custom_dpi))
+    require_restart = changed = true;
 
   if (Display::RotateSupported() &&
       SaveValueEnum(Orientation, ProfileKeys::MapOrientation,

@@ -13,6 +13,9 @@
 #include "PageActions.hpp"
 #include "Language/Language.hpp"
 #include "Profile/PageProfile.hpp"
+#include "Profile/Profile.hpp"
+#include "Dialogs/WidgetDialog.hpp"
+#include "UIState.hpp"
 #include "Profile/Current.hpp"
 #include "Interface.hpp"
 #include "DataGlobals.hpp"
@@ -20,6 +23,7 @@
 #ifdef HAVE_WEATHER_OVERLAY
 #include "Weather/EUMETView/Satellite.hpp"
 #endif
+#include "MapWindow/BaseMap/Features.hpp"
 #include "Weather/Rasp/FieldControls.hpp"
 #include "Weather/Rasp/RaspStore.hpp"
 #ifdef HAVE_EDL
@@ -54,6 +58,7 @@ public:
 private:
   enum Controls {
     MAIN,
+    BASE_MAP,
     INFO_BOX_PANEL,
     BOTTOM,
     OVERLAY,
@@ -406,6 +411,7 @@ PageLayoutEditWidget::UpdateOverlayControls() noexcept
     }
   }
 
+  SetRowEnabled(BASE_MAP, map_page);
   SetRowEnabled(OVERLAY, map_page);
   SetRowEnabled(OVERLAY_DETAIL, detail_enabled);
 }
@@ -413,6 +419,8 @@ PageLayoutEditWidget::UpdateOverlayControls() noexcept
 void
 PageLayoutEditWidget::ApplyValueToForm() noexcept
 {
+  LoadValueEnum(BASE_MAP, value.base_map);
+  GetControl(BASE_MAP).RefreshDisplay();
   LoadValueEnum(BOTTOM, value.bottom);
   GetControl(BOTTOM).RefreshDisplay();
   LoadValueEnum(OVERLAY, value.overlay);
@@ -433,12 +441,33 @@ PageLayoutEditWidget::Prepare([[maybe_unused]] ContainerWindow &parent, [[maybe_
     { PageLayout::Main::FLARM_RADAR, N_("FLARM Radar") },
     { PageLayout::Main::THERMAL_ASSISTANT, N_("Thermal Assistant") },
     { PageLayout::Main::HORIZON, N_("Horizon") },
+    { PageLayout::Main::VARIO, N_("Vario") },
     nullptr
   };
   AddEnum(_("Main area"),
           _("Specifies what should be displayed in the main area."),
           main_list,
           (unsigned)PageLayout::Main::MAP, this);
+
+  static constexpr StaticEnumChoice base_map_list[] = {
+    { PageLayout::BaseMap::TERRAIN_TOPOGRAPHY, N_("Terrain and topography"),
+      N_("Terrain and topography as configured in the map settings.") },
+    { PageLayout::BaseMap::TOPOGRAPHY, N_("Topography only"),
+      N_("Topography on a plain background, without terrain.") },
+    { PageLayout::BaseMap::EMPTY, N_("Empty"),
+      N_("A plain background without terrain and topography.") },
+#ifdef HAVE_BASE_MAP_TILES
+    { PageLayout::BaseMap::OSM, "OpenStreetMap",
+      N_("OpenStreetMap tiles instead of terrain and topography. "
+         "The tiles are downloaded while online and kept in the cache.") },
+#endif
+    nullptr
+  };
+  AddEnum(_("Base map"),
+          _("What the map draws underneath airspaces, waypoints and the task on this page."),
+          base_map_list,
+          (unsigned)PageLayout::BaseMap::TERRAIN_TOPOGRAPHY, this);
+  GetControl(BASE_MAP).GetDataField()->EnableItemHelp(true);
 
   static constexpr StaticEnumChoice ib_list[] = {
     { IBP_AUTO, NC_("Setting", "Auto"), N_("Displays either the Circling, Cruise, or Final glide InfoBoxes.") },
@@ -525,6 +554,7 @@ PageLayoutEditWidget::SetValue(const PageLayout &_value)
   value.Normalise();
 
   LoadValueEnum(MAIN, value.main);
+  LoadValueEnum(BASE_MAP, value.base_map);
   LoadValueEnum(BOTTOM, value.bottom);
   LoadValueEnum(OVERLAY, value.overlay);
 
@@ -553,6 +583,9 @@ PageLayoutEditWidget::OnModified(DataField &df) noexcept
     value.main = (PageLayout::Main)dfe.GetValue();
     if (!value.IsMapMain())
       value.overlay = PageLayout::Overlay::NONE;
+  } else if (&df == &GetDataField(BASE_MAP)) {
+    const DataFieldEnum &dfe = (const DataFieldEnum &)df;
+    value.base_map = (PageLayout::BaseMap)dfe.GetValue();
   } else if (&df == &GetDataField(INFO_BOX_PANEL)) {
     const DataFieldEnum &dfe = (const DataFieldEnum &)df;
     const unsigned ibp = dfe.GetValue();
@@ -960,4 +993,61 @@ CreatePagesConfigPanel()
   list_widget.SetButtonPanel(*buttons);
 
   return buttons;
+}
+
+namespace {
+
+/**
+ * Collects the edits of a single page for ShowPageSettingsDialog().
+ */
+class SinglePageListener final : public PageLayoutEditWidget::Listener {
+public:
+  PageLayout value;
+
+  explicit SinglePageListener(const PageLayout &_value) noexcept
+    :value(_value) {}
+
+  void OnModified(const PageLayout &new_value) noexcept override {
+    value = new_value;
+  }
+};
+
+} // anonymous namespace
+
+void
+ShowPageSettingsDialog() noexcept
+{
+  const unsigned index = CommonInterface::GetUIState().pages.current_index;
+  const PageSettings &settings = CommonInterface::GetUISettings().pages;
+  if (index >= settings.n_pages)
+    return;
+
+  SinglePageListener listener{settings.pages[index]};
+
+  StaticString<64> caption;
+  caption.Format("%s %u", _("Page"), index + 1);
+
+  const DialogLook &look = UIGlobals::GetDialogLook();
+  TWidgetDialog<PageLayoutEditWidget>
+    dialog(WidgetDialog::Auto{}, UIGlobals::GetMainWindow(), look,
+           caption);
+  dialog.AddButton(_("OK"), mrOK);
+  dialog.AddButton(_("Cancel"), mrCancel);
+  dialog.SetWidget(look, listener);
+  dialog.GetWidget().SetValue(listener.value);
+
+  if (dialog.ShowModal() != mrOK)
+    return;
+
+  PageLayout value = listener.value;
+  value.Normalise();
+
+  PageLayout &dest = CommonInterface::SetUISettings().pages.pages[index];
+  if (value == dest)
+    return;
+
+  dest = value;
+  Profile::Save(Profile::map, value, index);
+  Profile::Save();
+  PageActions::Update();
 }

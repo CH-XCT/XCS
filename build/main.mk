@@ -1,10 +1,17 @@
 # Product name (default: XCSoar, can be overridden via PRODUCT_NAME variable)
 PRODUCT_NAME ?= XCSoar
 
+# A branded tree spells the executable as brand.mk says; an unbranded one
+# follows the platform convention, which is lower case on POSIX.  Both are
+# recursively expanded on purpose: brand.mk is read from options.mk and may
+# come after this file.  The message catalogue is lower case either way,
+# which is what PROGRAM_NAME_LC is for.
+PROGRAM_NAME_LC = $(shell echo $(PRODUCT_NAME) | tr '[:upper:]' '[:lower:]')
+
 ifeq ($(HAVE_POSIX),y)
-PROGRAM_NAME = $(shell echo $(PRODUCT_NAME) | tr '[:upper:]' '[:lower:]')
+PROGRAM_NAME = $(or $(BRAND_PROGRAM_NAME),$(PROGRAM_NAME_LC))
 else
-PROGRAM_NAME = $(PRODUCT_NAME)
+PROGRAM_NAME = $(or $(BRAND_PROGRAM_NAME),$(PRODUCT_NAME))
 endif
 
 DIALOG_SOURCES = \
@@ -13,6 +20,7 @@ DIALOG_SOURCES = \
 	$(SRC)/Dialogs/VhfLink.cpp \
 	$(SRC)/Dialogs/Message.cpp \
 	$(SRC)/Dialogs/LockScreen.cpp \
+	$(SRC)/Dialogs/LogbookDialog.cpp \
 	$(SRC)/Dialogs/Error.cpp \
 	$(SRC)/Dialogs/ListPicker.cpp \
 	$(SRC)/Dialogs/ProgressDialog.cpp \
@@ -39,6 +47,7 @@ DIALOG_SOURCES = \
 	$(SRC)/Dialogs/Device/CAI302/UnitsEditor.cpp \
 	$(SRC)/Dialogs/Device/CAI302/WaypointUploader.cpp \
 	$(SRC)/Dialogs/Device/ManageFlarmDialog.cpp \
+	$(SRC)/Dialogs/Device/SteFly/ManageRemoteDialog.cpp \
 	$(SRC)/Dialogs/Device/BlueFly/BlueFlyConfigurationDialog.cpp \
 	$(SRC)/Dialogs/Device/Stratux/ConfigurationDialog.cpp \
 	$(SRC)/Dialogs/Device/GDL90/ConfigurationDialog.cpp \
@@ -78,6 +87,7 @@ DIALOG_SOURCES = \
 	$(SRC)/Dialogs/Traffic/TeamCodeDialog.cpp \
 	$(SRC)/Dialogs/dlgAnalysis.cpp \
 	$(SRC)/Dialogs/dlgChecklist.cpp \
+	$(SRC)/Dialogs/FrequencyDialog.cpp \
 	$(SRC)/Dialogs/ProfileListDialog.cpp \
 	$(SRC)/Dialogs/Plane/PlaneListDialog.cpp \
 	$(SRC)/Dialogs/Plane/PlaneDetailsDialog.cpp \
@@ -97,6 +107,7 @@ DIALOG_SOURCES = \
 	$(SRC)/Dialogs/ReplayDialog.cpp \
 	$(SRC)/Dialogs/dlgSimulatorPrompt.cpp \
 	$(SRC)/Dialogs/SimulatorPromptWindow.cpp \
+	$(SRC)/Dialogs/PowerDialog.cpp \
 	$(SRC)/Dialogs/StartupDialog.cpp \
 	$(SRC)/Dialogs/ProfilePasswordDialog.cpp \
 	\
@@ -123,6 +134,7 @@ DIALOG_SOURCES = \
 	$(SRC)/Dialogs/Settings/Panels/GaugesConfigPanel.cpp \
 	$(SRC)/Dialogs/Settings/Panels/MapOverlaysConfigPanel.cpp \
 	$(SRC)/Dialogs/Settings/Panels/TrafficConfigPanel.cpp \
+	$(SRC)/Dialogs/Settings/Panels/VarioDisplayConfigPanel.cpp \
 	$(SRC)/Dialogs/Settings/Panels/DisplayConfigPanel.cpp \
 	$(SRC)/Dialogs/Settings/Panels/VarioConfigPanel.cpp \
 	$(SRC)/Dialogs/Settings/Panels/GlideComputerConfigPanel.cpp \
@@ -139,6 +151,7 @@ DIALOG_SOURCES = \
 	$(SRC)/Dialogs/Settings/Panels/RouteConfigPanel.cpp \
 	$(SRC)/Dialogs/Settings/Panels/SafetyFactorsConfigPanel.cpp \
 	$(SRC)/Dialogs/Settings/Panels/SiteConfigPanel.cpp \
+	$(SRC)/Dialogs/Settings/Panels/SystemConfigPanel.cpp \
 	$(SRC)/Dialogs/Settings/Panels/SymbolsConfigPanel.cpp \
 	$(SRC)/Dialogs/Settings/Panels/TaskRulesConfigPanel.cpp \
 	$(SRC)/Dialogs/Settings/Panels/TaskDefaultsConfigPanel.cpp \
@@ -187,7 +200,31 @@ DIALOG_SOURCES = \
 	$(SRC)/Dialogs/dlgCredits.cpp \
 	$(SRC)/Dialogs/dlgQuickGuide.cpp \
 	$(SRC)/Dialogs/dlgGestureHelp.cpp \
-	$(SRC)/Dialogs/dlgQuickMenu.cpp
+	$(SRC)/Dialogs/dlgQuickMenu.cpp \
+	$(SRC)/Dialogs/MapDisplayDialog.cpp
+
+ifeq ($(TARGET_IS_OPENVARIO),y)
+# the OpenVario pages of the configuration dialog (dlgConfiguration)
+DIALOG_SOURCES += \
+	$(SRC)/Dialogs/ProcessDialog.cpp \
+	\
+	$(SRC)/OpenVario/SystemSettingsWidget.cpp \
+	$(SRC)/OpenVario/DisplaySettingsWidget.cpp \
+	$(SRC)/OpenVario/FileMenuWidget.cpp \
+	$(SRC)/OpenVario/ExtraWidget.cpp \
+	\
+	$(SRC)/OpenVario/System/SystemMenuWidget.cpp \
+	$(SRC)/OpenVario/System/OpenVarioDevice.cpp \
+	$(SRC)/OpenVario/System/OpenVarioTools.cpp \
+	\
+	$(SRC)/OpenVario/System/Setting/RotationWidget.cpp \
+	$(SRC)/OpenVario/System/Setting/WifiWidget.cpp \
+	\
+	$(SRC)/OpenVario/System/WifiDialogOV.cpp \
+	$(SRC)/OpenVario/System/WifiSupplicantOV.cpp \
+	$(SRC)/OpenVario/System/WifiDBus.cpp \
+	$(SRC)/OpenVario/System/NMConnector.cpp
+endif
 
 ifeq ($(HAVE_PCM_PLAYER),y)
 DIALOG_SOURCES += \
@@ -229,6 +266,7 @@ XCSOAR_SOURCES := \
 	$(SRC)/Radio/RadioFrequency.cpp \
 	$(SRC)/Radio/TransponderCode.cpp \
 	$(SRC)/Radio/TransponderMode.cpp \
+	$(SRC)/FrequencyList.cpp \
 	\
 	$(SRC)/Engine/Navigation/TraceHistory.cpp \
 	$(SRC)/Engine/Navigation/Aircraft.cpp \
@@ -295,9 +333,17 @@ XCSOAR_SOURCES := \
 	$(SRC)/Logger/ExternalLogger.cpp \
 	$(SRC)/Logger/FlightLogger.cpp \
 	$(SRC)/Logger/GlueFlightLogger.cpp \
+	$(SRC)/Logger/GlueLogbook.cpp \
+	$(SRC)/Logger/GlueRecorderDownload.cpp \
+	$(SRC)/Logger/Logbook.cpp \
+	$(SRC)/Logger/LogbookBuilder.cpp \
+	$(SRC)/Logger/LogbookPlace.cpp \
+	$(SRC)/Logger/LogbookRecorder.cpp \
+	$(SRC)/Logger/LogbookReplay.cpp \
 	$(SRC)/Replay/Replay.cpp \
 	$(SRC)/Replay/IgcReplay.cpp \
 	$(SRC)/Replay/NmeaReplay.cpp \
+	$(SRC)/Replay/SensorLogReplay.cpp \
 	$(SRC)/Replay/DemoReplay.cpp \
 	$(SRC)/Replay/DemoReplayGlue.cpp \
 	$(SRC)/Replay/TaskAutoPilot.cpp \
@@ -322,6 +368,8 @@ XCSOAR_SOURCES := \
 	$(SRC)/CrossSection/CrossSectionWidget.cpp \
 	\
 	$(SRC)/Gauge/ThermalAssistantRenderer.cpp \
+	$(SRC)/Gauge/VarioDisplayWindow.cpp \
+	$(SRC)/Gauge/VarioDisplayWidget.cpp \
 	$(SRC)/Gauge/ThermalAssistantWindow.cpp \
 	$(SRC)/Gauge/BigThermalAssistantWindow.cpp \
 	$(SRC)/Gauge/BigThermalAssistantWidget.cpp \
@@ -338,6 +386,7 @@ XCSOAR_SOURCES := \
 	\
 	$(SRC)/Waypoint/WaypointDetailsReader.cpp \
 	$(SRC)/Menu/MenuData.cpp \
+	$(SRC)/Menu/QuickMenuLayout.cpp \
 	$(SRC)/Menu/MenuBar.cpp \
 	$(SRC)/Menu/Glue.cpp \
 	$(SRC)/Menu/ButtonLabel.cpp \
@@ -463,7 +512,6 @@ XCSOAR_SOURCES := \
 	$(SRC)/DisplayMode.cpp \
 	\
 	$(SRC)/Markers/Markers.cpp \
-	$(SRC)/Session/SessionFile.cpp \
 	\
 	$(SRC)/FlightStatistics.cpp \
 	$(SRC)/FlightInfo.cpp \
@@ -495,6 +543,10 @@ XCSOAR_SOURCES := \
 	$(SRC)/Language/Table.cpp \
 	$(SRC)/DataFilePath.cpp \
 	$(SRC)/LocalPath.cpp \
+	$(SRC)/PowerControl.cpp \
+	$(SRC)/SystemConfig.cpp \
+	$(SRC)/Device/PortsConfig.cpp \
+	$(SRC)/Device/PortsGlue.cpp \
 	$(SRC)/UIActions.cpp \
 	$(SRC)/Interface.cpp \
 	$(SRC)/ActionInterface.cpp \
@@ -556,6 +608,7 @@ XCSOAR_SOURCES := \
 	$(SRC)/Repository/CountryName.cpp \
 	$(SRC)/Repository/FileRepository.cpp \
 	$(SRC)/Repository/FileType.cpp \
+	$(SRC)/Repository/FileCheck.cpp \
 	$(SRC)/Repository/Parser.cpp \
 	\
 	$(SRC)/Storage/PlatformStorageMonitor.cpp \
@@ -653,6 +706,7 @@ $(call SRC_TO_OBJ,$(SRC)/Weather/OPERA/Radar.cpp): CPPFLAGS += $(ZLIB_CPPFLAGS)
 ifeq ($(OPENGL),y)
 ifeq ($(HAVE_HTTP),y)
 XCSOAR_SOURCES += \
+	$(SRC)/MapWindow/BaseMap/TileLayer.cpp \
 	$(SRC)/Dialogs/Weather/MapOverlayWidget.cpp \
 	$(SRC)/Dialogs/Weather/EdlSettingsWidget.cpp \
 	$(SRC)/Weather/OPERA/Radar.cpp \
@@ -756,9 +810,8 @@ XCSOAR_SOURCES += \
 	$(SRC)/CommandLine.cpp \
 	$(SRC)/XCSoar.cpp
 
-# No camera here.  Apple links Apple/QRScanner.cpp instead (the iOS
-# scanner, or a stub on macOS); a new port does the same with its own
-# file (see Task/QRScanner.hpp).
+# No camera here.  Apple links Apple/QRScanner.cpp instead; a new
+# port does the same with its own file (see Task/QRScanner.hpp).
 ifneq ($(TARGET_IS_DARWIN),y)
 XCSOAR_SOURCES += $(SRC)/Task/QRScanner.cpp
 endif
@@ -919,7 +972,10 @@ endif
 XCSOAR_STRIP = y
 
 ifeq ($(TARGET),ANDROID)
-$(eval $(call link-shared-library,$(PROGRAM_NAME),XCSOAR))
+# The shared library keeps its fixed name regardless of branding: the
+# Java side loads it via System.loadLibrary("xcsoar") (Loader.java)
+# and android.mk packages lib$(ANDROID_LIB_NAMES).so
+$(eval $(call link-shared-library,xcsoar,XCSOAR))
 else
 $(eval $(call link-program,$(PROGRAM_NAME),XCSOAR))
 endif

@@ -1,23 +1,4 @@
 Version 7.47 - not yet released
-* glide computer
-  - remember water ballast, crew weight, and bugs when XCSoar is
-    restarted during a flight. Startup asks before restoring and
-    restores after 5 seconds; No keeps the logger crew template and
-    empty ballast #1019
-  - remember QNH and the maximum forecast temperature with that
-    same question
-* ui
-  - let a tap or a short Enter run an InfoBox action at once. Hold
-    Enter to arrange, the same as a long press. In arrange mode a
-    short Enter takes or puts down a card, and holding Enter opens
-    the list. The cursor keys move to the InfoBox in that direction
-    on the screen. Escape selects the first InfoBox when the map is
-    showing, and returns to the map from an InfoBox. A double tap on
-    an InfoBox no longer opens the menu #2095
-  - show whether the aircraft is in flight on the Status Times page
-  - remember the ATC radial and the current Goto when an unfinished
-    flight is restored; loading or resuming an ordered task clears
-    the Goto, and the automatic takeoff Goto is not kept #2795
 * map
   - show own-ship, Cloud, SkyLines, and Thermal Information Map
     thermals as one marker. A tap shows the source, position,
@@ -25,71 +6,145 @@ Version 7.47 - not yet released
     kilometre keep the newer one #3093
   - draw own-ship, Cloud, and SkyLines wave lines from one list
     #3094
-  - fix the RASP map staying on the previous forecast time until
-    the layer is changed or the map is pinched #3415
 * android
-  - add Share to Export flights so selected IGC/NMEA files can be
-    sent via the system share sheet (Nearby Share, Drive, mail, …)
-  - show the Export flights Share button as the Android share mark
   - fix a map crash on PowerVR Rogue tablets while panning with
     topography enabled #1235
   - keep menu, dialogue and status text from overflowing on a
     high-resolution phone #3375
-  - fix the IOIO not connecting after XCSoar was restarted while the
-    board stayed plugged in
-  - fix negative G load when the Android Built-in IMU is Not
-    aligned and the top of the phone points down
+  - display resolution "141 dpi (5.7", 640x480 px)" for 5.7" devices
+  - display resolution "140 dpi (5.7", 640x480 px)" for 5.7" devices
+    such as the SteFlyNav, which report 213 dpi and so get fonts and
+    buttons half as large again
+  - display resolutions "140 dpi (5.7", 640x480 px)" and "180 dpi
+    (7.0", 1024x600 px)" for devices such as the SteFlyNav, which
+    report 213 dpi and so get fonts and buttons too large
+  - a display that reports exactly 213 dpi (the placeholder of Android
+    for an unknown size) gets the density the device is set to instead
+  - the display resolution can be set for the device as well (System
+    settings, file system.prf); it applies from the start screen on,
+    while the one of a profile overrides it once the profile is loaded
 * dialogs
-  - remember checklist checkbox ticks when an unfinished flight is
-    restored; choosing a different checklist file, or editing a page's
-    text, clears the ticks for that file or page #2536
-  - apply Configuration changes without restarting XCSoar. This
-    covers Warning time, Acknowledge time, Text size, Display
-    resolution, GR average period, Events, and Log book #3392
   - fix a crash opening Pages setup from a weather overlay on a
     landscape screen #3373
 * documentation
-  - describe InfoBox tap, Enter, holding Enter to arrange, and holding
-    Enter in arrange mode to open the InfoBox list
-  - document the unfinished-flight question for ballast, crew weight,
-    bugs, QNH, the maximum forecast temperature, the ATC radial, Goto,
-    and checklist ticks
   - describe the size limit for menu, dialogue and status text
   - describe shared thermal markers, their details, and Go To
-  - describe positive G load when Android Built-in IMU is Not aligned
-* data
-  - add an option on Site files to download newer copies of files
-    already on the device when XCSoar starts. The progress bar
-    shows the download, and a message reports when files were
-    updated. A download that finishes in flight is loaded at the
-    next start #417
-  - load a File Manager update of a file selected in Site files
-    without restarting. This covers the map, waypoints, airspace,
-    RASP, FLARMNet, the checklist, and the input file #1115 #3092
 * airspace
-  - show when an OpenAir airspace is active from its activation
-    times #2520
   - fix Ack Day on a lower sector also silencing the airspace
     above its ceiling
   - fix Ack Day silencing a new airspace after the
     airspace list was empty
-* task
-  - scan task QR codes with the camera on iOS, like on Android
-  - fix a crash drawing the task QR code
-* development
-  - document which reload runs when a map zip finishes loading and
-    when File Manager updates a configured file #3095
-  - consolidate and simplify cross-compilation flags and options for
-    PIs and Cubieboards.
-    Path to the target file system is variable SYSROOT.
-    Variables CUBIE and PI for the sysroot directory for CUBIE or PI
-    targets still work but are deprecated. #3386
-  - enable CMake cross-compilation for library ZXing for CUBIE and PI
-    targets. #3386
-  - accept TARGET=PI3 as an alias of TARGET=PI2
-  - cross-compile for Raspberry Pi 4 and 5 with TARGET=PI4
-    (TARGET=PI5 is an alias). The arm64 sysroot defaults to
-    /opt/pi64/root
+* Windows
+  - keep the mouse cursor visible with -touchscreen; the switch sizes
+    the controls for fingers, it does not take the mouse away (Linux
+    and macOS with SDL as well)
+* input
+  - load several input events files: they are read on top of the
+    built-in configuration in the order of their names, so each file
+    can hold one topic and a later one can override an earlier one;
+    an existing single file is taken over
+  - the Analysis input event takes a page name, e.g. "Analysis
+    barograph", to open that page directly
+  - keys Q (quit) and X (switch off) also outside the OpenVario; the
+    Exit event opens the power dialog with the focus on the button it
+    names ("Exit system", "Exit shutdown", "Exit restart", ...)
+  - the quick menu style "Dynamic" has a list of its own before the
+    flight, in flight and after the landing (modes QuickGround,
+    QuickFlight and QuickAfter, built-in lists included); it follows
+    takeoff and landing and can be switched with the new buttons
+    Ground, Flight, After and All or the QuickMenuPhase event; All is
+    the complete quick menu as before, and the style "XCSoar" always
+    shows it
+  - the quick menu mode is called QuickMenu now; files that still use
+    the old name RemoteStick keep working
+  - new quick menu style "Dynamic" (Look > Language, Input > Quick
+    menu): as many columns as fit (more in landscape), every button at
+    its location, an empty location stays an empty cell; the phase
+    lists count in three columns and keep that picture in the middle
+    of a wider screen; a button can have a place of its own in
+    portrait and landscape, with the columns it is counted in
+    ("landscape=5:12"), and mark where the focus starts
+    ("center=yes"); one field that scrolls row by row with a scroll
+    bar instead of pages (its arrows move by one row), the title then
+    shows the rows in sight
+    ("3-8/12"); a debug build shows the location in the corner of
+    every cell, empty ones included; buttons that do nothing at the moment keep
+    the focus (dark grey) and only beep, so the cursor keys move
+    straight across the field; turning the screen keeps the focus on
+    its button
+  - Quit is the last button of the complete quick menu and also in the
+    lists before the flight and after the landing
+  - the quick menu is clearer: the switches of the map display
+    (airspace, labels, trail, auto zoom, distance rings) moved into the
+    new dialog "Map Display" (input event "MapDisplay"), which also
+    sets the small FLARM radar and thermal assistant on the map and
+    opens the page settings; OK saves the settings, only hiding the
+    airspace lasts just until the next start; FLARM radar and thermal
+    assistant pages left the quick menu (menu bar and keys still have
+    them)
+* map
+  - draw the map in the Web Mercator projection, the projection of
+    slippy map tiles, so raster tiles are shown pixel for pixel
+    instead of being resampled; topography under OpenGL no longer
+    drifts away from waypoints and airspaces towards the screen edges
+  - the zoom steps of the scale list are the tile zoom levels, one
+    factor of two apart; the map title shows the level (for example
+    "Z12") while the map sits on one of them
+  - choose a base map per page: terrain and topography, topography
+    only, an empty background, or OpenStreetMap tiles, which are
+    downloaded while online and kept in the cache
+  - the quick menu offers "Page settings" for the current page in
+    place of the terrain and topography toggles
+  - the flight setup starts with the MacCready setting
+  - a tap on the final glide bar opens the flight setup
+* airspace
+  - new fill mode "Thin lines": no fill, outlines one pixel wide
+* glide computer
+  - a takeoff starts a new trace and contest: the second flight of a
+    session (e.g. the next winch launch) no longer counts the one before
+* logger
+  - a log book of all flights (Info menu; file logbook.csv, a table for
+    a spreadsheet): takeoff and landing with time and place, flight
+    time, launch (estimated) and release, pilot and co-pilot, aircraft,
+    free distance (OLC classic, six legs) and its speed, DMSt distance
+    and points (both from the release; with engine runs in flight the
+    best part), maximum altitude, log file and its type, flight
+    recorder (manufacturer code and type); numbers with a decimal
+    comma; launch, crew and a remark can be completed in the dialog;
+    on by default (Logger settings: Log book)
+  - IGC files (of the own logger and downloaded from a logger) are stored
+    in the folder "igc" instead of "logs", apart from the NMEA logs; the
+    replay lists both folders, the WeGlide upload only "igc"
+  - the log book is built from the recorded IGC files and NMEA logs: at
+    startup the files not yet read are added (the first time all of
+    them), with progress and cancel; one entry per flight, taken from
+    the most complete recording (own IGC file before other loggers
+    before NMEA), empty fields filled from the others; "Rebuild" keeps
+    the old one as logbook-YYYY-MM-DD.csv and reads all files again
+  - Recorder 1 and Recorder 2 in the logger settings (manufacturer code
+    and serial number, also taken from an IGC file): their files give
+    the log book entry of a flight before the own IGC file; new column
+    "Recorder serial"
+  - a log file that ends shortly after the landing lands at its first
+    fix at rest (below 10 km/h, within 10 m of the last altitude)
+    instead of its last fix, without a remark
+  - log book: subfolders of "igc" and "logs" are read as well; IGC
+    files of older versions are moved from "logs" into "igc", files
+    without a flight into "no-flight" beside them; the list is a table
+    with a header (pilot, DMSt distance with shape letter F/T/R and
+    points among the columns); "Export" copies logbook.csv to a USB
+    stick or SD card
+  - log book: columns "Other files" (the other recordings of the flight,
+    best first) and "WeGlide flight ID" (noted after the upload, with
+    the link in the details of the flight)
+  - Recorder 1 and Recorder 2 get a device in the logger settings;
+    two minutes after the landing the newest flight is downloaded from
+    it into the log book without a question (with the WeGlide question
+    if that upload is enabled); buttons "Recorder 1/2 Download" in the
+    quick menu pages After and All; the flight list of a download
+    selects the newest flight
+  - while the log book reads new files, the progress bar says "Analysis
+    for the log book:" before the file name
 
 Version 7.46 - 2026-10-19
 * highlights

@@ -12,7 +12,8 @@
  */
 struct LoggerSettings {
   /**
-   * Enable the #FlightLogger?
+   * Enable the log book (#GlueLogbook, and #FlightLogger for the plain
+   * list flights.log)?
    */
   bool enable_flight_logger;
 
@@ -41,6 +42,22 @@ struct LoggerSettings {
 
   /** Crew mass template in kg */
   unsigned crew_mass_template;
+
+  /**
+   * The external flight recorders of this glider, Recorder 1 and 2,
+   * written as in the A record of their IGC files: the three letter
+   * manufacturer code followed by the serial number ("LXVJNI"); empty
+   * if not set.  Their files give the log book entry of a flight
+   * before the program's own IGC file.
+   */
+  StaticString<16> recorders[2];
+
+  /**
+   * The device of Recorder 1 and 2: 1 for device A, 2 for B and so
+   * on, 0 for none.  After the landing, the newest flight is read from
+   * it (GlueRecorderDownload); its driver is the type of the recorder.
+   */
+  uint8_t recorder_devices[2];
 
   void SetDefaults();
 };

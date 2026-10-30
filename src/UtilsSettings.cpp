@@ -47,9 +47,6 @@
 #include "DataComponents.hpp"
 #include "DataGlobals.hpp"
 #include "Repository/Glue.hpp"
-#include "Repository/FileType.hpp"
-#include "Input/InputEvents.hpp"
-#include "LocalPath.hpp"
 #include "net/http/Features.hpp"
 
 #ifdef __APPLE__
@@ -69,6 +66,7 @@ bool ChecklistFileChanged = false;
 bool InputFileChanged = false;
 bool LanguageChanged = false;
 bool UserRepositoriesListChanged = false;
+bool require_restart;
 
 void
 SettingsEnter() noexcept
@@ -91,6 +89,7 @@ SettingsEnter() noexcept
   DevicePortChanged = false;
   LanguageChanged = false;
   UserRepositoriesListChanged = false;
+  require_restart = false;
 }
 
 void
@@ -110,25 +109,24 @@ SettingsLeave(const UISettings &old_ui_settings)
     InfoBoxManager::InvalidateAfterLanguageChange();
   }
 
+  bool TerrainFileChanged = false, TopographyFileChanged = false;
   if (MapFileChanged) {
     /* set these flags, because they may be loaded from the map
        file */
     AirspaceFileChanged = true;
     AirfieldFileChanged = true;
     WaypointFileChanged = true;
+    TerrainFileChanged = true;
+    TopographyFileChanged = true;
   }
 
-  /* The map path is shared. Terrain and topography are separate
-     reloads. OnTerrainLoaded() installs terrain only. The retry
-     below loads terrain when the file appears, and leaves
-     topography alone. */
-  if (MapFileChanged)
+  if (TerrainFileChanged)
     main_window.LoadTerrain();
 
   /* If the terrain wasn't changed via the settings UI but no terrain is
      currently loaded (e.g. a previous automated load failed), attempt
      to load the configured map file when it now exists. */
-  if (!MapFileChanged && data_components->terrain == nullptr) {
+  if (!TerrainFileChanged && data_components->terrain == nullptr) {
     if (const auto path = Profile::GetPath(ProfileKeys::MapFile); path != nullptr) {
       if (File::Exists(path))
         main_window.LoadTerrain();
@@ -177,7 +175,7 @@ SettingsLeave(const UISettings &old_ui_settings)
     DataGlobals::UpdateHome(true);
   }
 
-  if (MapFileChanged) {
+  if (TopographyFileChanged) {
     main_window.SetTopography(nullptr);
 
     auto &topography = *data_components->topography;
@@ -216,14 +214,6 @@ SettingsLeave(const UISettings &old_ui_settings)
 
   if (ChecklistFileChanged)
     dlgChecklistNotifySiteFileChanged();
-
-  if (InputFileChanged) {
-    try {
-      InputEvents::readFile();
-    } catch (...) {
-      LogError(std::current_exception(), "Failed to load input file");
-    }
-  }
 
 #ifdef HAVE_HTTP
   if (UserRepositoriesListChanged) {
@@ -276,79 +266,6 @@ SettingsLeave(const UISettings &old_ui_settings)
   main_window.FlushRendererCaches();
   main_window.FullRedraw();
   main_window.SetDefaultFocus();
-}
-
-static bool
-ConfiguredPathMatches(std::string_view key, Path updated) noexcept
-{
-  const auto configured = Profile::GetPath(key);
-  return configured != nullptr && configured == updated;
-}
-
-static bool
-ConfiguredListMatches(std::string_view key, const char *patterns,
-                      Path updated) noexcept
-{
-  for (const auto &configured : Profile::GetMultiplePaths(key, patterns))
-    if (configured != nullptr && configured == updated)
-      return true;
-  return false;
-}
-
-void
-ApplyConfiguredDataFiles(std::span<const std::string> relative_paths)
-{
-  if (!global_running)
-    return;
-
-  const char *const waypoint_patterns =
-    GetFileTypePatterns(FileType::WAYPOINT);
-  const char *const airspace_patterns =
-    GetFileTypePatterns(FileType::AIRSPACE);
-
-  bool map = false;
-  bool primary = false;
-  bool watched = false;
-  bool airspace = false;
-  bool flarm = false;
-  bool rasp = false;
-  bool checklist = false;
-  bool input = false;
-
-  for (const auto &relative : relative_paths) {
-    const auto updated = LocalPath(relative.c_str());
-    if (updated == nullptr)
-      continue;
-
-    map |= ConfiguredPathMatches(ProfileKeys::MapFile, updated);
-    primary |= ConfiguredListMatches(ProfileKeys::WaypointFileList,
-                                    waypoint_patterns, updated);
-    watched |= ConfiguredListMatches(ProfileKeys::WatchedWaypointFileList,
-                                    waypoint_patterns, updated);
-    airspace |= ConfiguredListMatches(ProfileKeys::AirspaceFileList,
-                                     airspace_patterns, updated);
-    flarm |= ConfiguredPathMatches(ProfileKeys::FlarmFile, updated);
-    rasp |= ConfiguredPathMatches(ProfileKeys::RaspFile, updated);
-    checklist |= ConfiguredPathMatches(ProfileKeys::ChecklistFile, updated);
-    input |= ConfiguredPathMatches(ProfileKeys::InputFile, updated);
-  }
-
-  if (!map && !primary && !watched && !airspace &&
-      !flarm && !rasp && !checklist && !input)
-    return;
-
-  /* Same flags Setup sets. A map file still reloads the waypoint
-     and airspace rows that live inside the zip. */
-  SettingsEnter();
-  MapFileChanged = map;
-  PrimaryWaypointFileChanged = primary;
-  WatchedWaypointFileChanged = watched;
-  AirspaceFileChanged = airspace;
-  FlarmFileChanged = flarm;
-  RaspFileChanged = rasp;
-  ChecklistFileChanged = checklist;
-  InputFileChanged = input;
-  SettingsLeave(CommonInterface::GetUISettings());
 }
 
 void

@@ -8,12 +8,15 @@
 #include "MainWindow.hpp"
 #include "Language/Language.hpp"
 #include "Dialogs/Message.hpp"
+#include "Dialogs/PowerDialog.hpp"
+#include "ProductName.hpp"
+#include "SystemConfig.hpp"
 #include "FLARM/Glue.hpp"
 #include "Gauge/BigTrafficWidget.hpp"
 #include "Gauge/BigThermalAssistantWidget.hpp"
 #include "Look/Look.hpp"
 #include "HorizonWidget.hpp"
-#include "Hardware/SystemPower.hpp"
+#include "Gauge/VarioDisplayWidget.hpp"
 
 static bool force_shutdown = false;
 static UIActions::ExitAction exit_action = UIActions::ExitAction::NONE;
@@ -30,63 +33,20 @@ UIActions::SignalShutdown(bool force)
     CommonInterface::main_window->Close();
 }
 
-#if defined(__linux__) && !defined(ANDROID)
-static UIActions::ExitAction
-ShowExitDialog(SystemPower::Capabilities capabilities) noexcept
-{
-  enum Result {
-    QUIT = 100,
-    REBOOT,
-    POWER_OFF,
-  };
-
-  MessageBoxButton buttons[4];
-  unsigned n_buttons = 0;
-  buttons[n_buttons++] = {_("Quit"), QUIT};
-  if (capabilities.reboot)
-    buttons[n_buttons++] = {_("Restart"), REBOOT};
-  if (capabilities.power_off)
-    buttons[n_buttons++] = {_("Power off"), POWER_OFF};
-  buttons[n_buttons++] = {_("Cancel"), IDCANCEL};
-
-  const int result =
-    ShowMessageBox(_("What do you want to do?"), "XCSoar",
-                   std::span{buttons}.first(n_buttons), IDCANCEL);
-  switch (result) {
-  case QUIT:
-    return UIActions::ExitAction::QUIT;
-
-  case REBOOT:
-    return UIActions::ExitAction::REBOOT;
-
-  case POWER_OFF:
-    return UIActions::ExitAction::POWER_OFF;
-  }
-
-  return UIActions::ExitAction::NONE;
-}
-#endif
-
 bool
 UIActions::CheckShutdown() noexcept
 {
   if (force_shutdown)
     return true;
 
-#if defined(__linux__) && !defined(ANDROID)
-  const auto capabilities = SystemPower::GetCapabilities();
-  if (capabilities.Any()) {
-    exit_action = ShowExitDialog(capabilities);
-    return exit_action != ExitAction::NONE;
-  }
-#endif
+  if (SystemConfig::IsXCSoarBehaviour())
+    return ShowMessageBox(_("Quit program?"), PRODUCT_NAME,
+                          MB_YESNO | MB_ICONQUESTION) == IDYES;
 
-  if (ShowMessageBox(_("Quit program?"), "XCSoar",
-                     MB_YESNO | MB_ICONQUESTION) != IDYES)
-    return false;
-
-  exit_action = ExitAction::QUIT;
-  return true;
+  /* closing the window (system menu, Alt+F4, window manager) leads to
+     the same dialog as the menu entry; it also offers reboot and power
+     off where logind allows them (see PowerControl::IsAvailable()) */
+  return AskPowerAction();
 }
 
 UIActions::ExitAction
@@ -118,6 +78,17 @@ UIActions::ShowThermalAssistant()
                                   UIGlobals::GetLook().thermal_assistant_dialog);
   CommonInterface::main_window->SetWidget(ta_widget);
   InputEvents::SetFlavour("TA");
+}
+
+void
+UIActions::ShowVarioDisplay()
+{
+  if (InputEvents::IsFlavour("Vario"))
+    return;
+
+  auto widget = new VarioDisplayWidget();
+  CommonInterface::main_window->SetWidget(widget);
+  InputEvents::SetFlavour("Vario");
 }
 
 void

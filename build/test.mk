@@ -97,7 +97,7 @@ TEST_NAMES = \
 	TestOperaRadar \
 	TestEumetviewSatellite \
 	TestEumetviewEnhance \
-	TestLogger TestGPSDeviceName TestGLoadSample TestBlackboard TestGRecord TestClimbAvCalc TestCirclingWind \
+	TestLogger TestLogbook TestLogbookBuilder TestGPSDeviceName TestBlackboard TestGRecord TestClimbAvCalc TestCirclingWind \
 	TestFilteredVarioComputer \
 	TestVarioSynthesiser TestAudioVario \
 	TestWaypointReader TestThermalBase \
@@ -132,7 +132,7 @@ TEST_NAMES = \
 	TestContainerWindow \
 	TestDisplayDPI \
 	TestDisplayType \
-	TestInputConfig \
+	TestInputConfig TestQuickMenuLayout \
 	TestCRC16 TestCRC8 \
 	TestUnitsFormatter \
 	TestGeoPointFormatter \
@@ -171,13 +171,15 @@ ifeq ($(TARGET_IS_ANDROID),n)
 # These programs are broken on Android because they require Java code
 TEST_NAMES += \
 	TestProfile \
-	TestSession \
 	TestDriver
 endif
 
 ifeq ($(HAVE_WIN32),n)
 TEST_NAMES += \
 	TestDataLayoutMigration \
+	TestDevicePorts \
+	TestFileCheck \
+	TestFrequencyList \
 	TestLocalPathResolve \
 	TestFileOutputStream
 endif
@@ -470,18 +472,10 @@ $(eval $(call link-program,TestNOTAM,TEST_NOTAM))
 endif
 
 TEST_AIRSPACE_PARSER_SOURCES = \
-	$(SRC)/time/Convert.cxx \
-	$(SRC)/time/LocalTime.cpp \
-	$(SRC)/time/BrokenDate.cpp \
-	$(SRC)/time/BrokenDateTime.cpp \
-	$(SRC)/time/BrokenTime.cpp \
-	$(SRC)/Formatter/TimeFormatter.cpp \
-	$(SRC)/time/Zone.cxx \
 	$(SRC)/Airspace/AirspaceParser.cpp \
 	$(SRC)/Atmosphere/Pressure.cpp \
 	$(SRC)/Radio/RadioFrequency.cpp \
 	$(SRC)/Radio/TransponderCode.cpp \
-	$(TEST_SRC_DIR)/FakeLogFile.cpp \
 	$(TEST_SRC_DIR)/FakeDialogs.cpp \
 	$(TEST_SRC_DIR)/FakeTerrain.cpp \
 	$(TEST_SRC_DIR)/FakeLanguage.cpp \
@@ -629,23 +623,16 @@ TEST_PROFILE_SOURCES = \
 	$(SRC)/Profile/Profile.cpp \
 	$(SRC)/Profile/RouteProfile.cpp \
 	$(SRC)/Profile/TaskProfile.cpp \
+	$(SRC)/SystemConfig.cpp \
 	$(SRC)/Profile/WeatherProfile.cpp \
 	$(TEST_SRC_DIR)/tap.c \
 	$(TEST_SRC_DIR)/FakeLogFile.cpp \
 	$(TEST_SRC_DIR)/FakeLanguage.cpp \
 	$(TEST_SRC_DIR)/PageOverlayTitleStub.cpp \
+	$(TEST_SRC_DIR)/FakeInfoBoxExtension.cpp \
 	$(TEST_SRC_DIR)/TestProfile.cpp
 TEST_PROFILE_DEPENDS = PROFILE MATH IO OS UTIL
 $(eval $(call link-program,TestProfile,TEST_PROFILE))
-
-TEST_SESSION_SOURCES = \
-	$(SRC)/Session/SessionFile.cpp \
-	$(SRC)/LocalPath.cpp \
-	$(TEST_SRC_DIR)/tap.c \
-	$(TEST_SRC_DIR)/FakeLogFile.cpp \
-	$(TEST_SRC_DIR)/TestSession.cpp
-TEST_SESSION_DEPENDS = PROFILE GEO MATH IO OS UTIL
-$(eval $(call link-program,TestSession,TEST_SESSION))
 
 TEST_MAC_CREADY_SOURCES = \
 	$(TEST_SRC_DIR)/tap.c \
@@ -786,7 +773,6 @@ TEST_ROUTE_SOURCES = \
 	$(TEST_SRC_DIR)/AirspacePrinting.cpp \
 	$(TEST_SRC_DIR)/harness_airspace.cpp \
 	$(TEST_SRC_DIR)/tap.c \
-	$(TEST_SRC_DIR)/FakeLanguage.cpp \
 	$(TEST_SRC_DIR)/test_route.cpp
 TEST_ROUTE_DEPENDS = TERRAIN OPERATION IO ZZIP OS ROUTE AIRSPACE GLIDE GEO MATH UTIL
 $(eval $(call link-program,test_route,TEST_ROUTE))
@@ -1110,6 +1096,14 @@ TEST_INPUT_CONFIG_CPPFLAGS = $(SCREEN_CPPFLAGS)
 TEST_INPUT_CONFIG_DEPENDS = IO OS UTIL
 $(eval $(call link-program,TestInputConfig,TEST_INPUT_CONFIG))
 
+TEST_QUICK_MENU_LAYOUT_SOURCES = \
+	$(TEST_SRC_DIR)/tap.c \
+	$(SRC)/Menu/MenuData.cpp \
+	$(SRC)/Menu/QuickMenuLayout.cpp \
+	$(TEST_SRC_DIR)/TestQuickMenuLayout.cpp
+TEST_QUICK_MENU_LAYOUT_DEPENDS = UTIL
+$(eval $(call link-program,TestQuickMenuLayout,TEST_QUICK_MENU_LAYOUT))
+
 TEST_INPUT_TRANSFORM_MODE_SOURCES = \
 	$(TEST_SRC_DIR)/tap.c \
 	$(TEST_SRC_DIR)/TestInputTransformMode.cpp
@@ -1206,6 +1200,7 @@ TEST_DATA_LAYOUT_MIGRATION_SOURCES = \
 	$(SRC)/DataFilePath.cpp \
 	$(SRC)/LocalPath.cpp \
 	$(SRC)/Profile/Profile.cpp \
+	$(SRC)/SystemConfig.cpp \
 	$(SRC)/Profile/PathValue.cpp \
 	$(SRC)/Repository/FileType.cpp \
 	$(SRC)/system/FileUtil.cpp \
@@ -1218,6 +1213,37 @@ TEST_DATA_LAYOUT_MIGRATION_SOURCES = \
 	$(TEST_SRC_DIR)/TestDataLayoutMigration.cpp
 TEST_DATA_LAYOUT_MIGRATION_DEPENDS = PROFILE IO OS UTIL
 $(eval $(call link-program,TestDataLayoutMigration,TEST_DATA_LAYOUT_MIGRATION))
+
+TEST_DEVICE_PORTS_SOURCES = \
+	$(SRC)/Device/Config.cpp \
+	$(SRC)/Device/PortsConfig.cpp \
+	$(SRC)/LocalPath.cpp \
+	$(SRC)/Profile/DeviceConfig.cpp \
+	$(SRC)/Repository/FileType.cpp \
+	$(TEST_SRC_DIR)/FakeAsset.cpp \
+	$(TEST_SRC_DIR)/FakeLogFile.cpp \
+	$(TEST_SRC_DIR)/tap.c \
+	$(TEST_SRC_DIR)/TestDevicePorts.cpp
+TEST_DEVICE_PORTS_DEPENDS = JSON PROFILE IO OS UTIL
+$(eval $(call link-program,TestDevicePorts,TEST_DEVICE_PORTS))
+
+TEST_FILE_CHECK_SOURCES = \
+	$(SRC)/Repository/FileType.cpp \
+	$(SRC)/Repository/FileCheck.cpp \
+	$(TEST_SRC_DIR)/FakeLanguage.cpp \
+	$(TEST_SRC_DIR)/tap.c \
+	$(TEST_SRC_DIR)/TestFileCheck.cpp
+TEST_FILE_CHECK_DEPENDS = IO OS UTIL
+$(eval $(call link-program,TestFileCheck,TEST_FILE_CHECK))
+
+TEST_FREQUENCY_LIST_SOURCES = \
+	$(SRC)/FrequencyList.cpp \
+	$(SRC)/Radio/RadioFrequency.cpp \
+	$(TEST_SRC_DIR)/FakeLogFile.cpp \
+	$(TEST_SRC_DIR)/tap.c \
+	$(TEST_SRC_DIR)/TestFrequencyList.cpp
+TEST_FREQUENCY_LIST_DEPENDS = JSON IO OS UTIL
+$(eval $(call link-program,TestFrequencyList,TEST_FREQUENCY_LIST))
 
 TEST_LOCAL_PATH_RESOLVE_SOURCES = \
 	$(SRC)/DataFileLayout.cpp \
@@ -1236,6 +1262,13 @@ TEST_LOCAL_PATH_RESOLVE_SOURCES = \
 	$(TEST_SRC_DIR)/TestLocalPathResolve.cpp
 TEST_LOCAL_PATH_RESOLVE_DEPENDS = IO OS UTIL
 $(eval $(call link-program,TestLocalPathResolve,TEST_LOCAL_PATH_RESOLVE))
+
+TEST_LOGBOOK_SOURCES = \
+	$(SRC)/Logger/Logbook.cpp \
+	$(TEST_SRC_DIR)/tap.c \
+	$(TEST_SRC_DIR)/TestLogbook.cpp
+TEST_LOGBOOK_DEPENDS = IO OS TIME UTIL FMT
+$(eval $(call link-program,TestLogbook,TEST_LOGBOOK))
 
 TEST_TAR_ARCHIVE_SOURCES = \
 	$(SRC)/DataFileLayout.cpp \
@@ -1409,12 +1442,6 @@ TEST_GPS_DEVICE_NAME_SOURCES = \
 TEST_GPS_DEVICE_NAME_DEPENDS = LIBNMEA GEO TIME UNITS MATH UTIL
 $(eval $(call link-program,TestGPSDeviceName,TEST_GPS_DEVICE_NAME))
 
-TEST_GLOAD_SAMPLE_SOURCES = \
-	$(TEST_SRC_DIR)/tap.c \
-	$(TEST_SRC_DIR)/TestGLoadSample.cpp
-TEST_GLOAD_SAMPLE_DEPENDS = MATH
-$(eval $(call link-program,TestGLoadSample,TEST_GLOAD_SAMPLE))
-
 TEST_BLACKBOARD_SOURCES = \
 	$(SRC)/Atmosphere/AirDensity.cpp \
 	$(SRC)/Blackboard/DeviceBlackboard.cpp \
@@ -1465,6 +1492,7 @@ TEST_DRIVER_SOURCES = \
 	$(SRC)/LocalPath.cpp \
 	$(SRC)/Profile/FlarmProfile.cpp \
 	$(SRC)/Profile/Profile.cpp \
+	$(SRC)/SystemConfig.cpp \
 	$(SRC)/IGC/IGCParser.cpp \
 	$(SRC)/IGC/Generator.cpp \
 	$(SRC)/Computer/ClimbAverageCalculator.cpp \
@@ -1532,19 +1560,6 @@ $(eval $(call link-program,FlightTable,FLIGHT_TABLE))
 
 build-check: $(TESTS)
 
-# qemu-user opens the ELF interpreter on the host.  The armhf loader
-# lives in the sysroot, so point QEMU_LD_PREFIX at it for these runs.
-# An already-set prefix is left alone.  Needs qemu-user binfmt.
-ifeq ($(DO_CROSS_COMPILE),y)
-  ifneq ($(SYSROOT),)
-    QEMU_LD_PREFIX ?= $(SYSROOT)
-  endif
-endif
-ifneq ($(QEMU_LD_PREFIX),)
-check check-no-build: export QEMU_LD_PREFIX := $(QEMU_LD_PREFIX)
-testfast testslow: export QEMU_LD_PREFIX := $(QEMU_LD_PREFIX)
-endif
-
 check: $(TESTS) | $(OUT)/test/dirstamp
 	@$(NQ)echo "  TEST    $(notdir $(patsubst %$(TARGET_EXEEXT),%,$^))"
 	$(Q)$(PERL) $(TEST_SRC_DIR)/testall.pl $(TESTS)
@@ -1591,6 +1606,7 @@ DEBUG_PROGRAM_NAMES += \
 	RunTrailRendererStress \
 	RunTrace \
 	RunContestAnalysis \
+	RunLogbook \
 	RunWaveComputer \
 	FlightPath \
 	ReadProfileString ReadProfileInt \
@@ -1886,6 +1902,7 @@ $(eval $(call link-program,ReadMO,READ_MO))
 READ_PROFILE_STRING_SOURCES = \
 	$(SRC)/LocalPath.cpp \
 	$(SRC)/Profile/Profile.cpp \
+	$(SRC)/SystemConfig.cpp \
 	$(TEST_SRC_DIR)/FakeLogFile.cpp \
 	$(TEST_SRC_DIR)/ReadProfileString.cpp
 READ_PROFILE_STRING_DEPENDS = PROFILE IO OS UTIL
@@ -1894,6 +1911,7 @@ $(eval $(call link-program,ReadProfileString,READ_PROFILE_STRING))
 READ_PROFILE_INT_SOURCES = \
 	$(SRC)/LocalPath.cpp \
 	$(SRC)/Profile/Profile.cpp \
+	$(SRC)/SystemConfig.cpp \
 	$(TEST_SRC_DIR)/FakeLogFile.cpp \
 	$(TEST_SRC_DIR)/ReadProfileInt.cpp
 READ_PROFILE_INT_DEPENDS = PROFILE IO OS UTIL
@@ -2027,18 +2045,10 @@ RUN_FLIGHT_PARSER_DEPENDS = IO OS TIME UTIL
 $(eval $(call link-program,RunFlightParser,RUN_FLIGHT_PARSER))
 
 RUN_AIRSPACE_PARSER_SOURCES = \
-	$(SRC)/time/Convert.cxx \
-	$(SRC)/time/LocalTime.cpp \
-	$(SRC)/time/BrokenDate.cpp \
-	$(SRC)/time/BrokenDateTime.cpp \
-	$(SRC)/time/BrokenTime.cpp \
-	$(SRC)/time/Zone.cxx \
-	$(SRC)/Formatter/TimeFormatter.cpp \
 	$(SRC)/Airspace/AirspaceParser.cpp \
 	$(SRC)/Atmosphere/Pressure.cpp \
 	$(SRC)/Radio/RadioFrequency.cpp \
 	$(SRC)/Radio/TransponderCode.cpp \
-	$(TEST_SRC_DIR)/FakeLogFile.cpp \
 	$(TEST_SRC_DIR)/FakeTerrain.cpp \
 	$(TEST_SRC_DIR)/FakeLanguage.cpp \
 	$(TEST_SRC_DIR)/RunAirspaceParser.cpp
@@ -2500,6 +2510,43 @@ RUN_CONTEST_SOURCES = \
 RUN_CONTEST_DEPENDS = $(DEBUG_REPLAY_DEPENDS) CONTEST UTIL GEO MATH TIME
 $(eval $(call link-program,RunContestAnalysis,RUN_CONTEST))
 
+# Real LocalPath.cpp below, like RunAnalysis; the replay stub in
+# DEBUG_REPLAY_SOURCES would duplicate those symbols.
+RUN_LOGBOOK_SOURCES = \
+	$(filter-out $(TEST_SRC_DIR)/FakeLocalPath.cpp,$(DEBUG_REPLAY_SOURCES)) \
+	$(SRC)/Logger/LogbookBuilder.cpp \
+	$(SRC)/Logger/LogbookReplay.cpp \
+	$(SRC)/IGC/IGCParser.cpp \
+	$(SRC)/Radio/TransponderCode.cpp \
+	$(SRC)/Formatter/NMEAFormatter.cpp \
+	$(SRC)/Formatter/GeoPointFormatter.cpp \
+	$(SRC)/FLARM/Error.cpp \
+	$(SRC)/Computer/TraceComputer.cpp \
+	$(SRC)/Computer/LogbookComputer.cpp \
+	$(SRC)/Logger/Logbook.cpp \
+	$(SRC)/Logger/LogbookPlace.cpp \
+	$(SRC)/Logger/LogbookRecorder.cpp \
+	$(SRC)/LocalPath.cpp \
+	$(SRC)/Version.cpp \
+	$(SRC)/Waypoint/Factory.cpp \
+	$(ENGINE_SRC_DIR)/Trace/Point.cpp \
+	$(ENGINE_SRC_DIR)/Trace/Trace.cpp \
+	$(TEST_SRC_DIR)/FakeTerrain.cpp \
+	$(TEST_SRC_DIR)/RunLogbook.cpp
+RUN_LOGBOOK_LDADD = $(FAKE_LIBS)
+RUN_LOGBOOK_DEPENDS = $(DEBUG_REPLAY_DEPENDS) WAYPOINTFILE OPERATION CONTEST WAYPOINT ZZIP UTIL GEO MATH TIME FMT
+$(eval $(call link-program,RunLogbook,RUN_LOGBOOK))
+
+# the builder reads files with the code of the program, so the test
+# links what RunLogbook links, without its main()
+TEST_LOGBOOK_BUILDER_SOURCES = \
+	$(filter-out $(TEST_SRC_DIR)/RunLogbook.cpp,$(RUN_LOGBOOK_SOURCES)) \
+	$(TEST_SRC_DIR)/tap.c \
+	$(TEST_SRC_DIR)/TestLogbookBuilder.cpp
+TEST_LOGBOOK_BUILDER_LDADD = $(RUN_LOGBOOK_LDADD)
+TEST_LOGBOOK_BUILDER_DEPENDS = $(RUN_LOGBOOK_DEPENDS)
+$(eval $(call link-program,TestLogbookBuilder,TEST_LOGBOOK_BUILDER))
+
 RUN_WAVE_COMPUTER_SOURCES = \
 	$(DEBUG_REPLAY_SOURCES) \
 	$(SRC)/Computer/WaveComputer.cpp \
@@ -2524,7 +2571,7 @@ ANALYSE_FLIGHT_SOURCES = \
 	$(ENGINE_SRC_DIR)/Trace/Point.cpp \
 	$(ENGINE_SRC_DIR)/Trace/Trace.cpp \
 	$(ENGINE_SRC_DIR)/ThermalBand/ThermalBand.cpp \
-	$(ENGINE_SRC_DIR)/ThermalBand/ThermalSlice.cpp \
+    $(ENGINE_SRC_DIR)/ThermalBand/ThermalSlice.cpp \
 	$(ENGINE_SRC_DIR)/ThermalBand/ThermalEncounterBand.cpp \
 	$(ENGINE_SRC_DIR)/ThermalBand/ThermalEncounterCollection.cpp \
 	$(TEST_SRC_DIR)/FakeTerrain.cpp \
@@ -2714,6 +2761,7 @@ RUN_MAP_WINDOW_SOURCES = \
 	$(SRC)/Formatter/HexColor.cpp \
 	$(SRC)/DataFilePath.cpp \
 	$(SRC)/Profile/Profile.cpp \
+	$(SRC)/SystemConfig.cpp \
 	$(SRC)/Profile/ComputerProfile.cpp \
 	$(SRC)/Profile/TaskProfile.cpp \
 	$(SRC)/Profile/RouteProfile.cpp \
@@ -3111,6 +3159,7 @@ RUN_ANALYSIS_SOURCES = \
 	$(SRC)/LocalPath.cpp \
 	$(MORE_SCREEN_SOURCES) \
 	$(SRC)/Profile/Profile.cpp \
+	$(SRC)/SystemConfig.cpp \
 	$(SRC)/Dialogs/WidgetDialog.cpp \
 	$(SRC)/Dialogs/dlgAnalysis.cpp \
 	$(SRC)/Dialogs/DialogSettings.cpp \
@@ -3267,6 +3316,9 @@ RUN_PROFILE_LIST_DIALOG_SOURCES = \
 	$(SRC)/LocalPath.cpp \
 	$(SRC)/Formatter/HexColor.cpp \
 	$(SRC)/Repository/FileType.cpp \
+	$(SRC)/Profile/Profile.cpp \
+	$(SRC)/SystemConfig.cpp \
+	$(SRC)/PowerControl.cpp \
 	$(MORE_SCREEN_SOURCES) \
 	$(TEST_SRC_DIR)/Fonts.cpp \
 	$(TEST_SRC_DIR)/FakeAsset.cpp \
@@ -3279,7 +3331,6 @@ $(eval $(call link-program,RunProfileListDialog,RUN_PROFILE_LIST_DIALOG))
 
 PLAY_TONE_SOURCES = \
 	$(MORE_SCREEN_SOURCES) \
-	$(TEST_SRC_DIR)/FakeAsset.cpp \
 	$(TEST_SRC_DIR)/PlayTone.cpp
 PLAY_TONE_DEPENDS = AUDIO MATH SCREEN EVENT ASYNC THREAD OS IO UTIL
 $(eval $(call link-program,PlayTone,PLAY_TONE))
@@ -3289,7 +3340,6 @@ PLAY_VARIO_SOURCES = \
 	$(SRC)/Formatter/NMEAFormatter.cpp \
 	$(SRC)/Radio/TransponderCode.cpp \
 	$(DEBUG_REPLAY_SOURCES) \
-	$(TEST_SRC_DIR)/FakeAsset.cpp \
 	$(TEST_SRC_DIR)/PlayVario.cpp
 PLAY_VARIO_LDADD = $(AUDIO_LDADD) $(SCREEN_LDADD) $(EVENT_LDADD)
 PLAY_VARIO_DEPENDS = $(DEBUG_REPLAY_DEPENDS) AUDIO GEO MATH SCREEN EVENT ASYNC THREAD OS TIME UTIL

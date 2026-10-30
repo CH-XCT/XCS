@@ -34,64 +34,85 @@ $(OUT)/include/QuickGuideNEWS.hpp: $(topdir)/NEWS.txt \
 
 $(call SRC_TO_OBJ,$(SRC)/Dialogs/dlgQuickGuide.cpp): $(OUT)/include/QuickGuideNEWS.hpp
 
-$(OUT)/include/InputEvents_Text2Event.cpp: $(SRC)/Input/InputEvents.hpp \
+$(OUT)/include/InputEvents_Text2Event.hpp: $(SRC)/Input/InputEvents.hpp \
 	$(topdir)/tools/Text2Event.pl | $(OUT)/include/dirstamp
 	@$(NQ)echo "  GEN     $@"
 	$(Q)$(PERL) $(topdir)/tools/Text2Event.pl $< >$@.$(RANDOM_NUMBER).tmp
 	@mv $@.$(RANDOM_NUMBER).tmp $@
 
-$(OUT)/include/InputEvents_Text2GCE.cpp: $(SRC)/Input/InputQueue.hpp \
+$(OUT)/include/InputEvents_Text2GCE.hpp: $(SRC)/Input/InputQueue.hpp \
 	$(topdir)/tools/Text2GCE.pl | $(OUT)/include/dirstamp
 	@$(NQ)echo "  GEN     $@"
 	$(Q)$(PERL) $(topdir)/tools/Text2GCE.pl $< >$@.$(RANDOM_NUMBER).tmp
 	@mv $@.$(RANDOM_NUMBER).tmp $@
 
-$(OUT)/include/InputEvents_Text2NE.cpp: $(SRC)/Input/InputQueue.hpp \
+$(OUT)/include/InputEvents_Text2NE.hpp: $(SRC)/Input/InputQueue.hpp \
 	$(topdir)/tools/Text2NE.pl | $(OUT)/include/dirstamp
 	@$(NQ)echo "  GEN     $@"
 	$(Q)$(PERL) $(topdir)/tools/Text2NE.pl $< >$@.$(RANDOM_NUMBER).tmp
 	@mv $@.$(RANDOM_NUMBER).tmp $@
 
-$(OUT)/include/InputEvents_Char2GCE.cpp: $(SRC)/Input/InputQueue.hpp \
+$(OUT)/include/InputEvents_Char2GCE.hpp: $(SRC)/Input/InputQueue.hpp \
 	$(topdir)/tools/Char2GCE.pl | $(OUT)/include/dirstamp
 	@$(NQ)echo "  GEN     $@"
 	$(Q)$(PERL) $(topdir)/tools/Char2GCE.pl $< >$@.$(RANDOM_NUMBER).tmp
 	@mv $@.$(RANDOM_NUMBER).tmp $@
 
-$(OUT)/include/InputEvents_Char2NE.cpp: $(SRC)/Input/InputQueue.hpp \
+$(OUT)/include/InputEvents_Char2NE.hpp: $(SRC)/Input/InputQueue.hpp \
 	$(topdir)/tools/Char2NE.pl | $(OUT)/include/dirstamp
 	@$(NQ)echo "  GEN     $@"
 	$(Q)$(PERL) $(topdir)/tools/Char2NE.pl $< >$@.$(RANDOM_NUMBER).tmp
 	@mv $@.$(RANDOM_NUMBER).tmp $@
 
 XCI_LIST = default
-XCI_HEADERS = $(patsubst %,$(OUT)/include/InputEvents_%.cpp,$(XCI_LIST))
+XCI_HEADERS = $(patsubst %,$(OUT)/include/InputEvents_%.hpp,$(XCI_LIST))
 
-$(OUT)/include/InputEvents_default.cpp: $(topdir)/Data/Input/default.xci \
+ifeq ($(TARGET_IS_OPENVARIO),y)
+  # The OpenVario configuration is split by use into several files.
+  # They are read in the order of their names, so that a later file
+  # can override an entry of an earlier one.
+  DEFAULT_XCI = $(sort $(wildcard $(topdir)/Data/Input/OpenVario/*.xci))
+else
+  # XCSoar's own file first, unchanged, then the OpenSoar changes on
+  # top of it, again in the order of their names
+  DEFAULT_XCI = $(topdir)/Data/Input/default.xci \
+    $(sort $(wildcard $(topdir)/Data/Input/OpenSoar/*.xci))
+endif
+
+# $(OUT)/include is shared between the targets, but the chosen xci
+# file is not: remember it in a stamp, so that switching between
+# OPENVARIO and the other targets regenerates the header
+XCI_SELECTED = $(OUT)/include/InputEvents_default.selected
+.PHONY: update-xci-selected
+$(XCI_SELECTED): update-xci-selected | $(OUT)/include/dirstamp
+	@echo $(DEFAULT_XCI) | cmp -s - $@ || echo $(DEFAULT_XCI) > $@
+
+$(OUT)/include/InputEvents_default.hpp: $(DEFAULT_XCI) \
+	$(XCI_SELECTED) \
 	$(topdir)/tools/xci2cpp.pl \
 	| $(OUT)/include/dirstamp
 	@$(NQ)echo "  GEN     $@"
-	$(Q)$(PERL) $(topdir)/tools/xci2cpp.pl $< >$@.$(RANDOM_NUMBER).tmp
+	$(Q)$(PERL) $(topdir)/tools/xci2cpp.pl $(DEFAULT_XCI) >$@.$(RANDOM_NUMBER).tmp
 	@mv $@.$(RANDOM_NUMBER).tmp $@
 
 $(call SRC_TO_OBJ,$(SRC)/Input/InputDefaults.cpp): $(XCI_HEADERS)
-$(call SRC_TO_OBJ,$(SRC)/Input/InputLookup.cpp): $(OUT)/include/InputEvents_Text2Event.cpp $(OUT)/include/InputEvents_Text2GCE.cpp $(OUT)/include/InputEvents_Text2NE.cpp
+$(call SRC_TO_OBJ,$(SRC)/Input/InputLookup.cpp): $(OUT)/include/InputEvents_Text2Event.hpp $(OUT)/include/InputEvents_Text2GCE.hpp $(OUT)/include/InputEvents_Text2NE.hpp
 
-$(call SRC_TO_OBJ,$(SRC)/lua/InputEvent.cpp): $(OUT)/include/InputEvents_Char2GCE.cpp $(OUT)/include/InputEvents_Char2NE.cpp
+$(call SRC_TO_OBJ,$(SRC)/lua/InputEvent.cpp): $(OUT)/include/InputEvents_Char2GCE.hpp $(OUT)/include/InputEvents_Char2NE.hpp
 
-$(OUT)/include/Status_defaults.cpp: Data/Status/default.xcs \
+$(OUT)/include/Status_defaults.hpp: Data/Status/default.xcs \
 	tools/xcs2cpp.pl | $(OUT)/include/dirstamp
 	@$(NQ)echo "  GEN     $@"
 	$(Q)$(PERL) tools/xcs2cpp.pl $< >$@.$(RANDOM_NUMBER).tmp
 	@mv $@.$(RANDOM_NUMBER).tmp $@
 
 SM_OBJ = $(call SRC_TO_OBJ,$(SRC)/StatusMessage.cpp)
-$(SM_OBJ): $(OUT)/include/Status_defaults.cpp
+$(SM_OBJ): $(OUT)/include/Status_defaults.hpp
 
 generate:: $(OUT)/include/MathTables.h $(XCI_HEADERS) \
-	$(OUT)/include/Status_defaults.cpp \
-	$(OUT)/include/InputEvents_Text2Event.cpp $(OUT)/include/InputEvents_Text2GCE.cpp $(OUT)/include/InputEvents_Text2NE.cpp \
-	$(OUT)/include/InputEvents_Char2GCE.cpp $(OUT)/include/InputEvents_Char2NE.cpp \
+	$(OUT)/include/Status_defaults.hpp \
+	$(OUT)/include/InputEvents_Text2Event.hpp $(OUT)/include/InputEvents_Text2GCE.hpp $(OUT)/include/InputEvents_Text2NE.hpp \
+	$(OUT)/include/InputEvents_Char2GCE.hpp $(OUT)/include/InputEvents_Char2NE.hpp \
 	$(OUT)/include/QuickGuideNEWS.hpp
 
 # Embedded resources (LinkResources.pl)

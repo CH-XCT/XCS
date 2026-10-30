@@ -14,7 +14,6 @@ enum Controls {
   LocalTime,
   UTCTime,
   UTCDate,
-  FlightState,
   FlightTime,
   TakeoffTime,
   LandingTime,
@@ -62,8 +61,6 @@ TimesStatusPanel::Refresh() noexcept
   } else {
     ClearText(UTCDate);
   }
-
-  SetText(FlightState, flight.flying ? _("In flight") : _("On ground"));
 
   if (flight.takeoff_time.IsDefined()) {
     SetText(TakeoffTime,
@@ -121,7 +118,6 @@ TimesStatusPanel::Prepare([[maybe_unused]] ContainerWindow &parent, [[maybe_unus
   AddReadOnly(_("Local time"));
   AddReadOnly(_("UTC time"));
   AddReadOnly(_("UTC date"));
-  AddReadOnly(_("Flight state"));
   AddReadOnly(_("Flight time"));
   AddReadOnly(_("Takeoff time"));
   AddReadOnly(_("Landing time"));

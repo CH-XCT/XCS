@@ -2,7 +2,6 @@
 // Copyright The XCSoar Project
 
 #include "GlideRatioComputer.hpp"
-#include "Settings.hpp"
 #include "NMEA/MoreData.hpp"
 #include "NMEA/Derived.hpp"
 
@@ -50,10 +49,8 @@ GlideRatioComputer::Compute(const MoreData &basic,
              last_altitude - basic.nav_altitude, 0.1);
 
   if (calculated.flight.flying && !calculated.circling) {
-    const unsigned period = settings.average_eff_time;
-    if (!gr_calculator_initialised || gr_average_period != period) {
+    if (!gr_calculator_initialised) {
       gr_calculator_initialised = true;
-      gr_average_period = period;
       gr_calculator.Initialize(settings);
     }
 

@@ -7,8 +7,6 @@
 
 #include <chrono>
 
-struct PixelRect;
-
 /**
  * Touch friendly arranging of the InfoBoxes on the current page.
  *
@@ -69,16 +67,6 @@ LongPressFade(std::chrono::steady_clock::time_point start) noexcept
 [[gnu::pure]]
 bool
 PastTouchSlop(PixelPoint a, PixelPoint b) noexcept;
-
-/**
- * Nearest slot in the screen direction of (@p dx, @p dy).  Left is
- * −x, right is +x, up is −y, down is +y.  −1 when nothing lies that
- * way.  Does not wrap.
- */
-[[gnu::pure]]
-int
-FindNeighbour(const PixelRect *positions, unsigned count,
-              PixelPoint origin, int dx, int dy) noexcept;
 
 [[gnu::pure]]
 bool

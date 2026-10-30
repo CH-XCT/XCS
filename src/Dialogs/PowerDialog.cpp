@@ -1,0 +1,191 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The XCSoar Project
+
+#include "PowerDialog.hpp"
+#include "Message.hpp"
+#include "WidgetDialog.hpp"
+#include "Form/Form.hpp"
+#include "Language/Language.hpp"
+#include "PowerControl.hpp"
+#include "ProgressGlue.hpp"
+#include "ProductName.hpp"
+#include "UIActions.hpp"
+#include "UIGlobals.hpp"
+#include "Widget/RowFormWidget.hpp"
+#include "util/StaticString.hxx"
+
+/**
+ * The buttons of the power dialog.  Which of them exist depends on
+ * the target - see PowerControl::IsAvailable().
+ */
+class PowerWidget final : public RowFormWidget {
+  WndForm &dialog;
+  PowerAction &action;
+
+  /**
+   * The button that has the focus when the dialog opens, e.g. the one
+   * a key stands for ("Q" quit, "X" shutdown).
+   */
+  const PowerAction preselect;
+
+  unsigned n_buttons = 0;
+  int preselect_row = -1;
+
+public:
+  PowerWidget(const DialogLook &look, WndForm &_dialog,
+              PowerAction &_action, PowerAction _preselect) noexcept
+    :RowFormWidget(look), dialog(_dialog), action(_action),
+     preselect(_preselect) {}
+
+private:
+  void AddAction(PowerAction _action, const char *label) noexcept {
+    if (!PowerControl::IsAvailable(_action))
+      return;
+
+    if (_action == preselect)
+      preselect_row = n_buttons;
+    ++n_buttons;
+
+    AddButton(label, [this, _action]{
+      action = _action;
+      dialog.SetModalResult(mrOK);
+    });
+  }
+
+public:
+  bool SetFocus() noexcept override {
+    /* an action this target does not offer (shutdown on a desktop)
+       leaves the focus on the first button */
+    if (preselect_row < 0)
+      return RowFormWidget::SetFocus();
+
+    GetRow(preselect_row).SetFocus();
+    return true;
+  }
+
+  /* virtual methods from class Widget */
+  void Prepare([[maybe_unused]] ContainerWindow &parent,
+               [[maybe_unused]] const PixelRect &rc) noexcept override {
+#ifdef IS_OPENVARIO
+    /* the OpenVario is a fixed instrument: the pilot reaches for this
+       dialog to switch the device off after the flight, so that comes
+       first; quitting to the console is the rare case */
+    AddAction(PowerAction::SHUTDOWN, _("Shutdown"));
+    AddAction(PowerAction::REBOOT, _("Reboot"));
+    AddAction(PowerAction::QUIT, _("Quit"));
+    AddAction(PowerAction::RESTART, _("Restart"));
+#else
+    AddAction(PowerAction::QUIT, _("Quit"));
+    AddAction(PowerAction::RESTART, _("Restart"));
+    AddAction(PowerAction::REBOOT, _("Reboot"));
+    AddAction(PowerAction::SHUTDOWN, _("Shutdown"));
+#endif
+  }
+};
+
+/**
+ * Closing takes a few seconds (settings, devices, logger): say so
+ * immediately, while the program is still running - once the shutdown
+ * has begun, ProgressGlue refuses to create its window.
+ */
+static void
+BeginShutdownFeedback(PowerAction action) noexcept
+{
+  /* preset, so the compiler does not have to prove that the switch
+     below covers every enumerator */
+  const char *text = _("Shutdown, please wait...");
+
+  switch (action) {
+  case PowerAction::RESTART:
+    text = _("Restarting, please wait...");
+    break;
+
+  case PowerAction::REBOOT:
+    text = _("Rebooting, please wait...");
+    break;
+
+  case PowerAction::SHUTDOWN:
+    text = _("Switching off, please wait...");
+    break;
+
+  case PowerAction::NONE:
+  case PowerAction::QUIT:
+    text = _("Shutdown, please wait...");
+    break;
+  }
+
+  ProgressGlue::Create(text);
+}
+
+bool
+AskPowerAction(PowerAction preselect) noexcept
+{
+  PowerAction action = PowerAction::NONE;
+
+  TWidgetDialog<PowerWidget> dialog(WidgetDialog::Auto{},
+                                    UIGlobals::GetMainWindow(),
+                                    UIGlobals::GetDialogLook(),
+                                    _("Exit"));
+  dialog.SetWidget(UIGlobals::GetDialogLook(), dialog, action, preselect);
+  dialog.AddButton(_("Cancel"), mrCancel);
+
+  if (dialog.ShowModal() != mrOK || action == PowerAction::NONE)
+    return false;
+
+  /* the action itself happens after the program has shut down, so
+     that the settings are saved first (PowerControl::Perform()) */
+  PowerControl::Set(action);
+  BeginShutdownFeedback(action);
+  return true;
+}
+
+void
+ShowPowerDialog(PowerAction preselect) noexcept
+{
+  if (AskPowerAction(preselect))
+    UIActions::SignalShutdown(true);
+}
+
+bool
+OfferRestart(const char *message) noexcept
+{
+  StaticString<256> text;
+
+  if (!PowerControl::IsAvailable(PowerAction::RESTART)) {
+    text.Format("%s\n%s", message,
+                _("The change takes effect on the next start."));
+    ShowMessageBox(text, PRODUCT_NAME, MB_OK);
+    return false;
+  }
+
+  text.Format("%s\n%s", message,
+              _("Restart now?"));
+
+  if (ShowMessageBox(text, PRODUCT_NAME,
+                     MB_YESNO | MB_ICONQUESTION) != IDYES)
+    return false;
+
+  PowerControl::Set(PowerAction::RESTART);
+  BeginShutdownFeedback(PowerAction::RESTART);
+  UIActions::SignalShutdown(true);
+  return true;
+}
+
+void
+RestartNow(const char *message) noexcept
+{
+  const PowerAction action = PowerControl::IsAvailable(PowerAction::RESTART)
+    ? PowerAction::RESTART
+    : PowerAction::QUIT;
+
+  StaticString<256> text;
+  text.Format("%s\n%s", message,
+              action == PowerAction::RESTART
+              ? _("The program restarts now.")
+              : _("The program quits now, please start it again."));
+  ShowMessageBox(text, PRODUCT_NAME, MB_OK | MB_ICONINFORMATION);
+
+  PowerControl::Set(action);
+  BeginShutdownFeedback(action);
+  UIActions::SignalShutdown(true);
+}

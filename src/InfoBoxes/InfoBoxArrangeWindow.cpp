@@ -361,10 +361,8 @@ InfoBoxArrangeWindow::DrawCard(Canvas &canvas, const PixelRect &rc,
 {
   const int radius = look.preview_radius;
   const bool active = state == CardState::ACTIVE;
-  /* keyboard focus is not ACTIVE, but a held Enter fills that card too */
-  const bool held = picker_timer.IsPending() || picker_armed;
-  const bool picker_wait = held && selection != Selection::MOVING &&
-    (active || state == CardState::FOCUSED);
+  const bool picker_wait = active &&
+    (picker_timer.IsPending() || picker_armed);
   const bool fade = picker_wait && !HasEPaper() && !IsSlowCPU();
 
   int halo = 0;
@@ -402,11 +400,9 @@ InfoBoxArrangeWindow::DrawCard(Canvas &canvas, const PixelRect &rc,
     canvas.DrawRoundRectangle(inner, {inner_radius * 2, inner_radius * 2});
 
     if (picker_wait) {
-      /* e-paper skips the fade, so a full card before the hold is
-         armed would still be a short press */
       const unsigned t = fade
         ? InfoBoxArrange::LongPressFade(picker_start)
-        : picker_armed ? 256 : 0;
+        : 256;
       FillRoundedCard(canvas, inner, inner_radius,
                       int(inner.GetHeight() * t / 256),
                       look.GetPreviewGlowColor(),
@@ -712,11 +708,7 @@ InfoBoxArrangeWindow::OnHoldArmed() noexcept
 void
 InfoBoxArrangeWindow::OnPickerTimer() noexcept
 {
-  if (drag && drag->following)
-    return;
-
-  /* a finger hold has a drag; Enter hold does not */
-  if (!drag && !enter_down)
+  if (!drag || drag->following)
     return;
 
   /* the hold is armed; lifting now opens the content list */
@@ -757,7 +749,7 @@ InfoBoxArrangeWindow::ShowHelp() noexcept
 
     text.append(_("Press Enter to take the selected InfoBox, move it with "
                   "the cursor keys and press Enter again to put it down.  "
-                  "Hold Enter, or press it twice without moving, to choose "
+                  "Pressing Enter twice without moving an InfoBox chooses "
                   "a different InfoBox for that position."));
   }
 
@@ -781,8 +773,27 @@ int
 InfoBoxArrangeWindow::FindNeighbour(PixelPoint origin,
                                     int dx, int dy) const noexcept
 {
-  return InfoBoxArrange::FindNeighbour(layout->positions, layout->count,
-                                       origin, dx, dy);
+  int best = -1, best_distance = 0;
+
+  for (unsigned i = 0; i < layout->count; ++i) {
+    const PixelPoint p = layout->positions[i].GetCenter();
+    const int along = (p.x - origin.x) * dx + (p.y - origin.y) * dy;
+    if (along <= 0)
+      continue;
+
+    /* the closest slot in that direction wins, and among those the
+       one which is least off to the side */
+    const int across = std::abs((p.x - origin.x) * dy
+                                - (p.y - origin.y) * dx);
+    const int distance = along + 4 * across;
+
+    if (best < 0 || distance < best_distance) {
+      best = i;
+      best_distance = distance;
+    }
+  }
+
+  return best;
 }
 
 bool
@@ -877,7 +888,7 @@ InfoBoxArrangeWindow::MoveSelection(int dx, int dy) noexcept
 }
 
 bool
-InfoBoxArrangeWindow::Activate(bool open_picker_if_unmoved) noexcept
+InfoBoxArrangeWindow::Activate() noexcept
 {
   OnArrangeActivity();
 
@@ -900,7 +911,7 @@ InfoBoxArrangeWindow::Activate(bool open_picker_if_unmoved) noexcept
 
   Invalidate();
 
-  if (unmoved && open_picker_if_unmoved) {
+  if (unmoved) {
     /* taking and putting down without moving means the user wants to
        change the InfoBox instead */
     PlayHapticFeedback();
@@ -1037,11 +1048,6 @@ InfoBoxArrangeWindow::CancelDrag() noexcept
 bool
 InfoBoxArrangeWindow::OnMouseDown(PixelPoint p) noexcept
 {
-  if (enter_down) {
-    enter_down = false;
-    CancelPicker();
-  }
-
   OnArrangeActivity();
 
   const PixelPoint layout_p = ToLayoutPoint(p);
@@ -1117,12 +1123,6 @@ void
 InfoBoxArrangeWindow::OnKillFocus() noexcept
 {
   PaintWindow::OnKillFocus();
-
-  if (enter_down) {
-    enter_down = false;
-    CancelPicker();
-  }
-
   Invalidate();
 }
 
@@ -1154,12 +1154,6 @@ InfoBoxArrangeWindow::OnKeyCheck(unsigned key_code) const noexcept
 bool
 InfoBoxArrangeWindow::OnKeyDown(unsigned key_code) noexcept
 {
-  /* an arrow, Escape, or anything else lets go of a held Enter */
-  if (enter_down && key_code != KEY_RETURN) {
-    enter_down = false;
-    CancelPicker();
-  }
-
   switch (key_code) {
   case KEY_LEFT:
     return MoveSelection(-1, 0);
@@ -1183,17 +1177,7 @@ InfoBoxArrangeWindow::OnKeyDown(unsigned key_code) noexcept
 #endif
 
   case KEY_RETURN:
-    /* repeats while Enter is held must not take and open the list */
-    if (enter_down)
-      return true;
-
-    enter_down = true;
-    OnArrangeActivity();
-    if (described_slot >= 0) {
-      SchedulePicker();
-      Invalidate();
-    }
-    return true;
+    return Activate();
 
   case KEY_ESCAPE:
     return OnArrangeCancel();
@@ -1202,35 +1186,9 @@ InfoBoxArrangeWindow::OnKeyDown(unsigned key_code) noexcept
   return PaintWindow::OnKeyDown(key_code);
 }
 
-bool
-InfoBoxArrangeWindow::OnKeyUp(unsigned key_code) noexcept
-{
-  if (key_code != KEY_RETURN || !enter_down)
-    return PaintWindow::OnKeyUp(key_code);
-
-  const bool armed = picker_armed;
-  const bool moving = selection == Selection::MOVING;
-  enter_down = false;
-  CancelPicker();
-
-  /* a hold is the long press: the list.  It does not also take the card.
-     Once the card is already taken, the hold only puts it down. */
-  if (armed && !moving && described_slot >= 0) {
-    ShowPicker(described_slot);
-    return true;
-  }
-
-  return Activate(!armed);
-}
-
 void
 InfoBoxArrangeWindow::OnCancelMode() noexcept
 {
-  if (enter_down) {
-    enter_down = false;
-    CancelPicker();
-  }
-
   CancelDrag();
   PaintWindow::OnCancelMode();
 }

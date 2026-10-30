@@ -600,6 +600,179 @@ msgid "Show"
 msgstr "Anzeigen"
 
 #, no-c-format
+msgid "Search"
+msgstr "Suche"
+
+msgid "Countries"
+msgstr "Länder"
+
+msgid ""
+"Show only the files of these countries - the same selection for maps, "
+"waypoints and airspaces, kept in the profile.  Files that concern every "
+"country stay listed."
+msgstr ""
+"Nur die Dateien dieser Länder anzeigen - dieselbe Auswahl für Karten, "
+"Wegpunkte und Lufträume, gespeichert im Profil.  Dateien, die alle Länder "
+"betreffen, bleiben sichtbar."
+
+msgid ""
+"Show only the files whose name or description contains this text."
+msgstr ""
+"Nur die Dateien anzeigen, deren Name oder Beschreibung diesen Text enthält."
+
+msgid "No file matches the filter."
+msgstr "Keine Datei passt zum Filter."
+
+msgid "Argentina"
+msgstr "Argentinien"
+
+msgid "Austria"
+msgstr "Österreich"
+
+msgid "Australia"
+msgstr "Australien"
+
+msgid "Belgium"
+msgstr "Belgien"
+
+msgid "Bulgaria"
+msgstr "Bulgarien"
+
+msgid "Brazil"
+msgstr "Brasilien"
+
+msgid "Canada"
+msgstr "Kanada"
+
+msgid "Switzerland"
+msgstr "Schweiz"
+
+msgid "Chile"
+msgstr "Chile"
+
+msgid "Colombia"
+msgstr "Kolumbien"
+
+msgid "Czechia"
+msgstr "Tschechien"
+
+msgid "Germany"
+msgstr "Deutschland"
+
+msgid "Denmark"
+msgstr "Dänemark"
+
+msgid "Estonia"
+msgstr "Estland"
+
+msgid "Spain"
+msgstr "Spanien"
+
+msgid "Finland"
+msgstr "Finnland"
+
+msgid "France"
+msgstr "Frankreich"
+
+msgid "United Kingdom"
+msgstr "Vereinigtes Königreich"
+
+msgid "Greece"
+msgstr "Griechenland"
+
+msgid "Croatia"
+msgstr "Kroatien"
+
+msgid "Hungary"
+msgstr "Ungarn"
+
+msgid "Ireland"
+msgstr "Irland"
+
+msgid "Israel"
+msgstr "Israel"
+
+msgid "India"
+msgstr "Indien"
+
+msgid "Iceland"
+msgstr "Island"
+
+msgid "Italy"
+msgstr "Italien"
+
+msgid "Japan"
+msgstr "Japan"
+
+msgid "Kenya"
+msgstr "Kenia"
+
+msgid "Lithuania"
+msgstr "Litauen"
+
+msgid "Luxembourg"
+msgstr "Luxemburg"
+
+msgid "Latvia"
+msgstr "Lettland"
+
+msgid "Morocco"
+msgstr "Marokko"
+
+msgid "Mexico"
+msgstr "Mexiko"
+
+msgid "Namibia"
+msgstr "Namibia"
+
+msgid "Netherlands"
+msgstr "Niederlande"
+
+msgid "Norway"
+msgstr "Norwegen"
+
+msgid "New Zealand"
+msgstr "Neuseeland"
+
+msgid "Poland"
+msgstr "Polen"
+
+msgid "Portugal"
+msgstr "Portugal"
+
+msgid "Romania"
+msgstr "Rumänien"
+
+msgid "Serbia"
+msgstr "Serbien"
+
+msgid "Russia"
+msgstr "Russland"
+
+msgid "Sweden"
+msgstr "Schweden"
+
+msgid "Slovenia"
+msgstr "Slowenien"
+
+msgid "Slovakia"
+msgstr "Slowakei"
+
+msgid "Türkiye"
+msgstr "Türkei"
+
+msgid "Ukraine"
+msgstr "Ukraine"
+
+msgid "United States"
+msgstr "Vereinigte Staaten"
+
+msgid "Uruguay"
+msgstr "Uruguay"
+
+msgid "South Africa"
+msgstr "Südafrika"
+
 msgid "All"
 msgstr "Alle"
 
@@ -1413,7 +1586,7 @@ msgid "Do you really want to delete all flights from the device?"
 msgstr "Bestätige, wirklich alle Flüge vom Gerät löschen?"
 
 msgid "Reboot"
-msgstr "Neustart"
+msgstr "Gerät neu starten"
 
 #, no-c-format
 msgid "Temperature"
@@ -3340,6 +3513,9 @@ msgstr "Ereignisse"
 msgid "The Input Events file defines the menu system and how XCSoar responds to button presses and events from external devices."
 msgstr "Die Eingabeereignisdatei bestimmt das Menüsystem und wie XCSoar auf einen Knopfdruck oder einem Ereignis von einem externen Gerät reagiert."
 
+msgid "The Input Events files define the menu system and how OpenSoar responds to button presses and events from external devices.  They are read on top of the built-in configuration in the order of their names, so a file can override an entry of a file before it."
+msgstr "Die Eingabeereignisdateien bestimmen das Menüsystem und wie OpenSoar auf Tastendrücke und Ereignisse von externen Geräten reagiert.  Sie werden nach der eingebauten Konfiguration in der Reihenfolge ihrer Namen gelesen, sodass eine Datei einen Eintrag einer Datei davor überschreiben kann."
+
 msgid "Language"
 msgstr "Sprache"
 
@@ -3616,6 +3792,81 @@ msgstr ""
 
 msgid "Log book"
 msgstr "Flugbuch"
+
+#, c-format
+msgid "Analysis for the log book: %s"
+msgstr "Analyse für das Flugbuch: %s"
+
+msgid "Rebuild"
+msgstr "Neu aufbauen"
+
+msgid "Other files"
+msgstr "Weitere Dateien"
+
+msgid ""
+"The other recordings of this flight (another logger, the NMEA log), best "
+"first; the log file above is the best one."
+msgstr ""
+"Die anderen Aufzeichnungen dieses Flugs (weiterer Logger, NMEA-Log), die "
+"beste zuerst; die Logdatei oben ist die beste."
+
+msgid "The flight on WeGlide, noted after the upload."
+msgstr "Der Flug bei WeGlide, eingetragen nach dem Hochladen."
+
+msgctxt "Logbook"
+msgid "L"
+msgstr "S"
+
+msgid "Place"
+msgstr "Ort"
+
+msgid "Free"
+msgstr "Frei"
+
+msgid "DMSt"
+msgstr "DMSt"
+
+msgid "moved to igc"
+msgstr "nach igc verschoben"
+
+msgid "moved to no-flight"
+msgstr "nach no-flight verschoben"
+
+msgid "The log book is empty."
+msgstr "Das Flugbuch ist leer."
+
+#, c-format
+msgid "The log book was copied to %s."
+msgstr "Das Flugbuch wurde nach %s kopiert."
+
+msgid "Recorder 1"
+msgstr "Recorder 1"
+
+msgid "Recorder 2"
+msgstr "Recorder 2"
+
+msgid "Recorder 1 from IGC file"
+msgstr "Recorder 1 aus IGC-Datei"
+
+msgid "Recorder 2 from IGC file"
+msgstr "Recorder 2 aus IGC-Datei"
+
+msgid ""
+"An external flight recorder of this glider, as in the A record of its IGC "
+"files: the three letter manufacturer code and the serial number, e.g. "
+"LXVJNI. When a flight is recorded several times, the log book takes it from "
+"the file of Recorder 1, then Recorder 2, then the IGC file of this program."
+msgstr ""
+"Ein externer Logger dieses Flugzeugs, wie in der A-Zeile seiner IGC-Dateien: "
+"der dreistellige Herstellercode und die Seriennummer, z. B. LXVJNI. Ist ein "
+"Flug mehrfach aufgezeichnet, nimmt das Flugbuch ihn aus der Datei von "
+"Recorder 1, dann Recorder 2, dann aus der IGC-Datei dieses Programms."
+
+msgid "This file has no A record with the recorder."
+msgstr "Diese Datei hat keine A-Zeile mit dem Logger."
+
+msgid "IGC file"
+msgstr "IGC-Datei"
 
 msgid "Logs each start and landing."
 msgstr "Notiert alle Starts und Landungen."
@@ -8691,6 +8942,15 @@ msgstr "Zuerst ein Ziel wählen."
 msgid "Backup failed."
 msgstr "Sicherung fehlgeschlagen."
 
+msgid "Backup complete."
+msgstr "Sicherung abgeschlossen."
+
+msgid "Left out, being written right now:"
+msgstr "Ausgelassen, wird gerade geschrieben:"
+
+msgid "Not available while flying."
+msgstr "Im Flug nicht verfügbar."
+
 #, no-c-format
 msgctxt "Button"
 msgid "Restore backup"
@@ -10911,6 +11171,7 @@ msgstr "InfoBox-Bereich strecken"
 
 msgid "System status bar"
 msgstr "System-Statusleiste"
+
 msgid "Determines whether the snail trail is drifted with the wind when displayed in circling mode at near map scales. Switched Off, the snail trail stays uncompensated for wind drift. In circling this also applies to the projected track curve: On keeps it relative to the air mass; Off includes wind."
 msgstr "Bestimmt, ob die Flugspur bei Anzeige im Kreisflug bei nahen Kartenmaßstäben mit dem Wind verdriftet wird. Ausgeschaltet bleibt die Spur ohne Winddrift-Kompensation. Im Kreisflug gilt das auch für die projizierte Spurkurve: Ein hält sie relativ zur Luftmasse; Aus schließt den Wind ein."
 
@@ -11190,9 +11451,6 @@ msgstr "Die Seite wechselt, der Flugmodus nicht. Vorflug zeigt die Vorflugseite,
 msgid "System Tools"
 msgstr "Systemwerkzeuge"
 
-msgid "Not available while flying."
-msgstr "Während des Fluges nicht verfügbar."
-
 msgid "User"
 msgstr "Benutzer"
 
@@ -11384,20 +11642,8 @@ msgid "Antarctica"
 msgstr "Antarktis"
 
 #, no-c-format
-msgid "Argentina"
-msgstr "Argentinien"
-
-#, no-c-format
 msgid "American Samoa"
 msgstr "Amerikanisch-Samoa"
-
-#, no-c-format
-msgid "Austria"
-msgstr "Österreich"
-
-#, no-c-format
-msgid "Australia"
-msgstr "Australien"
 
 #, no-c-format
 msgid "Aruba"
@@ -11424,16 +11670,8 @@ msgid "Bangladesh"
 msgstr "Bangladesch"
 
 #, no-c-format
-msgid "Belgium"
-msgstr "Belgien"
-
-#, no-c-format
 msgid "Burkina Faso"
 msgstr "Burkina Faso"
-
-#, no-c-format
-msgid "Bulgaria"
-msgstr "Bulgarien"
 
 #, no-c-format
 msgid "Bahrain"
@@ -11468,10 +11706,6 @@ msgid "Caribbean Netherlands"
 msgstr "Karibische Niederlande"
 
 #, no-c-format
-msgid "Brazil"
-msgstr "Brasilien"
-
-#, no-c-format
 msgid "Bahamas"
 msgstr "Bahamas"
 
@@ -11496,10 +11730,6 @@ msgid "Belize"
 msgstr "Belize"
 
 #, no-c-format
-msgid "Canada"
-msgstr "Kanada"
-
-#, no-c-format
 msgid "Cocos Islands"
 msgstr "Kokosinseln"
 
@@ -11516,10 +11746,6 @@ msgid "Congo-Brazzaville"
 msgstr "Kongo-Brazzaville"
 
 #, no-c-format
-msgid "Switzerland"
-msgstr "Schweiz"
-
-#, no-c-format
 msgid "Côte d'Ivoire"
 msgstr "Côte d’Ivoire"
 
@@ -11528,20 +11754,12 @@ msgid "Cook Islands"
 msgstr "Cookinseln"
 
 #, no-c-format
-msgid "Chile"
-msgstr "Chile"
-
-#, no-c-format
 msgid "Cameroon"
 msgstr "Kamerun"
 
 #, no-c-format
 msgid "China"
 msgstr "China"
-
-#, no-c-format
-msgid "Colombia"
-msgstr "Kolumbien"
 
 #, no-c-format
 msgid "Costa Rica"
@@ -11568,20 +11786,8 @@ msgid "Cyprus"
 msgstr "Zypern"
 
 #, no-c-format
-msgid "Czechia"
-msgstr "Tschechien"
-
-#, no-c-format
-msgid "Germany"
-msgstr "Deutschland"
-
-#, no-c-format
 msgid "Djibouti"
 msgstr "Dschibuti"
-
-#, no-c-format
-msgid "Denmark"
-msgstr "Dänemark"
 
 #, no-c-format
 msgid "Dominica"
@@ -11600,10 +11806,6 @@ msgid "Ecuador"
 msgstr "Ecuador"
 
 #, no-c-format
-msgid "Estonia"
-msgstr "Estland"
-
-#, no-c-format
 msgid "Egypt"
 msgstr "Ägypten"
 
@@ -11616,16 +11818,8 @@ msgid "Eritrea"
 msgstr "Eritrea"
 
 #, no-c-format
-msgid "Spain"
-msgstr "Spanien"
-
-#, no-c-format
 msgid "Ethiopia"
 msgstr "Äthiopien"
-
-#, no-c-format
-msgid "Finland"
-msgstr "Finnland"
 
 #, no-c-format
 msgid "Fiji"
@@ -11644,16 +11838,8 @@ msgid "Faroe Islands"
 msgstr "Färöer"
 
 #, no-c-format
-msgid "France"
-msgstr "Frankreich"
-
-#, no-c-format
 msgid "Gabon"
 msgstr "Gabun"
-
-#, no-c-format
-msgid "United Kingdom"
-msgstr "Vereinigtes Königreich"
 
 #, no-c-format
 msgid "Grenada"
@@ -11700,10 +11886,6 @@ msgid "Equatorial Guinea"
 msgstr "Äquatorialguinea"
 
 #, no-c-format
-msgid "Greece"
-msgstr "Griechenland"
-
-#, no-c-format
 msgid "South Georgia"
 msgstr "Südgeorgien und die Südlichen Sandwichinseln"
 
@@ -11736,36 +11918,16 @@ msgid "Honduras"
 msgstr "Honduras"
 
 #, no-c-format
-msgid "Croatia"
-msgstr "Kroatien"
-
-#, no-c-format
 msgid "Haiti"
 msgstr "Haiti"
-
-#, no-c-format
-msgid "Hungary"
-msgstr "Ungarn"
 
 #, no-c-format
 msgid "Indonesia"
 msgstr "Indonesien"
 
 #, no-c-format
-msgid "Ireland"
-msgstr "Irland"
-
-#, no-c-format
-msgid "Israel"
-msgstr "Israel"
-
-#, no-c-format
 msgid "Isle of Man"
 msgstr "Isle of Man"
-
-#, no-c-format
-msgid "India"
-msgstr "Indien"
 
 #, no-c-format
 msgid "British Indian Ocean Territory"
@@ -11780,14 +11942,6 @@ msgid "Iran"
 msgstr "Iran"
 
 #, no-c-format
-msgid "Iceland"
-msgstr "Island"
-
-#, no-c-format
-msgid "Italy"
-msgstr "Italien"
-
-#, no-c-format
 msgid "Jersey"
 msgstr "Jersey"
 
@@ -11798,14 +11952,6 @@ msgstr "Jamaika"
 #, no-c-format
 msgid "Jordan"
 msgstr "Jordanien"
-
-#, no-c-format
-msgid "Japan"
-msgstr "Japan"
-
-#, no-c-format
-msgid "Kenya"
-msgstr "Kenia"
 
 #, no-c-format
 msgid "Kyrgyzstan"
@@ -11876,24 +12022,8 @@ msgid "Lesotho"
 msgstr "Lesotho"
 
 #, no-c-format
-msgid "Lithuania"
-msgstr "Litauen"
-
-#, no-c-format
-msgid "Luxembourg"
-msgstr "Luxemburg"
-
-#, no-c-format
-msgid "Latvia"
-msgstr "Lettland"
-
-#, no-c-format
 msgid "Libya"
 msgstr "Libyen"
-
-#, no-c-format
-msgid "Morocco"
-msgstr "Marokko"
 
 #, no-c-format
 msgid "Monaco"
@@ -11972,20 +12102,12 @@ msgid "Malawi"
 msgstr "Malawi"
 
 #, no-c-format
-msgid "Mexico"
-msgstr "Mexiko"
-
-#, no-c-format
 msgid "Malaysia"
 msgstr "Malaysia"
 
 #, no-c-format
 msgid "Mozambique"
 msgstr "Mosambik"
-
-#, no-c-format
-msgid "Namibia"
-msgstr "Namibia"
 
 #, no-c-format
 msgid "New Caledonia"
@@ -12008,14 +12130,6 @@ msgid "Nicaragua"
 msgstr "Nicaragua"
 
 #, no-c-format
-msgid "Netherlands"
-msgstr "Niederlande"
-
-#, no-c-format
-msgid "Norway"
-msgstr "Norwegen"
-
-#, no-c-format
 msgid "Nepal"
 msgstr "Nepal"
 
@@ -12026,10 +12140,6 @@ msgstr "Nauru"
 #, no-c-format
 msgid "Niue"
 msgstr "Niue"
-
-#, no-c-format
-msgid "New Zealand"
-msgstr "Neuseeland"
 
 #, no-c-format
 msgid "Oman"
@@ -12060,10 +12170,6 @@ msgid "Pakistan"
 msgstr "Pakistan"
 
 #, no-c-format
-msgid "Poland"
-msgstr "Polen"
-
-#, no-c-format
 msgid "Saint Pierre and Miquelon"
 msgstr "St. Pierre und Miquelon"
 
@@ -12080,10 +12186,6 @@ msgid "Palestine"
 msgstr "Palästinensische Autonomiegebiete"
 
 #, no-c-format
-msgid "Portugal"
-msgstr "Portugal"
-
-#, no-c-format
 msgid "Palau"
 msgstr "Palau"
 
@@ -12098,18 +12200,6 @@ msgstr "Katar"
 #, no-c-format
 msgid "Réunion"
 msgstr "Réunion"
-
-#, no-c-format
-msgid "Romania"
-msgstr "Rumänien"
-
-#, no-c-format
-msgid "Serbia"
-msgstr "Serbien"
-
-#, no-c-format
-msgid "Russia"
-msgstr "Russland"
 
 #, no-c-format
 msgid "Rwanda"
@@ -12132,10 +12222,6 @@ msgid "Sudan"
 msgstr "Sudan"
 
 #, no-c-format
-msgid "Sweden"
-msgstr "Schweden"
-
-#, no-c-format
 msgid "Singapore"
 msgstr "Singapur"
 
@@ -12144,16 +12230,8 @@ msgid "Saint Helena"
 msgstr "St. Helena"
 
 #, no-c-format
-msgid "Slovenia"
-msgstr "Slowenien"
-
-#, no-c-format
 msgid "Svalbard and Jan Mayen"
 msgstr "Spitzbergen und Jan Mayen"
-
-#, no-c-format
-msgid "Slovakia"
-msgstr "Slowakei"
 
 #, no-c-format
 msgid "Sierra Leone"
@@ -12264,24 +12342,12 @@ msgid "Tanzania"
 msgstr "Tansania"
 
 #, no-c-format
-msgid "Ukraine"
-msgstr "Ukraine"
-
-#, no-c-format
 msgid "Uganda"
 msgstr "Uganda"
 
 #, no-c-format
 msgid "U.S. Outlying Islands"
 msgstr "Amerikanische Überseeinseln"
-
-#, no-c-format
-msgid "United States"
-msgstr "Vereinigte Staaten"
-
-#, no-c-format
-msgid "Uruguay"
-msgstr "Uruguay"
 
 #, no-c-format
 msgid "Uzbekistan"
@@ -12336,24 +12402,12 @@ msgid "Mayotte"
 msgstr "Mayotte"
 
 #, no-c-format
-msgid "South Africa"
-msgstr "Südafrika"
-
-#, no-c-format
 msgid "Zambia"
 msgstr "Sambia"
 
 #, no-c-format
 msgid "Zimbabwe"
 msgstr "Simbabwe"
-
-#. the backup is there, but on purpose without the files the
-#. loggers are writing right now: say so, and which ones
-msgid "Backup complete."
-msgstr "Sicherung abgeschlossen."
-
-msgid "Left out, being written right now:"
-msgstr "Ausgelassen, wird gerade geschrieben:"
 
 msgid "Don't use"
 msgstr "Nicht verwenden"
@@ -12746,25 +12800,6 @@ msgstr "Schnellscan Naturfarbe"
 msgid "No satellite imagery here right now"
 msgstr "Hier ist gerade kein Satellitenbild verfügbar"
 
-msgid "Countries"
-msgstr "Länder"
-
-msgid "Show only the files of these countries - the same selection for maps, waypoints and airspaces, kept in the profile.  Files that concern every country stay listed."
-msgstr ""
-"Nur die Dateien dieser Länder anzeigen — dieselbe Auswahl für Karten, Wegpu"
-"nkte und Lufträume, im Profil gespeichert. Dateien, die jedes Land betreffe"
-"n, bleiben aufgelistet."
-
-msgid "Search"
-msgstr "Suche"
-
-msgid "Show only the files whose name or description contains this text."
-msgstr ""
-"Nur Dateien anzeigen, deren Name oder Beschreibung diesen Text enthält."
-
-msgid "No file matches the filter."
-msgstr "Keine Datei entspricht dem Filter."
-
 msgid "Complete"
 msgstr "Abgeschlossen"
 
@@ -12878,7 +12913,6 @@ msgstr ""
 "ist blau, während Ballast abgelassen wird. Antippen, um den Ballast zu ände"
 "rn."
 
-
 #, no-c-format
 msgctxt "Observation"
 msgid "XCSoar"
@@ -12898,26 +12932,614 @@ msgstr ""
 msgid "%s ago"
 msgstr ""
 
-msgid "At startup, download a newer copy of each file already on this device. The progress bar shows the download."
+msgid "- Complete System Data Transfers"
+msgstr "- Komplette System-Datenübertragung"
+
+msgid "A web page was downloaded instead of the file - the address in the repository is probably wrong."
+msgstr "Statt der Datei wurde eine Webseite heruntergeladen - die Adresse im Repository ist vermutlich falsch."
+
+msgid "Another profile was activated."
+msgstr "Ein anderes Profil wurde aktiviert."
+
+msgid "Backup Image"
+msgstr "Abbild sichern"
+
+msgid "Backup System"
+msgstr "System sichern"
+
+msgid "Backup: OpenVario System to USB"
+msgstr "Sichern: OpenVario-System auf USB"
+
+msgid "Brightness"
+msgstr "Helligkeit"
+
+msgid "Brightness Display OpenVario"
+msgstr "Helligkeit des OpenVario-Displays"
+
+msgid "Calibrate Sensors"
+msgstr "Sensoren kalibrieren"
+
+msgid "Calibrate Touch"
+msgstr "Touchscreen kalibrieren"
+
+msgid "Changes to configuration saved."
+msgstr "Änderungen an der Konfiguration gespeichert."
+
+msgid "Config file"
+msgstr "Konfigurationsdatei"
+
+msgid "Could not re-acquire device after reboot."
+msgstr "Gerät war nach dem Neustart nicht wieder erreichbar."
+
+msgid "Current OpenSoar"
+msgstr "Aktuelles OpenSoar"
+
+msgid "Current firmware file version of OpenVario"
+msgstr "Version der OpenVario-Firmware-Datei"
+
+msgid "Current firmware version of OpenVario"
+msgstr "Aktuelle Firmware-Version des OpenVario"
+
+msgid "Default Key Configuration"
+msgstr "Standard-Tastenbelegung"
+
+msgid "Device did not reconnect after reboot."
+msgstr "Gerät hat sich nach dem Neustart nicht wieder verbunden."
+
+msgid "Device name"
+msgstr "Gerätename"
+
+msgid "Devices in the profile"
+msgstr "Geräte im Profil"
+
+msgid "Display Settings"
+msgstr "Display-Einstellungen"
+
+msgid "Download IGC Files"
+msgstr "IGC-Dateien herunterladen"
+
+msgid "Download files"
+msgstr "Dateien herunterladen"
+
+msgid "Enable the SSH Connection"
+msgstr "SSH-Zugang aktivieren"
+
+msgid "Enable the SensorD"
+msgstr "SensorD aktivieren"
+
+msgid "Enable the Settings Page"
+msgstr "Einstellungsseite aktivieren"
+
+msgid "Enable the VarioD"
+msgstr "VarioD aktivieren"
+
+msgid "Enabling the tTouch Screen"
+msgstr "Touchscreen aktivieren"
+
+msgid "Failed to activate the profile."
+msgstr "Das Profil konnte nicht aktiviert werden."
+
+msgid "File Transfers"
+msgstr "Dateiübertragung"
+
+msgid "Frequency Card"
+msgstr "Frequenzkarte"
+
+msgid "How long the profile dialog waits at startup before it continues with the preselected profile.  Any input stops the countdown; zero waits for the user."
+msgstr "Wie lange der Profildialog beim Start wartet, bevor er mit dem vorausgewählten Profil fortfährt.  Jede Eingabe stoppt den Countdown; bei Null wartet er auf den Benutzer."
+
+msgid "Image Backup to USB (WIP)"
+msgstr "Abbild-Sicherung auf USB (in Arbeit)"
+
+msgid "Keep the NMEA devices and their ports in the profile, the way XCSoar does it, instead of in the device port file.  For a machine that flies with more than one set of instruments.  Takes effect on the next start."
+msgstr "NMEA-Geräte und ihre Ports wie bei XCSoar im Profil halten statt in der Geräteport-Datei.  Für ein Gerät, das mit mehr als einem Instrumentensatz fliegt.  Wirkt ab dem nächsten Start."
+
+msgid "Key Configuration"
+msgstr "Tastenbelegung"
+
+msgid "No active device."
+msgstr "Kein aktives Gerät."
+
+msgid "No frequency list is loaded.  Select one under System > Site Files > Radio frequencies."
+msgstr "Keine Frequenzliste geladen.  Auswahl unter System > Standortdateien > Funkfrequenzen."
+
+msgid "No place for device settings on this system."
+msgstr "Auf diesem System gibt es keinen Ort für Geräteeinstellungen."
+
+msgid "OpenVario Extra menu "
+msgstr "OpenVario-Extramenü "
+
+msgid "OpenVario File Transfers"
+msgstr "OpenVario-Dateiübertragung"
+
+msgid "Program Timeout"
+msgstr "Programm-Timeout"
+
+msgid "Program file doesnt exist!"
+msgstr "Programmdatei existiert nicht!"
+
+msgid "Radio frequencies"
+msgstr "Funkfrequenzen"
+
+msgid "Re-Connect"
+msgstr "Neu verbinden"
+
+msgid "Reboot Remote Stick"
+msgstr "Remote Stick neu starten"
+
+msgid "Rebooting Remote Stick"
+msgstr "Remote Stick startet neu"
+
+msgid "Rebooting, please wait..."
+msgstr "Gerät startet neu, bitte warten..."
+
+msgid "Reopen left no active device."
+msgstr "Nach dem Neuöffnen ist kein Gerät aktiv."
+
+msgid "Restart now?"
+msgstr "Jetzt neu starten?"
+
+msgid "The program restarts now."
+msgstr "Das Programm startet jetzt neu."
+
+msgid "The program quits now, please start it again."
+msgstr "Das Programm wird jetzt beendet, bitte neu starten."
+
+msgid "Restarting, please wait..."
+msgstr "Programm startet neu, bitte warten..."
+
+msgid "Restore %s"
+msgstr "%s wiederherstellen"
+
+msgid "Restore System"
+msgstr "System wiederherstellen"
+
+msgid "Restore complete."
+msgstr "Wiederherstellung abgeschlossen."
+
+msgid "Restore: OpenVario <- USB"
+msgstr "Wiederherstellen: OpenVario <- USB"
+
+msgid "Restore: OpenVario System from USB"
+msgstr "Wiederherstellen: OpenVario-System von USB"
+
+msgid "Rotation Display OpenVario"
+msgstr "Ausrichtung des OpenVario-Displays"
+
+msgid "Save: OpenVario -> USB"
+msgstr "Sichern: OpenVario -> USB"
+
+msgid "Saved and visible"
+msgstr "Gespeichert und sichtbar"
+
+msgid "Saved, but not visible"
+msgstr "Gespeichert, aber nicht sichtbar"
+
+msgid "Serial number"
+msgstr "Seriennummer"
+
+msgid "Settings Enabled"
+msgstr "Einstellungen aktiviert"
+
+msgid "Shutdown"
+msgstr "Ausschalten"
+
+msgid "Start OpenSoar"
+msgstr "OpenSoar starten"
+
+msgid "Start OpenSoar (Club)"
+msgstr "OpenSoar starten (Club)"
+
+msgid "Start XCSoar"
+msgstr "XCSoar starten"
+
+msgid "Start and leave the program the way XCSoar does it: the fly/simulator prompt at every start, the profile dialog only when it is needed and without a countdown, and a plain question when quitting.  Takes effect on the next start."
+msgstr "Programmstart und Beenden wie bei XCSoar: die Fliegen/Simulator-Frage bei jedem Start, der Profildialog nur bei Bedarf und ohne Countdown, beim Beenden eine einfache Rückfrage.  Wirkt ab dem nächsten Start."
+
+msgid "Startup timeout"
+msgstr "Start-Timeout"
+
+msgid "Switching off, please wait..."
+msgstr "Ausschalten, bitte warten..."
+
+msgid "System Info"
+msgstr "Systeminfo"
+
+msgid "System Settings"
+msgstr "Systemeinstellungen"
+
+msgid "The change takes effect on the next start."
+msgstr "Die Änderung wirkt ab dem nächsten Start."
+
+msgid "The downloaded file cannot be read."
+msgstr "Die heruntergeladene Datei lässt sich nicht lesen."
+
+msgid "The downloaded file does not look like the type the repository says it is."
+msgstr "Die heruntergeladene Datei sieht nicht nach dem Typ aus, den das Repository angibt."
+
+msgid "The downloaded file is empty."
+msgstr "Die heruntergeladene Datei ist leer."
+
+msgid "The frequency list shown by the frequency card: one station per line, \"name : frequency\", or a JSON file with a \"stations\" array."
+msgstr "Die Frequenzliste der Frequenzkarte: eine Station pro Zeile, \"Name : Frequenz\", oder eine JSON-Datei mit einem \"stations\"-Feld."
+
+msgid "The repository entry \"%s\" has no file name extension that fits its type.  The file would be downloaded but not found again."
+msgstr "Der Repository-Eintrag \"%s\" hat keine zum Typ passende Dateiendung.  Die Datei würde heruntergeladen, aber nie wiedergefunden."
+
+msgid "This profile is already in use."
+msgstr "Dieses Profil wird bereits verwendet."
+
+msgid "Timeout for Program Start."
+msgstr "Timeout für den Programmstart."
+
+msgid "Touch enabled"
+msgstr "Touch aktiviert"
+
+msgid "Update System"
+msgstr "System aktualisieren"
+
+msgid "Upgrade Firmware"
+msgstr "Firmware aktualisieren"
+
+msgid "Upgrade Firmware (.img.gz) "
+msgstr "Firmware aktualisieren (.img.gz) "
+
+msgid "Upgrade Firmware (temp.)"
+msgstr "Firmware aktualisieren (temp.)"
+
+msgid "Upload IGC Files to USB (WIP)"
+msgstr "IGC-Dateien auf USB kopieren (in Arbeit)"
+
+msgid "Waiting for stick to reboot…"
+msgstr "Warte auf den Neustart des Sticks…"
+
+msgid "Waiting for stick to reconnect…"
+msgstr "Warte, bis sich der Stick wieder verbindet…"
+
+msgid "Wifi"
+msgstr "WLAN"
+
+msgid "XCSoar behaviour"
+msgstr "XCSoar-Verhalten"
+
+msgid "Frequency\nCard"
+msgstr "Frequenz-\nkarte"
+
+msgid "Info\nPage 2/4"
+msgstr "Info\nSeite 2/4"
+
+msgid "Info\nPage 3/4"
+msgstr "Info\nSeite 3/4"
+
+msgid "Info\nPage 4/4"
+msgstr "Info\nSeite 4/4"
+
+msgctxt "Setting"
+msgid "System"
+msgstr "System"
+
+msgctxt "Menu"
+msgid "System"
+msgstr "System"
+
+msgid "Visit us at:"
+msgstr "Mehr im Web:"
+
+msgid "Wind - live speed"
+msgstr "Wind - Live-Geschwindigkeit"
+
+msgid "Live Wind"
+msgstr "Live-Wind"
+
+msgid "Speed of the instantaneous wind reported by an external sensor (Anemoi, ...), unfiltered; the bearing in the comment."
+msgstr "Geschwindigkeit des momentanen Windes von einem externen Sensor (Anemoi, ...), ungefiltert; die Richtung im Kommentar."
+
+msgid "Wind - live bearing"
+msgstr "Wind - Live-Richtung"
+
+msgid "Bearing of the instantaneous wind reported by an external sensor (Anemoi, ...), unfiltered; the speed in the comment."
+msgstr "Richtung des momentanen Windes von einem externen Sensor (Anemoi, ...), ungefiltert; die Geschwindigkeit im Kommentar."
+
+msgid "Wind - internal estimate"
+msgstr "Wind - interne Schätzung"
+
+msgid "Int Wind"
+msgstr "Int. Wind"
+
+msgid "The wind XCSoar estimates itself from circling and from the EKF, whatever the effective wind is set to (external sensor, manual)."
+msgstr "Der Wind, den XCSoar selbst aus dem Kreisen und dem EKF schätzt - unabhängig davon, woher der wirksame Wind kommt (externer Sensor, manuell)."
+
+msgid "Wind - zig-zag estimate"
+msgstr "Wind - Zick-Zack-Schätzung"
+
+msgid "ZigZag Wind"
+msgstr "ZickZack-Wind"
+
+msgid "The wind of the zig-zag (EKF) estimator, shown while it is the source of the effective wind."
+msgstr "Der Wind des Zick-Zack-Schätzers (EKF), angezeigt, solange er die Quelle des wirksamen Windes ist."
+
+msgid "Page number"
+msgstr "Seitennummer"
+
+msgid ""
+"Number of the page on display and the number of pages, with the kind of "
+"the page in the comment."
 msgstr ""
+"Nummer der angezeigten Seite und Anzahl der Seiten, die Art der Seite im "
+"Kommentar."
 
-msgid "Data files have been updated"
+msgid "STF switch"
+msgstr "STF-Schalter"
+
+msgid "STF"
+msgstr "STF"
+
+msgid "State of the speed-to-fly / vario switch as reported by the connected vario."
+msgstr "Stellung des Sollfahrt/Vario-Schalters, wie das angeschlossene Vario sie meldet."
+
+msgid "Bugs setting"
+msgstr "Mücken-Einstellung"
+
+msgid "The bugs setting: 100 % is a clean wing."
+msgstr "Die Mücken-Einstellung: 100 % ist ein sauberer Flügel."
+
+msgid "True heading"
+msgstr "Rechtweisender Steuerkurs"
+
+msgid "True heading from the attitude sensor of a connected device."
+msgstr "Rechtweisender Steuerkurs vom Lagesensor eines angeschlossenen Geräts."
+
+msgid "Water ballast"
+msgstr "Wasserballast"
+
+msgid "Water ballast in litres, with the share of the maximum in the comment."
+msgstr "Wasserballast in Litern, der Anteil am Maximum im Kommentar."
+
+msgid "Show only the InfoBoxes of these groups when choosing a content."
+msgstr "Nur die InfoBoxen dieser Gruppen bei der Auswahl eines Inhalts zeigen."
+
+msgid "Ground"
+msgstr "Boden"
+
+msgid "After"
+msgstr "Danach"
+
+msgid "How the quick menu arranges its buttons."
+msgstr "Wie das Schnellmenü seine Knöpfe anordnet."
+
+msgid "XCSoar"
+msgstr "XCSoar"
+
+msgid "Three columns, the buttons in the order of their locations, page by page."
+msgstr "Drei Spalten, die Knöpfe in der Reihenfolge ihrer Plätze, Seite für Seite."
+
+msgid "Dynamic"
+msgstr "Dynamisch"
+
+msgid "A framed block of 3 x 5 buttons (locations 1 to 15, location 1 in the centre) stays in the middle of the screen, in portrait and landscape alike; the other buttons fill the space around it, the lower locations closer to it."
+msgstr "Ein umrahmter Block aus 3 x 5 Knöpfen (Plätze 1 bis 15, Platz 1 in der Mitte) bleibt in der Bildschirmmitte, hochkant wie quer; die übrigen Knöpfe füllen den Platz darum herum, die niedrigeren Plätze näher am Block."
+
+msgid "Audio / MC"
+msgstr "Audio / MC"
+
+msgid "Flight\nOverview"
+msgstr "Flug-\nübersicht"
+
+msgid "Task restarted"
+msgstr "Aufgabe neu gestartet"
+
+msgid "Task\nRestart"
+msgstr "Aufgabe\nneu starten"
+
+msgid "Upload"
+msgstr "Hochladen"
+
+msgid "Map\nDisplay"
+msgstr "Karten-\nanzeige"
+
+msgid "Page settings"
+msgstr "Seiteneinstellungen"
+
+msgid ""
+"Show the airspaces on the map.  This is not saved: after a restart the "
+"airspaces are shown again."
 msgstr ""
+"Lufträume auf der Karte anzeigen.  Das wird nicht gespeichert: nach einem "
+"Neustart sind die Lufträume wieder sichtbar."
 
-msgid "Point the camera at a task QR code"
-msgstr "Kamera auf einen Aufgaben-QR-Code richten"
+msgid "Show the names and limits of the airspaces on the map."
+msgstr "Namen und Grenzen der Lufträume auf der Karte anzeigen."
 
-msgid "No camera permission"
-msgstr "Keine Kameraberechtigung"
+msgid "Zoom the map automatically to show the next waypoint."
+msgstr "Die Karte automatisch so zoomen, dass der nächste Wegpunkt sichtbar ist."
 
-msgid "No camera found"
-msgstr "Keine Kamera gefunden"
+msgid ""
+"As many columns as fit, every button at its location, and a list of its "
+"own for ground, flight and after landing."
+msgstr ""
+"So viele Spalten wie Platz haben, jeder Knopf an seinem Platz, und eine "
+"eigene Liste für Boden, Flug und nach der Landung."
 
-msgid "Cannot open the camera"
-msgstr "Kamera kann nicht geöffnet werden"
+msgid "Device setting"
+msgstr "Geräteeinstellung"
 
-msgid "Cannot start the camera preview"
-msgstr "Kameravorschau kann nicht gestartet werden"
+msgid ""
+"The resolution of this display, for displays that report a wrong size.  It "
+"applies from the start screen on; a profile with a resolution of its own "
+"overrides it.  Takes effect on the next start."
+msgstr ""
+"Die Auflösung dieses Bildschirms, für Bildschirme, die eine falsche Größe "
+"melden.  Sie gilt schon ab dem Startbildschirm; ein Profil mit eigener "
+"Auflösung überschreibt sie.  Wirkt ab dem nächsten Start."
 
-msgid "Camera not usable"
-msgstr "Kamera nicht verwendbar"
+msgid "Thin lines"
+msgstr "Dünne Linien"
+
+msgid ""
+"Don't fill the airspace area, and draw the outlines one pixel wide."
+msgstr ""
+"Die Lufträume nicht füllen und die Umrisse ein Pixel breit zeichnen."
+msgid "Thin lines, fill warnings"
+msgstr "Dünne Linien, Warnungen füllen"
+
+msgid ""
+"Draw the outlines one pixel wide, and fill only the airspaces that cause a "
+"warning or that the glider is inside."
+msgstr ""
+"Die Umrisse ein Pixel breit zeichnen und nur die Lufträume füllen, die eine "
+"Warnung auslösen oder in denen sich das Segelflugzeug befindet."
+
+
+msgid ""
+"The MacCready setting: the climb rate expected in the next thermal.  Setting "
+"it here switches auto MacCready off."
+msgstr ""
+"Der MacCready-Wert: das im nächsten Bart erwartete Steigen.  Eine Eingabe "
+"hier schaltet den automatischen MacCready aus."
+"OpenStreetMap-Kacheln statt Gelände und Topographie. Die Kacheln werden "
+"geladen, solange eine Verbindung besteht, und im Cache gehalten."
+
+msgid "Base map"
+msgstr "Grundkarte"
+
+msgid ""
+"What the map draws underneath airspaces, waypoints and the task on this "
+"page."
+msgstr ""
+"Was die Karte auf dieser Seite unter Lufträumen, Wegpunkten und der "
+"Aufgabe zeichnet."
+
+msgid ""
+"Records each flight in the log book: takeoff and landing with time and "
+"place, launch, crew, aircraft, free and DMSt distance (Info menu, file "
+"logbook.csv). At startup, the flights of recorded files not yet in the log "
+"book are added, the first time all of them."
+msgstr ""
+"Trägt jeden Flug ins Flugbuch ein: Start und Landung mit Zeit und Ort, "
+"Startart, Besatzung, Flugzeug, freie und DMSt-Strecke (Info-Menü, Datei "
+"logbook.csv). Beim Start werden die Flüge der aufgezeichneten Dateien "
+"ergänzt, die noch nicht im Flugbuch stehen, beim ersten Mal alle."
+
+msgid "Log book: %u flight(s) from %u of %u file(s)"
+msgstr "Flugbuch: %u Flug/Flüge aus %u von %u Datei(en)"
+
+msgid "the rest follows at the next start"
+msgstr "der Rest folgt beim nächsten Start"
+
+msgid ""
+"Build the log book again from all recorded files? The current one is kept "
+"as logbook-DATE.csv in the folder logs, including all changes made by hand."
+msgstr ""
+"Das Flugbuch neu aus allen aufgezeichneten Dateien aufbauen? Das bisherige "
+"bleibt als logbook-DATUM.csv im Ordner logs erhalten, mit allen Änderungen "
+"von Hand."
+
+msgctxt "Logbook"
+msgid "Takeoff"
+msgstr "Start"
+
+msgctxt "Logbook"
+msgid "Landing"
+msgstr "Landung"
+
+msgid "Aircraft"
+msgstr "Flugzeug"
+
+msgid "Free distance"
+msgstr "Freie Strecke"
+
+msgid ""
+"The free distance over up to five turn points (six legs), as the OLC "
+"classic rules score it, and the speed from its first to its last point."
+msgstr ""
+"Die freie Strecke über bis zu fünf Wendepunkte (sechs Schenkel), wie sie "
+"die OLC-Classic-Regeln werten, und die Geschwindigkeit vom ersten bis zum "
+"letzten Punkt."
+
+msgid ""
+"Distance and points by the DMSt rules, with the index of the plane and the "
+"bonus of the shape."
+msgstr ""
+"Strecke und Punkte nach den DMSt-Regeln, mit dem Index des Flugzeugs und "
+"dem Bonus der Streckenform."
+
+msgid "Max. altitude"
+msgstr "Max. Höhe"
+
+msgid "Log file"
+msgstr "Logdatei"
+
+msgid "Flight recorder"
+msgstr "Logger"
+
+msgid "Release"
+msgstr "Ausklinken"
+
+msgid ""
+"The release from the tow or winch, or the end of the engine run of a self-"
+"launch: the scored flight begins here."
+msgstr ""
+"Das Ausklinken aus Schlepp oder Winde oder das Ende des Motorlaufs beim "
+"Eigenstart: hier beginnt der gewertete Flug."
+
+msgid ""
+"The manufacturer code, the serial number and the type from the header of "
+"the IGC file."
+msgstr "Herstellerkennung, Seriennummer und Typ aus dem Kopf der IGC-Datei."
+
+msgid "Launch"
+msgstr "Startart"
+
+msgid "Winch"
+msgstr "Winde"
+
+msgid "Aerotow"
+msgstr "F-Schlepp"
+
+msgid "Self-launch"
+msgstr "Eigenstart"
+
+msgid "Estimated from the climb after the takeoff; correct it if it is wrong."
+msgstr ""
+"Aus dem Steigen nach dem Start geschätzt; bitte korrigieren, wenn sie nicht "
+"stimmt."
+
+msgid "Co-pilot"
+msgstr "Begleiter"
+
+msgid "Remark"
+msgstr "Bemerkung"
+
+msgid "Triangle"
+msgstr "Dreieck"
+
+msgid "Delete this flight from the log book?"
+msgstr "Diesen Flug aus dem Flugbuch löschen?"
+
+msgid "Recorder 1 device"
+msgstr "Gerät von Recorder 1"
+
+msgid "Recorder 2 device"
+msgstr "Gerät von Recorder 2"
+
+msgid ""
+"The device the recorder is connected to; its driver is the type of the "
+"recorder. A while after the landing, the newest flight is downloaded from it "
+"into the log book."
+msgstr ""
+"Das Gerät, an dem der Recorder angeschlossen ist; sein Treiber ist der Typ "
+"des Recorders. Eine Weile nach der Landung wird der neueste Flug von dort "
+"ins Flugbuch geladen."
+
+#, c-format
+msgid "Recorder %u: flight downloaded"
+msgstr "Recorder %u: Flug heruntergeladen"
+
+msgid "No device is set for this recorder in the logger settings."
+msgstr "Für diesen Recorder ist in den Logger-Einstellungen kein Gerät gewählt."
+
+msgid "Recorder 1\nDownload"
+msgstr "Recorder 1\nauslesen"
+
+msgid "Recorder 2\nDownload"
+msgstr "Recorder 2\nauslesen"

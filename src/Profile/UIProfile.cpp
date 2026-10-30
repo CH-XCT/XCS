@@ -14,6 +14,7 @@ namespace Profile {
   static void Load(const ProfileMap &map, DisplaySettings &settings);
   static void Load(const ProfileMap &map, FormatSettings &settings);
   static void Load(const ProfileMap &map, VarioSettings &settings);
+  static void Load(const ProfileMap &map, VarioDisplaySettings &settings);
   static void Load(const ProfileMap &map, TrafficSettings &settings);
   static void Load(const ProfileMap &map, DialogSettings &settings);
   static void Load(const ProfileMap &map, SoundSettings &settings);
@@ -51,6 +52,27 @@ Profile::Load(const ProfileMap &map, VarioSettings &settings)
   map.Get(ProfileKeys::AppGaugeVarioGross, settings.show_gross);
   map.Get(ProfileKeys::AppAveNeedle, settings.show_average_needle);
   map.Get(ProfileKeys::AppAveThermalNeedle, settings.show_thermal_average_needle);
+}
+
+void
+Profile::Load(const ProfileMap &map, VarioDisplaySettings &settings)
+{
+  map.GetEnum(ProfileKeys::VarioDisplayCirclingCenter,
+              settings.circling.center);
+  map.GetEnum(ProfileKeys::VarioDisplayCirclingInfo1,
+              settings.circling.info1);
+  map.GetEnum(ProfileKeys::VarioDisplayCirclingInfo2,
+              settings.circling.info2);
+  map.GetEnum(ProfileKeys::VarioDisplayCirclingInfo3,
+              settings.circling.info3);
+  map.GetEnum(ProfileKeys::VarioDisplayStraightCenter,
+              settings.straight.center);
+  map.GetEnum(ProfileKeys::VarioDisplayStraightInfo1,
+              settings.straight.info1);
+  map.GetEnum(ProfileKeys::VarioDisplayStraightInfo2,
+              settings.straight.info2);
+  map.GetEnum(ProfileKeys::VarioDisplayStraightInfo3,
+              settings.straight.info3);
 }
 
 void
@@ -111,6 +133,7 @@ Profile::Load(const ProfileMap &map, UISettings &settings)
   Load(map, settings.display);
 
   map.Get(ProfileKeys::MenuTimeout, settings.menu_timeout);
+  map.Get(ProfileKeys::StartupTimeout, settings.startup_timeout);
 
   map.Get(ProfileKeys::UIScale, settings.scale);
   if (settings.scale < 50 || settings.scale > 200)
@@ -146,6 +169,7 @@ Profile::Load(const ProfileMap &map, UISettings &settings)
   map.Get(ProfileKeys::ShowMenuButton, settings.show_menu_button);
   map.Get(ProfileKeys::ShowZoomButton, settings.show_zoom_button);
   map.Get(ProfileKeys::ShowQuickMenuButton, settings.show_quickmenu_button);
+  map.GetEnum(ProfileKeys::QuickMenuStyle, settings.quick_menu_style);
 
   if (!map.GetEnum(ProfileKeys::DarkMode, settings.dark_mode)) {
     /* migrate the old AppInverseInfoBox setting */
@@ -165,6 +189,7 @@ Profile::Load(const ProfileMap &map, UISettings &settings)
   Load(map, settings.map);
   Load(map, settings.info_boxes);
   Load(map, settings.vario);
+  Load(map, settings.vario_display);
   Load(map, settings.traffic);
   Load(map, settings.pages);
   Load(map, settings.dialog);

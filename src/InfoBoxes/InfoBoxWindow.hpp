@@ -44,9 +44,6 @@ class InfoBoxWindow : public LazyPaintWindow
    */
   bool pressed = false;
 
-  /** Enter is down.  Release before the hold is armed runs the action. */
-  bool enter_down = false;
-
   /**
    * draw the selector event if the InfoBox window is not the system focus
    */
@@ -61,7 +58,7 @@ class InfoBoxWindow : public LazyPaintWindow
   /** the hold finished; the action waits for lift-off */
   bool hold_armed = false;
 
-  /** where this press started, for the slop check */
+  /** the position of the press which #dialog_timer is watching */
   PixelPoint press_point{0, 0};
 
   /** when the long-press glow started */
@@ -77,10 +74,11 @@ class InfoBoxWindow : public LazyPaintWindow
   UI::Timer focus_timer{[this]{ FocusParent(); }};
 
   /**
-   * Arms the hold while the press is still down.  Lift after that
-   * opens arrange mode.
+   * This timer opens the dialog.  It is used to check for "long
+   * click" and to delay the dialog a bit (for double click
+   * detection).
    */
-  UI::Timer long_press_timer{[this]{ OnLongPress(); }};
+  UI::Timer dialog_timer{[this]{ OnDialogTimer(); }};
 
   PixelRect title_rect;
   PixelRect value_rect;
@@ -156,14 +154,7 @@ private:
 protected:
   void ShowDialog();
 
-  /** Short press and Enter: the content action, if this box has one. */
-  void Activate() noexcept;
-
-  /** Lift or Enter release: arrange if the hold is armed, else the action. */
-  void FinishPress() noexcept;
-
-  /** Move focus to the nearest box in this screen direction. */
-  void FocusNeighbour(int dx, int dy) noexcept;
+  bool HandleKey(InfoBoxContent::InfoBoxKeyCodes keycode);
 
 public:
   [[gnu::pure]]
@@ -177,7 +168,7 @@ public:
   }
 
 private:
-  void OnLongPress() noexcept;
+  void OnDialogTimer() noexcept;
   void OnHoldArmed() noexcept;
   void StopLongPress() noexcept;
   void PaintLongPressGlow(Canvas &canvas) noexcept;
@@ -190,7 +181,6 @@ protected:
   void OnCancelMode() noexcept override;
 
   bool OnKeyDown(unsigned key_code) noexcept override;
-  bool OnKeyUp(unsigned key_code) noexcept override;
 
   bool OnMouseDown(PixelPoint p) noexcept override;
   bool OnMouseUp(PixelPoint p) noexcept override;

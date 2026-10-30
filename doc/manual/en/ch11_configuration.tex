@@ -103,11 +103,6 @@ configured when flying at a new site.
   The content listed in that manifest is then included in the file download 
   selectors. The manifest needs to use the same format as that of the XCSoar repository
   (See \url{https://github.com/XCSoar/xcsoar-data-content}).
-\item[Auto update] At startup, download a newer copy of each file already
-  stored on the device. A progress bar shows the download, and a message
-  reports when files were updated. Files selected on this page are loaded
-  without restarting. A download that finishes while flying is stored and
-  loaded the next time XCSoar starts. Off by default.
   
 \end{description}
 
@@ -893,6 +888,17 @@ When editing a page, the following options are available for map pages:
 \begin{description}
 \item[Main area]  The primary content of the page, for example \emph{Map}
   or \emph{Map (north-up)}.
+\item[Base map]  What a map page draws underneath airspaces,
+  waypoints and the task: \emph{Terrain and topography} (as set up in
+  the map settings), \emph{Topography only}, \emph{Empty}, or
+  \emph{OpenStreetMap}.  OpenStreetMap tiles replace terrain and
+  topography; they are downloaded while the device is online and kept
+  in the cache directory, so the map also works offline where it was
+  shown before.  Until a tile has arrived, a coarser one from the cache
+  stands in.  The OpenStreetMap attribution is shown in the map title.
+  The OpenStreetMap option requires an OpenGL build with network
+  support.  The quick menu entry \emph{Page settings} edits the
+  current page without going through the configuration menu.
 \item[InfoBoxes]  Which InfoBox set is shown alongside the main area.
 \item[Bottom area]  Optional panel below the main area.  Select
   \emph{Weather controls} to show in-flight RASP, EDL, or XC Therm forecast
@@ -1033,8 +1039,13 @@ This page allows to customise the way the user controls and interacts with
 XCSoar.
 
 \begin{description}
-\item[Events*]  The Input Events file defines the menu system and how XCSoar
-  responds to button presses and events from external devices.
+\item[Events*]  The Input Events files define the menu system and how
+  OpenSoar responds to button presses and events from external devices.
+  Several files can be ticked.  They are read on top of the built-in
+  configuration in the order of their names, so a file can override an
+  entry of a file read before it; numbered names such as
+  \texttt{10-keys.xci} and \texttt{20-quickmenu.xci} make the order
+  visible.
 \item[Language]  The language options selects translations for English texts to
   other languages.  Select {\bf English} for a native interface, {\bf Automatic}
   to localise XCSoar according to the system settings; or you may select one of 
@@ -1050,6 +1061,19 @@ XCSoar.
   character to the relevant letter. \\
   {\bf Keyboard}: Uses the on-screen keyboard for entering text. \\
   {\bf Default}: Uses the default input style for your platform.
+\item[Quick menu]  How the quick menu arranges its buttons. \\
+  {\bf XCSoar}: Three columns, the buttons in the order of their
+  locations, page by page. \\
+  {\bf Dynamic}: A framed block of 3 x 5 buttons (locations 1 to 15)
+  stays in the middle of the screen, in portrait and landscape alike,
+  with the focus on its centre, location 1; the next locations follow
+  around it by importance.  The other buttons fill the space around
+  it, the lower locations closer to it.  Turning the screen keeps the
+  focus on its button.  This style has a quick menu of its own before
+  the flight, in flight and after the landing; it follows takeoff and
+  landing, and the buttons \emph{Ground}, \emph{Flight}, \emph{After}
+  and \emph{All} at the bottom switch by hand, \emph{All} being the
+  complete quick menu.
 \item[Haptic feedback*]  Let you switch on or off the vibration
   when the device accepts a finger press.  Available on Android
   and iOS.
@@ -1093,7 +1117,28 @@ purposes.
   the built-in satellite receiver is written to that log as GPRMC and
   GPGGA sentences when the logger is running and at least four
   satellites are in use.
-\item[Log book*]  Logs each start and landing.
+\item[Log book]  Records each flight in the log book (see
+  section~\ref{sec:logbook}).  On by default; a change takes effect on
+  the next start.
+\item[Recorder 1, Recorder 2]  The external flight recorders of this
+  glider, written as in the A record of their IGC files: the three
+  letter manufacturer code and the serial number, e.g.\ \verb|LXVJNI|.
+  When a flight is recorded several times, the log book takes it from
+  the file of Recorder 1, then Recorder 2, then XCSoar's own IGC file.
+  The buttons below take both values from an IGC file of the recorder.
+  A change counts for the flights read from then on; \bmenu{Rebuild}
+  in the log book applies it to all of them.
+\item[Recorder 1 device, Recorder 2 device]  The device (A, B, \ldots\ in the device
+  list) the recorder is connected to;
+  its driver is the type of the recorder.  Two minutes after the
+  landing, XCSoar downloads the newest flight from it into the
+  \texttt{igc} directory and adds it to the log book, without a
+  question, if it is not there yet.  If the WeGlide upload after a
+  download is enabled, XCSoar asks whether to upload the flight.  The
+  buttons \bmenu{Recorder 1 Download} and \bmenu{Recorder 2 Download}
+  of the quick menu (pages \emph{After} and \emph{All}) open the list
+  of flights of the recorder, with the newest one selected.  They are
+  available while the device is connected.
 \item[Logger ID]  This is the logger registration.
 \end{description}
 

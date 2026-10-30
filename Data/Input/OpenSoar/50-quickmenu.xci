@@ -1,0 +1,127 @@
+# OpenSoar changes to the XCSoar quick menu (mode QuickMenu, which
+# XCSoar still calls RemoteStick).
+#
+# Read after Data/Input/default.xci; an entry replaces the XCSoar
+# entry at the same location.  Empty locations do not show, so an
+# entry without an event removes a button without moving the others.
+
+# The switches of the map display move into the dialog "Map Display"
+# (event MapDisplay), so the quick menu stays clear: the terrain and
+# topography toggles (the page settings with the base map take their
+# place there), labels, trail, airspace labels, auto zoom and distance
+# rings.  The airspace toggle goes there as well, and the dialog takes
+# its place in the centre.  The FLARM radar and the thermal assistant
+# pages leave the quick menu; they stay in the menu bar and on their
+# keys, and the dialog switches their small gauges.
+mode=QuickMenu
+type=key
+data=0
+label=
+location=7
+
+mode=QuickMenu
+type=key
+data=0
+label=
+location=8
+
+mode=QuickMenu
+type=key
+data=0
+label=
+location=9
+
+mode=QuickMenu
+type=key
+data=0
+label=
+location=10
+
+mode=QuickMenu
+type=key
+data=0
+label=
+location=11
+
+mode=QuickMenu
+type=key
+data=0
+label=
+location=28
+
+mode=QuickMenu
+type=key
+data=0
+label=
+location=30
+
+mode=QuickMenu
+type=key
+data=0
+event=MapDisplay
+label=Map\nDisplay
+location=20
+
+# Quit is always the last button, so it is found in the same corner
+# of the list everywhere; the buttons after it in XCSoar's list move
+# up by one, and the OpenSoar frequency list joins them.  The quit
+# event names its button, which then has the focus in the power
+# dialog.
+mode=QuickMenu
+type=key
+data=0
+event=Mode weather
+label=Forecast\nControls
+location=44
+
+# The download from Recorder 1 and 2 of the logger settings, at the
+# places of the thermal assistant and the distance rings, which left
+# the quick menu (see above).
+mode=QuickMenu
+type=key
+data=0
+event=RecorderDownload 1
+event=Mode default
+label=Recorder 1\nDownload$(CheckRecorder1)
+location=34
+
+mode=QuickMenu
+type=key
+data=0
+event=RecorderDownload 2
+event=Mode default
+label=Recorder 2\nDownload$(CheckRecorder2)
+location=42
+
+# The log book, at the place of the InfoBox arrange mode of XCSoar,
+# which this version does not have.
+mode=QuickMenu
+type=key
+data=0
+event=Logbook
+event=Mode default
+label=Log book
+location=45
+
+mode=QuickMenu
+type=key
+data=0
+event=ArrangeInfoBoxes
+event=Mode default
+label=Arrange\nInfoBoxes
+location=45
+
+mode=QuickMenu
+type=key
+data=0
+event=FrequencyCard
+label=Frequency\nCard
+location=46
+
+mode=QuickMenu
+type=key
+data=0
+event=Exit system
+event=Mode default
+label=Quit
+location=47

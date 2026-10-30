@@ -174,12 +174,6 @@ private:
   /** the hold finished; the picker waits for lift-off */
   bool picker_armed = false;
 
-  /**
-   * Enter is down.  A short release takes or puts down the card.
-   * A hold opens the list.
-   */
-  bool enter_down = false;
-
   /** starts the fill once the press is past a tap */
   UI::Timer hold_timer{[this]{ OnHoldArmed(); }};
 
@@ -414,10 +408,10 @@ private:
   bool MoveSelection(int dx, int dy) noexcept;
 
   /**
-   * Enter takes the selected InfoBox, or puts it down again.
-   * A short Enter that puts it down unmoved opens the picker.
+   * Enter takes the selected InfoBox, puts it down again, or opens
+   * the picker if it was put down where it was taken.
    */
-  bool Activate(bool open_picker_if_unmoved) noexcept;
+  bool Activate() noexcept;
 
   /** Move the dragged card; @p p is in layout coordinates. */
   void Drag(PixelPoint p) noexcept;
@@ -438,6 +432,5 @@ protected:
 #endif
   bool OnKeyCheck(unsigned key_code) const noexcept override;
   bool OnKeyDown(unsigned key_code) noexcept override;
-  bool OnKeyUp(unsigned key_code) noexcept override;
   void OnCancelMode() noexcept override;
 };

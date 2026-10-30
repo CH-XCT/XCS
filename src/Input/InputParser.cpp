@@ -17,6 +17,25 @@
 #include "LogFile.hpp"
 
 #include <stdio.h>
+#include <string>
+
+/**
+ * Parse the place of a quick menu button: "N" is location N, "C:N"
+ * is location N counted in C columns (C stays 0 without it).
+ */
+static void
+ParsePlace(const char *value, unsigned &columns, unsigned &location) noexcept
+{
+  const std::string_view v{value};
+  const auto [first, second] = Split(v, ':');
+  if (second.data() == nullptr) {
+    columns = 0;
+    location = ParseUnsigned(value);
+  } else {
+    columns = ParseUnsigned(std::string{first}.c_str());
+    location = ParseUnsigned(std::string{second}.c_str());
+  }
+}
 
 static bool
 parse_assignment(char *buffer, const char *&key, const char *&value)
@@ -35,12 +54,22 @@ parse_assignment(char *buffer, const char *&key, const char *&value)
 
 struct EventBuilder {
   unsigned event_id, location;
+
+  /** see Menu::Placement */
+  Menu::Placement placement;
   StaticString<1024> mode;
   StaticString<256> type, data, label;
+
+  /**
+   * Was the old name of the quick menu mode logged already?  Once per
+   * file is enough.
+   */
+  bool remote_stick_logged = false;
 
   void clear() {
     event_id = 0;
     location = 0;
+    placement = {};
     mode.clear();
     type.clear();
     data.clear();
@@ -65,8 +94,21 @@ struct EventBuilder {
       if (token.empty())
         continue;
 
+      /* the quick menu was mode "RemoteStick" once, from the time
+         when it was made for the SteFly RemoteStick; files written
+         for that name keep working */
+      std::string_view name = token;
+      if (name == "RemoteStick") {
+        if (!remote_stick_logged) {
+          LogFmt("Mode RemoteStick (line {}) is read as QuickMenu", line);
+          remote_stick_logged = true;
+        }
+
+        name = "QuickMenu";
+      }
+
       // All modes are valid at this point
-      int mode_id = config.MakeMode(token);
+      int mode_id = config.MakeMode(name);
       if (mode_id < 0) {
         LogFormat("Too many modes at line %u: %.*s",
                   line, int(token.size()), token.data());
@@ -81,7 +123,8 @@ struct EventBuilder {
           new_label = UnescapeBackslash(label.c_str());
         }
 
-        config.AppendMenu(mode_id, new_label, location, event_id);
+        config.AppendMenu(mode_id, new_label, location, event_id,
+                          placement);
       }
 
       // Make key (Keyboard input)
@@ -221,6 +264,19 @@ ParseInputFile(InputConfig &config, BufferedReader &reader)
         current.label = string_converter.Convert(value);
       } else if (StringIsEqual(key, "location")) {
         current.location = ParseUnsigned(value);
+
+        /* the quick menu can place an item elsewhere in portrait and
+           landscape, and start with the focus on it; the location
+           stays what identifies the item */
+      } else if (StringIsEqual(key, "portrait")) {
+        ParsePlace(value, current.placement.portrait_columns,
+                   current.placement.portrait);
+      } else if (StringIsEqual(key, "landscape")) {
+        ParsePlace(value, current.placement.landscape_columns,
+                   current.placement.landscape);
+      } else if (StringIsEqual(key, "center")) {
+        current.placement.center = StringIsEqual(value, "yes") ||
+          StringIsEqual(value, "1");
 
       } else {
         LogFmt("Invalid key/value pair {}={} at {}", key, value, line);

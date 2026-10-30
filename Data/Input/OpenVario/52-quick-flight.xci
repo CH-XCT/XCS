@@ -1,0 +1,113 @@
+# The quick menu in flight (mode QuickFlight), used by the
+# quick menu style "Dynamic".
+#
+# "location" is the place in three columns, counted row by row from
+# the top left.  A wider screen (landscape) shows the same picture in
+# its middle.  An empty place stays an empty cell, so the other
+# buttons keep their places.  The focus starts on the button with
+# "center=yes".  A button can get a place of its own for a wider
+# screen with "landscape=C:N": place N counted in C columns.
+#
+#    1 Analysis         2 Audio / MC       3 Configuration
+#    4 Map Display      5 Flight Setup     6 -
+#    7 Previous WP      8 Alternates       9 Next WP
+#   10 -               11 Waypoint List   12 -
+#   13 Task Restart    14 Task Manager    15 Pilot Event An.
+#
+# 6, 10 and 12 stay empty for now; the list can grow.
+
+mode=QuickFlight
+type=key
+data=0
+event=Analysis
+event=Mode default
+label=Analysis
+location=1
+
+mode=QuickFlight
+type=key
+data=0
+event=Mode VarioAudioMenu
+label=Audio / MC
+location=2
+
+mode=QuickFlight
+type=key
+data=0
+event=Setup System
+event=Mode default
+label=Configuration
+location=3
+
+mode=QuickFlight
+type=key
+data=0
+event=MapDisplay
+label=Map\nDisplay
+location=4
+
+
+mode=QuickFlight
+type=key
+data=0
+event=Setup Basic
+event=Mode default
+label=Flight Setup
+location=5
+
+mode=QuickFlight
+type=key
+data=0
+event=AdjustWaypoint previousarm
+label=$(WaypointPreviousArm)
+location=7
+
+mode=QuickFlight
+type=key
+data=0
+event=Setup Alternates
+event=Mode default
+label=Alternates$(CheckWaypointFile)
+location=8
+center=yes
+
+mode=QuickFlight
+type=key
+data=0
+event=AdjustWaypoint nextarm
+label=$(WaypointNextArm)
+location=9
+
+mode=QuickFlight
+type=key
+data=0
+event=WaypointDetails select
+event=Mode default
+label=Waypoint List$(CheckWaypointFile)
+location=11
+
+mode=QuickFlight
+type=key
+data=0
+event=ResetTask
+event=StatusMessage Task restarted
+label=Task\nRestart
+location=13
+
+mode=QuickFlight
+type=key
+data=0
+event=Calculator
+event=Mode default
+label=Task Manager
+location=14
+
+mode=QuickFlight
+type=key
+data=0
+event=Mode default
+event=StatusMessage Pilot event announced
+event=Logger note PEV
+event=PilotEvent
+label=Pilot Event Announce
+location=15

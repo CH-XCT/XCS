@@ -4,6 +4,7 @@
 #pragma once
 
 #include "PaintWindow.hpp"
+#include "ExitValues.hpp"
 #include "custom/WList.hpp"
 
 class WindowReference;
@@ -15,6 +16,9 @@ class WindowReference;
  */
 class ContainerWindow : public PaintWindow {
 protected:
+  /** @see SetExitValue() */
+  static unsigned exit_value;
+
   friend class WindowList;
   WindowList children;
 
@@ -184,4 +188,18 @@ public:
    * form row was shown or hidden.  The default does nothing.
    */
   virtual void OnChildContentHeightChanged() noexcept {}
+
+  /**
+   * The value the process should exit with (see enum ExitValues);
+   * used by the OpenVario base menu.  The main program returns it
+   * from Main() in XCSoar.cpp; a pending power action
+   * (PowerControl::Perform()) still takes precedence.
+   */
+  static void SetExitValue(unsigned value) noexcept {
+    exit_value = value;
+  }
+
+  static unsigned GetExitValue() noexcept {
+    return exit_value;
+  }
 };

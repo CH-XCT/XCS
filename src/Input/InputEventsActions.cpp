@@ -38,13 +38,19 @@ https://xcsoar.readthedocs.io/en/latest/input_events.html
 #endif
 #include "Dialogs/Task/TaskDialogs.hpp"
 #include "Dialogs/Traffic/TrafficDialogs.hpp"
+#include "Dialogs/Settings/Panels/VarioDisplayConfigPanel.hpp"
 #include "Dialogs/Waypoint/WaypointDialogs.hpp"
 #include "Dialogs/Weather/WeatherDialog.hpp"
 #include "Dialogs/Plane/PlaneDialogs.hpp"
 #include "Dialogs/DataManagement/DataManagement.hpp"
 #include "Dialogs/DataManagement/ExportFlightsPanel.hpp"
+#include "Dialogs/PowerDialog.hpp"
 #include "Dialogs/ProfileListDialog.hpp"
+#include "Profile/Profile.hpp"
+#include "SystemConfig.hpp"
 #include "Dialogs/dlgAnalysis.hpp"
+#include "Dialogs/LogbookDialog.hpp"
+#include "Logger/ExternalLogger.hpp"
 #include "Dialogs/FileManager.hpp"
 #include "Dialogs/ReplayDialog.hpp"
 #include "Dialogs/dlgQuickGuide.hpp"
@@ -78,6 +84,8 @@ https://xcsoar.readthedocs.io/en/latest/input_events.html
 #include "BackendComponents.hpp"
 #include "DataComponents.hpp"
 #include "Terrain/RasterTerrain.hpp"
+#include "system/Path.hpp"
+#include "util/StringAPI.hxx"
 
 #include <cassert>
 #include <algorithm>
@@ -309,6 +317,16 @@ InputEvents::eventChecklist([[maybe_unused]] const char *misc)
   dlgChecklistShowModal();
 }
 
+// FrequencyCard
+// Displays the frequency card: the stations of the frequency list
+// file (System > Site Files > Radio frequencies), one tap away from
+// the standby or active frequency of the radio.
+void
+InputEvents::eventFrequencyCard([[maybe_unused]] const char *misc)
+{
+  FrequencyDialogShowModal();
+}
+
 // Status
 // Displays one of the three status dialogs:
 //    system: display the system status
@@ -335,14 +353,43 @@ InputEvents::eventStatus(const char *misc)
 //  See the analysis dialog section of the reference manual
 // for more info.
 void
-InputEvents::eventAnalysis([[maybe_unused]] const char *misc)
+InputEvents::eventAnalysis(const char *misc)
 {
+  /* an optional page name, e.g. "Analysis barograph", opens that page;
+     without one the dialog shows the page seen last */
   dlgAnalysisShowModal(*CommonInterface::main_window,
                        CommonInterface::main_window->GetLook(),
                        CommonInterface::Full(),
                        *backend_components->glide_computer,
                        data_components->airspaces.get(),
-                       data_components->terrain.get());
+                       data_components->terrain.get(),
+                       ParseAnalysisPage(misc));
+}
+
+// Logbook
+// Displays the log book: one row per flight with times, places,
+// distances and the crew
+//     rebuild: keep the current log book under another name and build
+//              it again from all recorded files
+void
+InputEvents::eventLogbook(const char *misc)
+{
+  if (misc != nullptr && StringIsEqual(misc, "rebuild"))
+    RebuildLogbook();
+  else
+    ShowLogbookDialog();
+}
+
+// RecorderDownload
+// Downloads a flight from Recorder 1 or 2 of the logger settings, from
+// the device set there: the list of flights, the newest one chosen.
+//     1: Recorder 1
+//     2: Recorder 2
+void
+InputEvents::eventRecorderDownload(const char *misc)
+{
+  const unsigned index = misc != nullptr && StringIsEqual(misc, "2") ? 1 : 0;
+  ExternalLogger::DownloadFromRecorder(index, false);
 }
 
 // WaypointDetails
@@ -622,12 +669,23 @@ InputEvents::eventSetup(const char *misc)
     dlgTargetShowModal();
   else if (StringIsEqual(misc, "Plane"))
     dlgPlanesShowModal();
-  else if (StringIsEqual(misc, "Profile"))
-    ProfileListDialog();
+  else if (StringIsEqual(misc, "Profile")) {
+    /* activating closes the list and asks for the restart; the list
+       comes back, on the activated profile, when the user declines */
+    AllocatedPath activated = nullptr;
+    do {
+      activated = ProfileListDialog(Profile::GetPath(), activated);
+    } while (activated != nullptr &&
+             !OfferRestart(_("Another profile was activated.")));
+  }
   else if (StringIsEqual(misc, "Alternates")) {
     dlgAlternatesListShowModal(data_components->waypoints.get(),
                                AlternateInfoBoxSlot::FIRST);
-  }
+  } else if (StringIsEqual(misc, "FrequencyCard"))
+    /* the name OpenSoar's xci files have used all along */
+    FrequencyDialogShowModal();
+  else if (StringIsEqual(misc, "VarioDisplay"))
+    ShowVarioDisplayConfigDialog();
 
   trigger_redraw();
 }
@@ -669,9 +727,29 @@ InputEvents::eventBrightness([[maybe_unused]] const char *misc)
 }
 
 void
-InputEvents::eventExit([[maybe_unused]] const char *misc)
+InputEvents::eventExit(const char *misc)
 {
-  UIActions::SignalShutdown(false);
+  if (SystemConfig::IsXCSoarBehaviour()) {
+    /* upstream asks "Quit program?" (UIActions::CheckShutdown) */
+    UIActions::SignalShutdown(false);
+    return;
+  }
+
+  /* one button, one dialog: quit, restart, and - where the device
+     allows it - reboot or switch off.  The argument chooses the
+     button with the focus, so a key like "Q" or "X" needs just one
+     more press of RETURN */
+  PowerAction preselect = PowerAction::NONE;
+  if (StringIsEqual(misc, "system") || StringIsEqual(misc, "quit"))
+    preselect = PowerAction::QUIT;
+  else if (StringIsEqual(misc, "restart"))
+    preselect = PowerAction::RESTART;
+  else if (StringIsEqual(misc, "reboot"))
+    preselect = PowerAction::REBOOT;
+  else if (StringIsEqual(misc, "shutdown"))
+    preselect = PowerAction::SHUTDOWN;
+
+  ShowPowerDialog(preselect);
 }
 
 void
@@ -783,6 +861,26 @@ void
 InputEvents::eventQuickMenu([[maybe_unused]] const char *misc)
 {
  dlgQuickMenuShowModal(*CommonInterface::main_window);
+}
+
+/**
+ * Choose the flight phase whose items the quick menu shows:
+ * "ground", "flight", "after" or "all".
+ */
+void
+InputEvents::eventQuickMenuPhase(const char *misc)
+{
+  if (misc == nullptr)
+    return;
+
+  if (StringIsEqual(misc, "ground"))
+    SetQuickMenuPhase(QuickMenuPhase::GROUND);
+  else if (StringIsEqual(misc, "flight"))
+    SetQuickMenuPhase(QuickMenuPhase::FLIGHT);
+  else if (StringIsEqual(misc, "after"))
+    SetQuickMenuPhase(QuickMenuPhase::AFTER);
+  else if (StringIsEqual(misc, "all"))
+    SetQuickMenuPhase(QuickMenuPhase::ALL);
 }
 
 void

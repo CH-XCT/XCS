@@ -7,6 +7,7 @@
 #include "MapSettings.hpp"
 #include "InfoBoxes/InfoBoxSettings.hpp"
 #include "Gauge/VarioSettings.hpp"
+#include "Gauge/VarioDisplaySettings.hpp"
 #include "Gauge/TrafficSettings.hpp"
 #include "PageSettings.hpp"
 #include "Dialogs/DialogSettings.hpp"
@@ -17,6 +18,12 @@
 #include <chrono>
 #include <cstdint>
 #include <type_traits>
+
+/**
+ * Default for UISettings::startup_timeout, also used by the startup
+ * dialog, which reads the value before the profile is loaded.
+ */
+static constexpr std::chrono::duration<unsigned> DEFAULT_STARTUP_TIMEOUT{4};
 
 /**
  * User interface settings.
@@ -31,6 +38,12 @@ struct UISettings {
   static constexpr unsigned SCALE_MIN = 75;
   static constexpr unsigned SCALE_MAX = 200;
   static constexpr unsigned SCALE_STEP = 5;
+  /**
+   * Seconds until the startup profile dialog continues on its own
+   * with the preselected profile; 0 waits for the user.  Read from
+   * the profile file before the profile is loaded (StartupDialog).
+   */
+  std::chrono::duration<unsigned> startup_timeout;
 
   unsigned scale;
 
@@ -63,6 +76,28 @@ struct UISettings {
   bool show_zoom_button;
   bool show_quickmenu_button;
 
+  /**
+   * How the quick menu arranges its buttons.
+   */
+  enum class QuickMenuStyle : uint8_t {
+    /**
+     * XCSoar: three columns, the buttons in the order of their
+     * locations, page by page.
+     */
+    XCSOAR,
+
+    /**
+     * Dynamic: as many columns as fit, every button at its location
+     * (an empty location stays an empty cell), a location of its own
+     * in portrait and landscape where the list gives one, one field
+     * that scrolls instead of pages, and a list for each flight
+     * phase.  It is not tied to OpenSoar, so XCSoar can offer it as
+     * well.  The value 1 was the earlier "Dynamic" with a framed block
+     * (tag quickmenu-dynamic-v269), which this one replaces.
+     */
+    DYNAMIC,
+  } quick_menu_style;
+
   enum class PopupMessagePosition : uint8_t {
     CENTER,
     TOP_LEFT,
@@ -86,6 +121,8 @@ struct UISettings {
   MapSettings map;
   InfoBoxSettings info_boxes;
   VarioSettings vario;
+
+  VarioDisplaySettings vario_display;
   TrafficSettings traffic;
   PageSettings pages;
   DialogSettings dialog;

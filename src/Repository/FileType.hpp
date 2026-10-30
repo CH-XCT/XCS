@@ -16,12 +16,17 @@ enum class FileType : uint8_t {
   FLARMDB,
   IGC,
   NMEA,
+
+  /** a binary flight sensor log (*.lrsx) for the replay */
+  SENSORLOG,
   TASK,
   CHECKLIST,
+  FREQUENCIES, // frequency list for the frequency card (*.xcf)
   PROFILE,
   PLANE,
   XCI,
   LUA,
+  IMAGE,    // OpenVario firmware images (*.img.gz)
   COUNT,
 };
 

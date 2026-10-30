@@ -19,11 +19,10 @@
 #
 #   ENABLE_SDL  If set to "y", the UI is drawn with libSDL.
 #
-#   ENABLE_MESA_KMS If set to "y", the program uses DRM/KMS to switch to
-#               graphics mode.
+#   ENABLE_MESA_KMS If set to "y", the program uses KMS to switch to graphics mode.
 #               Use this option when the program runs on a text-mode system
 #               without graphics and window system like X11 or Wayland.
-#               Default for Raspberry PIs and Cubieboards.
+#               Default for Raspberry Pi 4, optional for Cubieboard.
 #
 #   OPENGL      "y" means render with OpenGL.
 #
@@ -63,11 +62,6 @@
 #
 #   USE_CCACHE  "y" to build with ccache
 #
-#   SYSROOT     Set to the root directory of the target file system when
-#               cross-compiling for targets CUBIE, PI, PI2, PI3, PI4 or PI5.
-#				When no set target dependend defaults are applied. See
-#               build/targets.mk for default values.
-#
 #   TARGET_DIR  "<path>" to build into output/<path> instead of output/<target>
 #
 #   TARGET_OUTPUT_DIR "<path>" to build into arbitrary directory
@@ -94,10 +88,9 @@ include $(topdir)/build/util.mk
 include $(topdir)/build/detect.mk
 include $(topdir)/build/targets.mk
 include $(topdir)/build/thirdparty.mk
+include $(topdir)/build/pkgconfig.mk
 include $(topdir)/build/languages.mk
 include $(topdir)/build/options.mk
-include $(topdir)/build/set_compiler.mk
-include $(topdir)/build/pkgconfig.mk
 include $(topdir)/build/debug.mk
 include $(topdir)/build/abi.mk
 include $(topdir)/build/coverage.mk
@@ -231,7 +224,6 @@ ifeq ($(TARGET_IS_LINUX),y)
 include $(topdir)/build/cloud.mk
 include $(topdir)/build/kobo.mk
 ifeq ($(USE_POLL_EVENT)$(TARGET_IS_KOBO),yn)
-include $(topdir)/build/ov.mk
 endif
 endif
 
@@ -251,6 +243,7 @@ endif
 ifeq ($(FUZZER),n)
 include $(topdir)/build/dist.mk
 include $(topdir)/build/install.mk
+include $(topdir)/build/deb.mk
 endif
 
 ######## compiler flags
@@ -267,9 +260,12 @@ ifeq ($(FAT_BINARY),n)
 OUTPUTS := $(XCSOAR_BIN) $(VALI_XCS_BIN)
 endif
 
+# This has to come after the assignment above, which starts OUTPUTS
+# afresh for every non-fat build; added any earlier, the APK was dropped
+# again and "make all" stopped after libxcsoar.so.
 ifeq ($(TARGET),ANDROID)
-OUTPUTS += $(ANDROID_BIN)/XCSoar-debug.apk
-OUTPUTS += $(ANDROID_BIN)/XCSoar-debug.aab
+OUTPUTS += $(ANDROID_BIN)/$(ANDROID_APK_NAME)-debug.apk
+OUTPUTS += $(ANDROID_BIN)/$(ANDROID_APK_NAME)-debug.aab
 endif
 
 ifeq ($(TARGET_IS_KOBO),y)

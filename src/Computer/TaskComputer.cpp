@@ -25,7 +25,8 @@ TaskComputer::TaskComputer(ProtectedTaskManager &_task,
                            const ProtectedAirspaceWarningManager *warnings)
   :task(_task),
    route(airspace_database, warnings),
-   contest(trace.GetFull(), trace.GetContest(), trace.GetSprint())
+   contest(trace.GetFull(), trace.GetContest(), trace.GetSprint()),
+   logbook(trace.GetFull(), trace.GetContest())
 {
   task.SetRoutePlanner(&route.GetProtectedRoutePlanner());
 }
@@ -35,13 +36,20 @@ TaskComputer::ResetFlight([[maybe_unused]] const bool full)
 {
   task.Reset();
   route.ResetFlight();
-  trace.Reset();
-  contest.Reset();
+  ResetTrace();
 
   valid_last_state = false;
   last_flying = false;
 
   last_location_available.Clear();
+}
+
+void
+TaskComputer::ResetTrace() noexcept
+{
+  trace.Reset();
+  contest.Reset();
+  logbook.Reset();
 }
 
 void
@@ -152,6 +160,10 @@ TaskComputer::ProcessIdle(const MoreData &basic, DerivedInfo &calculated,
                             calculated.contest_stats);
   else
     contest.Solve(settings_computer.contest, calculated.contest_stats);
+
+  if (settings_computer.logger.enable_flight_logger)
+    logbook.Process(basic, calculated.flight, settings_computer.contest.handicap,
+                    exhaustive, calculated.logbook_stats);
 
   const AircraftState as = ToAircraftState(basic, calculated);
 

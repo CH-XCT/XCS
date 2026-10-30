@@ -7,50 +7,55 @@
 #include "Resources.hpp"
 #include "ui/canvas/Bitmap.hpp"
 #include "ui/canvas/Canvas.hpp"
-#include "ui/canvas/Icon.hpp"
 #include "ui/dim/Rect.hpp"
 
 #include <algorithm>
 
+static const Bitmap &
+SwiftLogo(unsigned pixels) noexcept
+{
+  static Bitmap huge, big, small;
+  static bool ready = false;
+  if (!ready) {
+    ready = true;
+    try {
+      huge.Load(IDB_LOGO_UHD);
+      big.Load(IDB_LOGO_HD);
+      small.Load(IDB_LOGO);
+    } catch (...) {
+    }
+  }
+
+  if (pixels >= 180 && huge.IsDefined()) return huge;
+  if (pixels >= 64 && big.IsDefined()) return big;
+  return small;
+}
+
 void
 DrawQRSymbol(Canvas &canvas,
              const PixelRect &rc,
-             const QRSymbol &symbol,
-             const MaskedIcon *centre) noexcept
+             const QRSymbol &symbol) noexcept
 {
   canvas.Clear(COLOR_WHITE);
 
-  if (!symbol.IsValid() || rc.left >= rc.right || rc.top >= rc.bottom)
-    return;
+  if (!symbol.IsValid() || rc.GetWidth() == 0 || rc.GetHeight() == 0) return;
 
   const unsigned modules = symbol.width;
-  const unsigned span = std::min(unsigned(rc.right - rc.left),
-                                  unsigned(rc.bottom - rc.top));
-  const unsigned scale = std::max(1u, span / modules);
-  const unsigned drawn = scale * modules;
-  const int origin_x = rc.left + int((rc.right - rc.left) - int(drawn)) / 2;
-  const int origin_y = rc.top + int((rc.bottom - rc.top) - int(drawn)) / 2;
+  const unsigned span    = std::min(rc.GetWidth(), rc.GetHeight());
+  const unsigned scale   = std::max(1u, span / modules);
+  const unsigned drawn   = scale * modules;
+  const int origin_x = rc.left + static_cast<int>((rc.GetWidth() - drawn) / 2);
+  const int origin_y = rc.top + static_cast<int>((rc.GetHeight() - drawn) / 2);
 
-  /* One rectangle per horizontal run, not one per module.  A module
-     each is enough draw calls to fault the OpenGL driver thread. */
   for (unsigned y = 0; y < symbol.height; ++y) {
-    unsigned x = 0;
-    while (x < symbol.width) {
-      if (!symbol.IsBlack(x, y)) {
-        ++x;
-        continue;
-      }
-
-      const unsigned start = x;
-      do
-        ++x;
-      while (x < symbol.width && symbol.IsBlack(x, y));
+    for (unsigned x = 0; x < symbol.width; ++x) {
+      if (!symbol.IsBlack(x, y)) continue;
 
       canvas.DrawFilledRectangle(
         PixelRect{
-          PixelPoint{origin_x + int(start * scale),
-                     origin_y + int(y * scale)},
-          PixelSize{(x - start) * scale, scale},
+          PixelPoint{origin_x + static_cast<int>(x * scale),
+                     origin_y + static_cast<int>(y * scale)},
+          PixelSize{scale, scale},
         },
         COLOR_BLACK);
     }
@@ -69,42 +74,14 @@ DrawQRSymbol(Canvas &canvas,
     },
     COLOR_WHITE);
 
-  /* One white module between the mark and the modules around it. */
-  const unsigned pad = mark.size > 4 ? scale : 0;
-  const unsigned logo = plate - 2 * pad;
-  if (logo == 0)
-    return;
+  /* One white module between the bird and the modules around it. */
+  const unsigned pad   = mark.size > 4 ? scale : 0;
+  const unsigned logo  = plate - 2 * pad;
+  const Bitmap &bitmap = SwiftLogo(logo);
+  if (logo == 0 || !bitmap.IsDefined()) return;
 
-  if (centre != nullptr && centre->IsDefined()) {
-    const PixelSize native = centre->GetSize();
-    unsigned target = logo;
-    /* Draw() keeps the aspect ratio. A wider icon would leave
-       the white centre and cover modules. */
-    if (native.width > native.height && native.width > 0) {
-      target = logo * native.height / native.width;
-      if (target == 0)
-        return;
-    }
-
-    const PixelPoint at{plate_x + int(plate / 2),
-                        plate_y + int(plate / 2)};
-    centre->Draw(canvas, at, target);
-    return;
-  }
-
-  /* shortcut: reloads the logo each paint, cache on the dialog if
-     the QR page is redrawn often */
-  Bitmap bitmap;
-  try {
-    if (logo >= 180) bitmap.Load(IDB_LOGO_UHD);
-    if (!bitmap.IsDefined() && logo >= 64) bitmap.Load(IDB_LOGO_HD);
-    if (!bitmap.IsDefined()) bitmap.Load(IDB_LOGO);
-  } catch (...) {
-  }
-  if (!bitmap.IsDefined())
-    return;
-
-  canvas.Stretch(PixelPoint{plate_x + int(pad), plate_y + int(pad)},
+  canvas.Stretch(PixelPoint{plate_x + static_cast<int>(pad),
+                            plate_y + static_cast<int>(pad)},
                  PixelSize{logo, logo},
                  bitmap);
 }

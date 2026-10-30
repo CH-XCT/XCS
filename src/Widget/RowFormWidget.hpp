@@ -465,6 +465,11 @@ public:
 
   Button *AddButton(const char *label, std::function<void()> callback) noexcept;
 
+  /**
+   * Add a static text label row (OpenVario menu widgets).
+   */
+  void AddLabel(const char *label, unsigned lines = 1) noexcept;
+
   [[gnu::pure]]
   Widget &GetRowWidget(unsigned i) noexcept {
     return rows[i].GetWidget();
@@ -769,7 +774,12 @@ public:
   template<typename T>
   requires std::is_enum_v<T>
   bool SaveValueEnum(unsigned i, T &value) const noexcept {
-    return SaveValueEnum(i, reinterpret_cast<std::underlying_type_t<T> &>(value));
+    /* go through make_unsigned: the underlying type of an enum without
+       an explicit base is unsigned int on GCC (for non-negative
+       enumerators) but always int on MSVC, which would not satisfy the
+       std::unsigned_integral overload above */
+    using U = std::make_unsigned_t<std::underlying_type_t<T>>;
+    return SaveValueEnum(i, reinterpret_cast<U &>(value));
   }
 
   template<typename T>
