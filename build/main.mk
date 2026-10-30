@@ -39,6 +39,7 @@ DIALOG_SOURCES = \
 	$(SRC)/Dialogs/Device/CAI302/UnitsEditor.cpp \
 	$(SRC)/Dialogs/Device/CAI302/WaypointUploader.cpp \
 	$(SRC)/Dialogs/Device/ManageFlarmDialog.cpp \
+	$(SRC)/Dialogs/Device/SteFly/ManageRemoteDialog.cpp \
 	$(SRC)/Dialogs/Device/BlueFly/BlueFlyConfigurationDialog.cpp \
 	$(SRC)/Dialogs/Device/Stratux/ConfigurationDialog.cpp \
 	$(SRC)/Dialogs/Device/GDL90/ConfigurationDialog.cpp \
@@ -78,6 +79,7 @@ DIALOG_SOURCES = \
 	$(SRC)/Dialogs/Traffic/TeamCodeDialog.cpp \
 	$(SRC)/Dialogs/dlgAnalysis.cpp \
 	$(SRC)/Dialogs/dlgChecklist.cpp \
+	$(SRC)/Dialogs/FrequencyDialog.cpp \
 	$(SRC)/Dialogs/ProfileListDialog.cpp \
 	$(SRC)/Dialogs/Plane/PlaneListDialog.cpp \
 	$(SRC)/Dialogs/Plane/PlaneDetailsDialog.cpp \
@@ -97,6 +99,7 @@ DIALOG_SOURCES = \
 	$(SRC)/Dialogs/ReplayDialog.cpp \
 	$(SRC)/Dialogs/dlgSimulatorPrompt.cpp \
 	$(SRC)/Dialogs/SimulatorPromptWindow.cpp \
+	$(SRC)/Dialogs/PowerDialog.cpp \
 	$(SRC)/Dialogs/StartupDialog.cpp \
 	$(SRC)/Dialogs/ProfilePasswordDialog.cpp \
 	\
@@ -139,6 +142,7 @@ DIALOG_SOURCES = \
 	$(SRC)/Dialogs/Settings/Panels/RouteConfigPanel.cpp \
 	$(SRC)/Dialogs/Settings/Panels/SafetyFactorsConfigPanel.cpp \
 	$(SRC)/Dialogs/Settings/Panels/SiteConfigPanel.cpp \
+	$(SRC)/Dialogs/Settings/Panels/SystemConfigPanel.cpp \
 	$(SRC)/Dialogs/Settings/Panels/SymbolsConfigPanel.cpp \
 	$(SRC)/Dialogs/Settings/Panels/TaskRulesConfigPanel.cpp \
 	$(SRC)/Dialogs/Settings/Panels/TaskDefaultsConfigPanel.cpp \
@@ -229,6 +233,7 @@ XCSOAR_SOURCES := \
 	$(SRC)/Radio/RadioFrequency.cpp \
 	$(SRC)/Radio/TransponderCode.cpp \
 	$(SRC)/Radio/TransponderMode.cpp \
+	$(SRC)/FrequencyList.cpp \
 	\
 	$(SRC)/Engine/Navigation/TraceHistory.cpp \
 	$(SRC)/Engine/Navigation/Aircraft.cpp \
@@ -463,7 +468,6 @@ XCSOAR_SOURCES := \
 	$(SRC)/DisplayMode.cpp \
 	\
 	$(SRC)/Markers/Markers.cpp \
-	$(SRC)/Session/SessionFile.cpp \
 	\
 	$(SRC)/FlightStatistics.cpp \
 	$(SRC)/FlightInfo.cpp \
@@ -495,6 +499,10 @@ XCSOAR_SOURCES := \
 	$(SRC)/Language/Table.cpp \
 	$(SRC)/DataFilePath.cpp \
 	$(SRC)/LocalPath.cpp \
+	$(SRC)/PowerControl.cpp \
+	$(SRC)/SystemConfig.cpp \
+	$(SRC)/Device/PortsConfig.cpp \
+	$(SRC)/Device/PortsGlue.cpp \
 	$(SRC)/UIActions.cpp \
 	$(SRC)/Interface.cpp \
 	$(SRC)/ActionInterface.cpp \
@@ -556,6 +564,7 @@ XCSOAR_SOURCES := \
 	$(SRC)/Repository/CountryName.cpp \
 	$(SRC)/Repository/FileRepository.cpp \
 	$(SRC)/Repository/FileType.cpp \
+	$(SRC)/Repository/FileCheck.cpp \
 	$(SRC)/Repository/Parser.cpp \
 	\
 	$(SRC)/Storage/PlatformStorageMonitor.cpp \
@@ -756,9 +765,8 @@ XCSOAR_SOURCES += \
 	$(SRC)/CommandLine.cpp \
 	$(SRC)/XCSoar.cpp
 
-# No camera here.  Apple links Apple/QRScanner.cpp instead (the iOS
-# scanner, or a stub on macOS); a new port does the same with its own
-# file (see Task/QRScanner.hpp).
+# No camera here.  Apple links Apple/QRScanner.cpp instead; a new
+# port does the same with its own file (see Task/QRScanner.hpp).
 ifneq ($(TARGET_IS_DARWIN),y)
 XCSOAR_SOURCES += $(SRC)/Task/QRScanner.cpp
 endif
@@ -919,7 +927,10 @@ endif
 XCSOAR_STRIP = y
 
 ifeq ($(TARGET),ANDROID)
-$(eval $(call link-shared-library,$(PROGRAM_NAME),XCSOAR))
+# The shared library keeps its fixed name regardless of branding: the
+# Java side loads it via System.loadLibrary("xcsoar") (Loader.java)
+# and android.mk packages lib$(ANDROID_LIB_NAMES).so
+$(eval $(call link-shared-library,xcsoar,XCSOAR))
 else
 $(eval $(call link-program,$(PROGRAM_NAME),XCSOAR))
 endif

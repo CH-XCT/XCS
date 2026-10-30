@@ -51,6 +51,9 @@ GetFileTypePatterns(const FileType file_type) noexcept
 
   case FileType::CHECKLIST:
     return "*.xcc\0xcsoar-checklist.txt\0";
+	
+  case FileType::FREQUENCIES:
+    return "*.xcf\0";
 
   case FileType::PROFILE:
     return "*.prf\0";
@@ -94,6 +97,9 @@ GetFileTypeDefaultDir(const FileType file_type)
 
   case FileType::CHECKLIST:
     return AllocatedPath("checklists");
+
+  case FileType::FREQUENCIES:
+    return AllocatedPath("frequencies");
 
   case FileType::IGC:
   case FileType::NMEA:
