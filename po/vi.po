@@ -417,10 +417,6 @@ msgstr "Logger trống."
 msgid "Failed to download flight."
 msgstr "Không thể tải xuống chuyến bay."
 
-#. ask whether this IGC should be uploaded to WeGlide
-msgid "Do you want to upload this flight to WeGlide?"
-msgstr "Bạn có muốn tải chuyến bay này lên WeGlide?"
-
 msgid "Do you want to download another flight?"
 msgstr "Bạn có muốn tải xuống chuyến bay khác?"
 
@@ -1114,10 +1110,6 @@ msgstr "Bộ.InfoBox"
 #, no-c-format
 msgid "Pages"
 msgstr "Trang"
-
-#, no-c-format
-msgid "WeGlide"
-msgstr "Tính toán đường lượn"
 
 #, no-c-format
 msgid "Weather"
@@ -4760,13 +4752,6 @@ msgstr ""
 msgid "Automatic Upload"
 msgstr "Tải lên tự động"
 
-msgid ""
-"Asks whether to upload flight to Weglide, after flight is downloaded from "
-"external logger."
-msgstr ""
-"Hỏi có nên tải lên chuyến bay đến WeGlide sau khi tải xuống từ thiết bị ghi "
-"bên ngoài không."
-
 msgid "Take this from your WeGlide Profile. Or set to 0 if not used."
 msgstr "Lấy từ hồ sơ WeGlide của bạn. Hoặc đặt thành 0 nếu không sử dụng."
 
@@ -5444,16 +5429,6 @@ msgid "Alt GPS"
 msgstr "GPS thay thế"
 
 #, no-c-format
-msgid ""
-"Altitude above mean sea level reported by the GPS. (Touch-screen/PC only) In "
-"simulation mode, this value is adjustable with the up/down arrow keys; the "
-"right/left arrow keys cause the glider to turn."
-msgstr ""
-"Độ cao trên mực nước biển do GPS báo cáo. (Chỉ dành cho màn hình cảm ứng/PC) "
-"Trong chế độ mô phỏng, giá trị này có thể điều chỉnh bằng các nút lên/xuống; "
-"các nút trái/phải làm glider quay."
-
-#, no-c-format
 msgid "Height AGL"
 msgstr "Độ cao AGL"
 
@@ -5602,7 +5577,9 @@ msgstr "MC"
 #, no-c-format
 msgid ""
 "Current MacCready setting and mode (manual or auto). The comment shows the "
-"MacCready speed-to-fly. At MacCready 0, with a task or Goto active, that "
+"MacCready speed-to-fly, labelled TAS (true airspeed). Setup can "
+"show it as indicated airspeed, labelled IAS. At MacCready 0, "
+"with a task or Goto active, that "
 "speed is adjusted for wind toward the waypoint and need not match the "
 "polar's still-air best glide. With MacCready above 0, wind is not used. "
 "(Touch-screen/PC only) When this InfoBox is active, use the up/down cursor "
@@ -8475,9 +8452,6 @@ msgid ""
 "WeGlide is not configured. Please set your pilot ID and birthdate in the "
 "settings."
 msgstr "WeGlide nije konfiguriran. Đặtte ID pilota i datum rođenja u cài đặt."
-
-msgid "Only .igc files can be uploaded to WeGlide."
-msgstr "Na WeGlide se mogu prenijeti samo .igc tệp."
 
 #, c-format
 msgid "Uploaded %u file(s)"
@@ -12654,12 +12628,6 @@ msgstr ""
 "Kéo một InfoBox lên InfoBox khác để đổi chỗ. Giữ một InfoBox rồi nhấc để ch"
 "ọn InfoBox khác cho vị trí đó."
 
-msgid "Press Enter to take the selected InfoBox, move it with the cursor keys and press Enter again to put it down.  Pressing Enter twice without moving an InfoBox chooses a different InfoBox for that position."
-msgstr ""
-"Enter lấy InfoBox đã chọn, di chuyển bằng phím mũi tên rồi nhấn Enter lần n"
-"ữa để đặt xuống. Nhấn Enter hai lần mà không di chuyển sẽ chọn InfoBox khác"
-" cho vị trí đó."
-
 msgid "Arrange InfoBoxes"
 msgstr "Sắp xếp InfoBox"
 
@@ -12713,6 +12681,72 @@ msgstr ""
 msgid "Data files have been updated"
 msgstr ""
 
+msgid "No current contest entry."
+msgstr ""
+
+
+msgid "Sign-in was denied."
+msgstr ""
+
+msgid "Unfinished flight detected. Restore flight settings?"
+msgstr ""
+
+msgid "Sharing is not available."
+msgstr ""
+
+#, no-c-format
+msgctxt "Button"
+msgid "Share"
+msgstr ""
+
+msgid "Source"
+msgstr ""
+
+msgid "Starts"
+msgstr ""
+
+msgid "undefined"
+msgstr ""
+
+msgid "Ends"
+msgstr ""
+
+msgid "active"
+msgstr ""
+
+msgid "inactive"
+msgstr ""
+
+msgid ", dismissed"
+msgstr ""
+
+msgid ", enabled"
+msgstr ""
+
+#, c-format
+msgid "Do you want to upload this flight to %s?"
+msgstr "Bạn có muốn tải chuyến bay này lên %s?"
+
+#, c-format
+msgid "Only .igc files can be uploaded to %s."
+msgstr "Na %s se mogu prenijeti samo .igc tệp."
+
+#, c-format
+msgid "Sign in from Services, %s."
+msgstr ""
+
+#, c-format
+msgid "Asks whether to upload flight to %s, after flight is downloaded from external logger."
+msgstr "Hỏi có nên tải lên chuyến bay đến %s sau khi tải xuống từ thiết bị ghi bên ngoài không."
+
+#, no-c-format
+msgid "Altitude above mean sea level reported by the GPS. Tap to open the altitude panel. In simulation mode that panel can change this altitude."
+msgstr ""
+
+msgid "Press Enter to take the selected InfoBox, move it with the cursor keys and press Enter again to put it down.  Hold Enter, or press it twice without moving, to choose a different InfoBox for that position."
+msgstr ""
+
+
 msgid "Point the camera at a task QR code"
 msgstr "Hướng máy ảnh vào mã QR nhiệm vụ"
 
@@ -12730,3 +12764,7 @@ msgstr "Không thể bắt đầu xem trước máy ảnh"
 
 msgid "Camera not usable"
 msgstr "Không thể dùng máy ảnh"
+
+#, no-c-format
+msgid "Show the speed-to-fly as indicated airspeed."
+msgstr ""

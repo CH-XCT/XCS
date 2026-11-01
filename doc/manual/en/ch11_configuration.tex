@@ -874,6 +874,8 @@ This page once more details the appearance of the graphical user interface of XC
 
 This page allows the definition of the screen page ensemble. A typical setup 
 will contain three pages, the expert can pile up to eight possible pages.
+On a landscape screen, Add, Delete, and the move buttons are in the
+sidebar.
 
 A page is more or less a composition of map and InfoBox set. There are five 
 predefined pages for circling, cruise, final glide, a map only page and a 
@@ -1260,6 +1262,31 @@ Commands run as XCSoar's user, including root if applicable, and must not
 have setuid/setgid bits.  Install only commands you trust.  Data backups
 preserve executable permissions; review restored commands before running them.
 
+
+%%%%%%%%%%%%%%%%%%
+\section{Services / SoaringScoring}
+
+SoaringScoring publishes the task for a competition day and accepts the
+IGC file after landing. XCSoar signs in with a code the pilot approves
+on a phone (DustDevil.cloud). There is no API key to type in.
+
+\begin{description}
+\item[Connect]  Shows a short code, a QR code, and a link. Scan the
+  code, open the link on a phone, or type the code at
+  \url{https://soaringscoring.com/device}, and approve the XCSoar
+  device. The connection lasts a year and can be
+  disconnected here, which also removes it from the phone.
+\item[Automatic Upload]  After an IGC file is downloaded from an
+  external logger, XCSoar asks whether to upload that flight.
+  The switch is on by default while the account is connected, and it
+  is unavailable while disconnected.
+\end{description}
+
+With a connection, the SoaringScoring page in the task manager loads
+the task. \bmenuw{Upload Flight}, in the quick menu and on the flight
+export page, sends the IGC to the contest entry. One current entry is
+used directly. When there is more than one, XCSoar asks which contest.
+When WeGlide is also enabled, Upload Flight asks which service to use.
 
 %%%%%%%%%%%%%%%%%%
 \section{Configure Plane}

@@ -417,10 +417,6 @@ msgstr "Loggeren er tom"
 msgid "Failed to download flight."
 msgstr "Kan ikke downloade flyvningen"
 
-#. ask whether this IGC should be uploaded to WeGlide
-msgid "Do you want to upload this flight to WeGlide?"
-msgstr "Vil du uploade denne flyvning til WeGlide?"
-
 msgid "Do you want to download another flight?"
 msgstr "Vil du downloade en anden flyvning?"
 
@@ -1126,10 +1122,6 @@ msgstr "Infobox-sets"
 #, no-c-format
 msgid "Pages"
 msgstr "Sideinddeling"
-
-#, no-c-format
-msgid "WeGlide"
-msgstr "WeGlide"
 
 #, no-c-format
 msgid "Weather"
@@ -4790,11 +4782,6 @@ msgstr ""
 msgid "Automatic Upload"
 msgstr "Automatisk opload"
 
-msgid ""
-"Asks whether to upload flight to Weglide, after flight is downloaded from "
-"external logger."
-msgstr "Opload flugt til WeGlide? Flugten er downloadet fra en ekstern logger."
-
 msgid "Take this from your WeGlide Profile. Or set to 0 if not used."
 msgstr "Tag dette fra din WeGlide Profil. Eller sat til 0 hvis ikke brugt."
 
@@ -5470,16 +5457,6 @@ msgid "Alt GPS"
 msgstr "Højde GPS"
 
 #, no-c-format
-msgid ""
-"Altitude above mean sea level reported by the GPS. (Touch-screen/PC only) In "
-"simulation mode, this value is adjustable with the up/down arrow keys; the "
-"right/left arrow keys cause the glider to turn."
-msgstr ""
-"Højde over middelvandstanden rapporteret af GPS. (Kun touchskærm/PC) I "
-"simuleringstilstand justeres værdien med op/ned-piletasterne; venstre/højre "
-"får sejlflyet til at dreje."
-
-#, no-c-format
 msgid "Height AGL"
 msgstr "Højde AGL"
 
@@ -5627,7 +5604,9 @@ msgstr "MC"
 #, no-c-format
 msgid ""
 "Current MacCready setting and mode (manual or auto). The comment shows the "
-"MacCready speed-to-fly. At MacCready 0, with a task or Goto active, that "
+"MacCready speed-to-fly, labelled TAS (true airspeed). Setup can "
+"show it as indicated airspeed, labelled IAS. At MacCready 0, "
+"with a task or Goto active, that "
 "speed is adjusted for wind toward the waypoint and need not match the "
 "polar's still-air best glide. With MacCready above 0, wind is not used. "
 "(Touch-screen/PC only) When this InfoBox is active, use the up/down cursor "
@@ -8544,9 +8523,6 @@ msgid ""
 msgstr ""
 "WeGlide er ikke konfigureret. Angiv pilot-ID og fødselsdato i "
 "indstillingerne."
-
-msgid "Only .igc files can be uploaded to WeGlide."
-msgstr "Kun .igc-filer kan uploades til WeGlide."
 
 #, c-format
 msgid "Uploaded %u file(s)"
@@ -12724,12 +12700,6 @@ msgstr ""
 "Træk en infoboks hen på en anden for at bytte dem. Hold en infoboks og løft"
 " for at vælge en anden til den plads."
 
-msgid "Press Enter to take the selected InfoBox, move it with the cursor keys and press Enter again to put it down.  Pressing Enter twice without moving an InfoBox chooses a different InfoBox for that position."
-msgstr ""
-"Enter tager den valgte infoboks, flyt den med piletasterne og tryk Enter ig"
-"en for at sætte den. To tryk på Enter uden at flytte vælger en anden infobo"
-"ks til pladsen."
-
 msgid "Arrange InfoBoxes"
 msgstr "Arranger infoboxe"
 
@@ -12783,6 +12753,72 @@ msgstr ""
 msgid "Data files have been updated"
 msgstr ""
 
+msgid "No current contest entry."
+msgstr ""
+
+
+msgid "Sign-in was denied."
+msgstr ""
+
+msgid "Unfinished flight detected. Restore flight settings?"
+msgstr ""
+
+msgid "Sharing is not available."
+msgstr ""
+
+#, no-c-format
+msgctxt "Button"
+msgid "Share"
+msgstr ""
+
+msgid "Source"
+msgstr ""
+
+msgid "Starts"
+msgstr ""
+
+msgid "undefined"
+msgstr ""
+
+msgid "Ends"
+msgstr ""
+
+msgid "active"
+msgstr ""
+
+msgid "inactive"
+msgstr ""
+
+msgid ", dismissed"
+msgstr ""
+
+msgid ", enabled"
+msgstr ""
+
+#, c-format
+msgid "Do you want to upload this flight to %s?"
+msgstr "Vil du uploade denne flyvning til %s?"
+
+#, c-format
+msgid "Only .igc files can be uploaded to %s."
+msgstr "Kun .igc-filer kan uploades til %s."
+
+#, c-format
+msgid "Sign in from Services, %s."
+msgstr ""
+
+#, c-format
+msgid "Asks whether to upload flight to %s, after flight is downloaded from external logger."
+msgstr "Opload flugt til %s? Flugten er downloadet fra en ekstern logger."
+
+#, no-c-format
+msgid "Altitude above mean sea level reported by the GPS. Tap to open the altitude panel. In simulation mode that panel can change this altitude."
+msgstr ""
+
+msgid "Press Enter to take the selected InfoBox, move it with the cursor keys and press Enter again to put it down.  Hold Enter, or press it twice without moving, to choose a different InfoBox for that position."
+msgstr ""
+
+
 msgid "Point the camera at a task QR code"
 msgstr "Ret kameraet mod en opgave-QR-kode"
 
@@ -12800,3 +12836,7 @@ msgstr "Kan ikke starte kameravisningen"
 
 msgid "Camera not usable"
 msgstr "Kameraet kan ikke bruges"
+
+#, no-c-format
+msgid "Show the speed-to-fly as indicated airspeed."
+msgstr ""

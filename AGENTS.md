@@ -75,6 +75,7 @@ Details: `.cursor/rules/xcsoar-testing.mdc`.
 | Waypoint types / CUP round-trip | `.cursor/rules/waypoint-types.mdc` |
 | SVG icons (`Data/icons/`) | `.cursor/rules/svg-icons.mdc` |
 | `NEWS.txt` | `.cursor/rules/news.txt.mdc` |
+| Release version bump, Debian changelog, Play What's New | `doc/release.rst`, `.cursor/rules/release.mdc` |
 | AUTHORS / third-party notices | `.cursor/rules/credits-attribution.mdc` |
 | Test harness CLI (`--help`) | `.cursor/rules/cli-test-utilities.mdc` |
 | TAP tests | `.cursor/rules/xcsoar-testing.mdc` |
@@ -87,4 +88,4 @@ Details: `.cursor/rules/xcsoar-testing.mdc`.
 | Touch / lift-off / hold | `.cursor/rules/ui-touch.mdc` |
 | Other developer docs | `.cursor/rules/developer-docs.mdc` |
 | User manual (pilots) | `.cursor/rules/user-manual.mdc` |
-| gettext / `po/` | `.cursor/rules/translations.mdc` |
+| gettext / `po/` | `.cursor/rules/translations.mdc`, `.cursor/rules/standardized-terminology.mdc` |

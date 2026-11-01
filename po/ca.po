@@ -421,10 +421,6 @@ msgstr "El registrador de vol és buit."
 msgid "Failed to download flight."
 msgstr "Errada en descàrrega de vol."
 
-#. ask whether this IGC should be uploaded to WeGlide
-msgid "Do you want to upload this flight to WeGlide?"
-msgstr "¿Vol pujar el vol a WeGlide?"
-
 msgid "Do you want to download another flight?"
 msgstr "¿Vol descarregar un altre vol?"
 
@@ -1132,10 +1128,6 @@ msgstr "Conjunts d'InfoBox"
 #, no-c-format
 msgid "Pages"
 msgstr "Pàgines"
-
-#, no-c-format
-msgid "WeGlide"
-msgstr "Pujar a WeGlide"
 
 #, no-c-format
 msgid "Weather"
@@ -4825,13 +4817,6 @@ msgstr ""
 msgid "Automatic Upload"
 msgstr "Envio automàtic"
 
-msgid ""
-"Asks whether to upload flight to Weglide, after flight is downloaded from "
-"external logger."
-msgstr ""
-"Demana si s'ha de carregar el vol a WeGlide després que es carregui del "
-"registre extern."
-
 msgid "Take this from your WeGlide Profile. Or set to 0 if not used."
 msgstr "Tria a partir del teu perfil WeGlide. Estableix 0 si no s'utilitza."
 
@@ -5510,17 +5495,6 @@ msgid "Alt GPS"
 msgstr "Altímetre GPS"
 
 #, no-c-format
-msgid ""
-"Altitude above mean sea level reported by the GPS. (Touch-screen/PC only) In "
-"simulation mode, this value is adjustable with the up/down arrow keys; the "
-"right/left arrow keys cause the glider to turn."
-msgstr ""
-"Altitud sobre el nivell mitjà del mar reportada pel GPS. (Només en "
-"dispositius de tocat-pantalla i PC) En mode simulació, aquest valor es pot "
-"ajustar amb les setges d'encaretament i retroacció; les setges d'esquerra-"
-"dreta causen que el planador torne."
-
-#, no-c-format
 msgid "Height AGL"
 msgstr "Altitud AGL"
 
@@ -5682,7 +5656,9 @@ msgstr "MC"
 #, no-c-format
 msgid ""
 "Current MacCready setting and mode (manual or auto). The comment shows the "
-"MacCready speed-to-fly. At MacCready 0, with a task or Goto active, that "
+"MacCready speed-to-fly, labelled TAS (true airspeed). Setup can "
+"show it as indicated airspeed, labelled IAS. At MacCready 0, "
+"with a task or Goto active, that "
 "speed is adjusted for wind toward the waypoint and need not match the "
 "polar's still-air best glide. With MacCready above 0, wind is not used. "
 "(Touch-screen/PC only) When this InfoBox is active, use the up/down cursor "
@@ -8601,9 +8577,6 @@ msgid ""
 msgstr ""
 "WeGlide non è configurato. Defineix ID pilota e data di nascita nelle "
 "defineixzioni."
-
-msgid "Only .igc files can be uploaded to WeGlide."
-msgstr "Només es poden pujar fitxers .igc a WeGlide."
 
 #, c-format
 msgid "Uploaded %u file(s)"
@@ -12814,12 +12787,6 @@ msgstr ""
 "Arrossegueu una àrea d'informació sobre una altra per intercanviar-les. Man"
 "tingueu-ne una i aixequeu-la per triar-ne una altra per a aquella posició."
 
-msgid "Press Enter to take the selected InfoBox, move it with the cursor keys and press Enter again to put it down.  Pressing Enter twice without moving an InfoBox chooses a different InfoBox for that position."
-msgstr ""
-"Retorn agafa l'àrea d'informació seleccionada, moveu-la amb les fletxes i R"
-"etorn la deixa. Dos cops Retorn sense moure'n cap en tria una altra per a a"
-"quella posició."
-
 msgid "Arrange InfoBoxes"
 msgstr "Organitza les àrees d'informació"
 
@@ -12873,6 +12840,72 @@ msgstr ""
 msgid "Data files have been updated"
 msgstr ""
 
+msgid "No current contest entry."
+msgstr ""
+
+
+msgid "Sign-in was denied."
+msgstr ""
+
+msgid "Unfinished flight detected. Restore flight settings?"
+msgstr ""
+
+msgid "Sharing is not available."
+msgstr ""
+
+#, no-c-format
+msgctxt "Button"
+msgid "Share"
+msgstr ""
+
+msgid "Source"
+msgstr ""
+
+msgid "Starts"
+msgstr ""
+
+msgid "undefined"
+msgstr ""
+
+msgid "Ends"
+msgstr ""
+
+msgid "active"
+msgstr ""
+
+msgid "inactive"
+msgstr ""
+
+msgid ", dismissed"
+msgstr ""
+
+msgid ", enabled"
+msgstr ""
+
+#, c-format
+msgid "Do you want to upload this flight to %s?"
+msgstr "¿Vol pujar el vol a %s?"
+
+#, c-format
+msgid "Only .igc files can be uploaded to %s."
+msgstr "Només es poden pujar fitxers .igc a %s."
+
+#, c-format
+msgid "Sign in from Services, %s."
+msgstr ""
+
+#, c-format
+msgid "Asks whether to upload flight to %s, after flight is downloaded from external logger."
+msgstr "Demana si s'ha de carregar el vol a %s després que es carregui del registre extern."
+
+#, no-c-format
+msgid "Altitude above mean sea level reported by the GPS. Tap to open the altitude panel. In simulation mode that panel can change this altitude."
+msgstr ""
+
+msgid "Press Enter to take the selected InfoBox, move it with the cursor keys and press Enter again to put it down.  Hold Enter, or press it twice without moving, to choose a different InfoBox for that position."
+msgstr ""
+
+
 msgid "Point the camera at a task QR code"
 msgstr "Apunteu la càmera a un codi QR de tasca"
 
@@ -12890,3 +12923,7 @@ msgstr "No es pot iniciar la previsualització de la càmera"
 
 msgid "Camera not usable"
 msgstr "La càmera no es pot utilitzar"
+
+#, no-c-format
+msgid "Show the speed-to-fly as indicated airspeed."
+msgstr ""

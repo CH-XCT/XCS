@@ -93,6 +93,12 @@ constexpr std::string_view WeGlidePilotID = "WeGlidePilotID";
 constexpr std::string_view WeGlidePilotBirthDate = "WeGlidePilotBirthDate";
 constexpr std::string_view WeGlideAircraftType = "WeGlideAircraftType";
 constexpr std::string_view WeGlideAutomaticUpload = "WeGlideAutomaticUpload";
+constexpr std::string_view SoaringScoringAccessToken =
+  "SoaringScoringAccessToken";
+constexpr std::string_view SoaringScoringAccessExpiry =
+  "SoaringScoringAccessExpiry";
+constexpr std::string_view SoaringScoringAutomaticUpload =
+  "SoaringScoringAutomaticUpload";
 constexpr std::string_view CoPilotName = "CoPilotName";
 constexpr std::string_view CrewWeightTemplate = "CrewWeightTemplate";
 constexpr std::string_view AircraftType = "AircraftType";
@@ -198,6 +204,7 @@ constexpr std::string_view SafetyMacCready = "SafetyMacCready";
 constexpr std::string_view AbortTaskMode = "AbortTaskMode";
 constexpr std::string_view AutoMcMode = "AutoMcMode";
 constexpr std::string_view AutoMc = "AutoMc";
+constexpr std::string_view MacCreadySTFIAS = "MacCreadySTFIAS";
 constexpr std::string_view EnableExternalTriggerCruise = "EnableExternalTriggerCruise";
 constexpr std::string_view SpeedCommandSwitch = "SpeedCommandSwitch";
 constexpr std::string_view CruiseToCirclingModeSwitchThreshold = "CruiseToCirclingModeSwitchThreshold";
