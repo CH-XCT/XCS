@@ -54,6 +54,7 @@ GlueMapWindow::OnDestroy() noexcept
 #ifdef ENABLE_OPENGL
   kinetic_timer.Cancel();
   CancelZoomAnimation();
+  CancelPanAnimation();
   terrain_quantisation_timer.Cancel();
 #endif
 
@@ -208,6 +209,7 @@ GlueMapWindow::OnMouseDown(PixelPoint p) noexcept
   was_kinetic_motion = kinetic_timer.IsActive();
   kinetic_timer.Cancel();
   CancelZoomAnimation();
+  CancelPanAnimation();
 #endif
 
   // Ignore single click event if double click detected
@@ -417,6 +419,7 @@ GlueMapWindow::OnMouseWheel([[maybe_unused]] PixelPoint p,
 #ifdef ENABLE_OPENGL
   kinetic_timer.Cancel();
   CancelZoomAnimation();
+  CancelPanAnimation();
 #endif
 
   if (drag_mode != DRAG_NONE)
@@ -694,11 +697,23 @@ GlueMapWindow::OnKeyDown(unsigned key_code) noexcept
 #ifdef ENABLE_OPENGL
   kinetic_timer.Cancel();
   CancelZoomAnimation();
+  /* Leave a running cursor glide in place so this key can step from
+     its target.  Cancel afterwards unless the handler replaced it. */
+  const auto pan_start = pan_start_time;
+  const bool pan_pending = pan_timer.IsPending();
 #endif
 
   if (InputEvents::processKey(key_code)) {
+#ifdef ENABLE_OPENGL
+    if (pan_pending && pan_start_time == pan_start)
+      CancelPanAnimation();
+#endif
     return true; // don't go to default handler
   }
+
+#ifdef ENABLE_OPENGL
+  CancelPanAnimation();
+#endif
 
   return false;
 }
@@ -746,6 +761,7 @@ GlueMapWindow::OnCancelMode() noexcept
 #ifdef ENABLE_OPENGL
   kinetic_timer.Cancel();
   CancelZoomAnimation();
+  CancelPanAnimation();
 #endif
 
   map_item_timer.Cancel();

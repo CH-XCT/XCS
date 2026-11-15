@@ -83,7 +83,6 @@ concurrency:
 
 env:
   DEBUG: y
-  BOOST: boost_1_87_0
   # Names in the run Artifacts list; must match upload + download in
   # "Upload artifact for VirusTotal" and the upload-to-virustotal job.
   VT_ARTIFACT_WIN64OPENGL: virustotal-opengl-WIN64OPENGL
@@ -144,6 +143,54 @@ jobs:
           body: ${{ env.CHANGELOGENTRY }}
           prerelease: ${{ env.PRERELEASE }}
 
+  downloads:
+    name: Prefetch third-party downloads
+    runs-on: ubuntu-24.04
+    # One missing tarball must not skip every matrix target; they can
+    # still fetch what they need during the compile.
+    continue-on-error: true
+    outputs:
+      cache-key: ${{ steps.restore.outputs.cache-primary-key }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ (github.event.inputs != null && github.event.inputs.ref) || github.ref }}
+          submodules: false
+
+      - name: Restore downloads cache
+        id: restore
+        uses: actions/cache/restore@v6
+        with:
+          path: output/download
+          key: downloads-union-${{ hashFiles('build/libboost.mk', 'build/kobo.mk', 'build/python/build/libs.py', 'build/python/build/angle.py', 'build/prefetch_downloads.py') }}
+          restore-keys: |
+            downloads-union-
+          enableCrossOsArchive: true
+
+      - name: Fetch missing tarballs
+        if: steps.restore.outputs.cache-hit != 'true'
+        run: python3 build/prefetch_downloads.py
+
+      - name: Save downloads cache
+        if: steps.restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: output/download
+          key: ${{ steps.restore.outputs.cache-primary-key }}
+          enableCrossOsArchive: true
+
+      # Incomplete files must not use the exact union key: the next
+      # run would treat it as a hit and skip the fetch.  restore-keys
+      # downloads-union- still finds this partial blob.
+      - name: Save partial downloads cache
+        if: ${{ failure() && steps.restore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v6
+        with:
+          path: output/download
+          key: downloads-union-partial-${{ github.run_id }}-${{ github.run_attempt }}
+          enableCrossOsArchive: true
+
   docs:
     name: "Build and Publish Manuals"
     needs: release
@@ -157,7 +204,8 @@ jobs:
 
   build:
     runs-on: ${{ matrix.os }}
-    needs: release
+    needs: [release, downloads]
+    if: ${{ !cancelled() && needs.release.result == 'success' }}
     permissions:
       contents: write
     # On push/tag, one failed matrix leg (e.g. iOS/macOS) must not block
@@ -236,7 +284,7 @@ jobs:
           if [ "${{ matrix.os }}" = 'ubuntu-24.04' ]; then
             apt-get update
             apt-get install -y --no-install-recommends git \
-            ca-certificates rsync openssh-client
+            ca-certificates rsync openssh-client zstd
           fi
 
       - name: Set vars for release
@@ -276,67 +324,13 @@ jobs:
           ccache --set-config hard_link=false
           ccache --set-config compression=true
 
-      - name: "Cache common downloads"
-        uses: actions/cache@v6
+      - name: Restore downloads cache
+        if: ${{ needs.downloads.outputs.cache-key != '' }}
+        uses: actions/cache/restore@v6
         with:
-          key: downloads-common-${{ runner.os }}-${{ hashFiles('build/libboost.mk') }}
-          restore-keys: |
-            downloads-common-${{ runner.os }}-
-          path: ${{ github.workspace }}/output/download
-
-      - name: "Cache target-specific downloads"
-        uses: actions/cache@v6
-        with:
-          key: downloads-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('build/kobo.mk', 'build/thirdparty.py', 'build/python/build/libs.py') }}
-          # Only this target's own cache, or the shared one.  A bare
-          # "downloads-$os-" would also match another target's cache,
-          # which restores 190 MB without the files this target needs.
-          restore-keys: |
-            downloads-${{ runner.os }}-${{ matrix.target }}-
-            downloads-common-${{ runner.os }}-
-          path: ${{ github.workspace }}/output/download
-
-      - name: "Cache apt packages"
-        if: ${{ matrix.os == 'ubuntu-24.04' }}
-        uses: actions/cache@v6
-        with:
-          key: apt-${{ matrix.target_container }}-${{ hashFiles('ide/provisioning/install-debian-packages.sh') }}
-          restore-keys: |
-            apt-${{ matrix.target_container }}
-            apt
-          path: /var/cache/apt
-
-      - name: "Cache Homebrew packages"
-        if: ${{ startsWith(matrix.os, 'macos-') }}
-        uses: actions/cache@v6
-        with:
-          key: brew-${{ matrix.os }}-${{ hashFiles('ide/provisioning/install-darwin-packages.sh') }}
-          restore-keys: |
-            brew-${{ matrix.os }}
-            brew
-          path: |
-            /opt/homebrew/var/cache
-            /opt/homebrew/var/homebrew/cache
-            /usr/local/var/cache
-            /usr/local/var/homebrew/cache
-            /Users/runner/Library/Caches/Homebrew
-
-      - name: "Cache ANGLE downloads"
-        if: ${{ matrix.target == 'MACOS' }}
-        uses: actions/cache@v6
-        with:
-          key: angle-${{ hashFiles('darwin/fetch-angle-from-chrome.sh') }}
-          restore-keys: angle-
-          path: output/angle-download
-
-      - name: "Cache Boost"
-        uses: actions/cache@v6
-        with:
-          key: ${{ env.BOOST }}-${{ hashFiles('lib/boost/patches/**') }}
-          path: |
-            ${{ github.workspace }}/output/download/${{ env.BOOST }}.tar.bz2
-            ${{ github.workspace }}/output/src/stamp-${{ env.BOOST }}
-            ${{ github.workspace }}/output/src/${{ env.BOOST }}/boost
+          path: output/download
+          key: ${{ needs.downloads.outputs.cache-key }}
+          enableCrossOsArchive: true
 
       - name: "Cache Android SDK/NDK"
         if: ${{ matrix.target == 'ANDROID' }}
@@ -586,17 +580,19 @@ jobs:
           elif [ ${{ matrix.target }} = "IOS64" ]; then
             gmake -j$(nproc) TARGET=${{ matrix.target }} DEBUG=${{ env.DEBUG }} USE_CCACHE=y V=2 TESTING=y ipa ios-dsym
           elif [ ${{ matrix.target }} = "UNIX" ]; then
-            mkdir -p output/UNIX/DPKG
-            rsync -apt . output/UNIX/DPKG --exclude=output/UNIX/DPKG
-            cd output/UNIX/DPKG
-            DEB_BUILD_OPTIONS=ccache,noopt dpkg-buildpackage --jobs-force=$(nproc) --no-sign
-          fi
-
-      - name: Compile XCSoar - Sanitizer Check
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        run: |
-          if [ ${{ matrix.target }} = "UNIX" ]; then
-            make -j$(nproc) TARGET=${{ matrix.target }} DEBUG=${{ env.DEBUG }} USE_CCACHE=y V=2 everything check VFB=y SANITIZE=y DEBUG_GLIBCXX=y
+            # noopt OpenGL .deb and VFB+ASan do not share ccache hashes.
+            # PRs only run the sanitizer tree; master still builds the
+            # .deb for download.xcsoar.org/testing.
+            if [ "${{ github.ref }}" = "refs/heads/master" ]; then
+              mkdir -p output/UNIX/DPKG
+              rsync -apt . output/UNIX/DPKG --exclude=output/UNIX/DPKG
+              (cd output/UNIX/DPKG &&
+               DEB_BUILD_OPTIONS=ccache,noopt dpkg-buildpackage \
+                 --jobs-force=$(nproc) --no-sign)
+            fi
+            make -j$(nproc) TARGET=${{ matrix.target }} \
+              DEBUG=${{ env.DEBUG }} USE_CCACHE=y V=2 \
+              everything check VFB=y SANITIZE=y DEBUG_GLIBCXX=y
           fi
 
       - name: Compile XCSoar - Release
@@ -711,7 +707,8 @@ jobs:
         run: |
           echo "Running unit tests..."
           if [ ${{ matrix.target }} = 'IOS64' ]; then
-            gmake check-ios-sim
+            # Nested gmake in check-ios-sim.py reads this from the env.
+            USE_CCACHE=y gmake check-ios-sim
           else
             gmake TARGET=MACOS check
           fi
@@ -785,6 +782,7 @@ jobs:
           security delete-keychain macos-build.keychain || true
 
       - name: Upload artifact
+        if: ${{ matrix.target != 'UNIX' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v') }}
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target_final }}-${{ env.git_hash }}${{ matrix.target }}${{ matrix.target_ext }}

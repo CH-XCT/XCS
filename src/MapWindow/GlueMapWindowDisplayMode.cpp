@@ -256,7 +256,84 @@ GlueMapWindow::OnZoomTimer() noexcept
   zoom_timer.Schedule(std::chrono::milliseconds(16));
 }
 
+void
+GlueMapWindow::AnimateLocation(const GeoPoint location) noexcept
+{
+  if (!visible_projection.IsValid() || !location.IsValid()) {
+    SetLocation(location);
+    QuickRedraw();
+    return;
+  }
+
+  /* A cursor key takes the map away from a finger flick. */
+  kinetic_timer.Cancel();
+
+  pan_from = visible_projection.GetGeoLocation();
+  pan_to = location;
+  if (!pan_from.IsValid() || pan_from.DistanceS(pan_to) < 1) {
+    SetLocation(location);
+    QuickRedraw();
+    return;
+  }
+
+  pan_start_time = std::chrono::steady_clock::now();
+  pan_timer.Schedule(std::chrono::milliseconds(16));
+  OnPanTimer();
+}
+
+void
+GlueMapWindow::CancelPanAnimation() noexcept
+{
+  pan_timer.Cancel();
+}
+
+void
+GlueMapWindow::OnPanTimer() noexcept
+{
+  constexpr auto duration = std::chrono::milliseconds(180);
+  const auto elapsed = std::chrono::steady_clock::now() - pan_start_time;
+  const auto elapsed_ms =
+    std::chrono::duration_cast<std::chrono::milliseconds>(elapsed);
+  double t = double(elapsed_ms.count()) / double(duration.count());
+
+  if (t >= 1) {
+    pan_timer.Cancel();
+    MapWindow::SetLocation(pan_to);
+    OnProjectionModified();
+    QuickRedraw();
+    return;
+  }
+
+  /* ease-out cubic, same as keyboard zoom */
+  t = 1 - (1 - t) * (1 - t) * (1 - t);
+  MapWindow::SetLocation(pan_from.Interpolate(pan_to, t));
+  OnProjectionModified();
+  QuickRedraw();
+  pan_timer.Schedule(std::chrono::milliseconds(16));
+}
+
 #endif
+
+#ifndef ENABLE_OPENGL
+
+void
+GlueMapWindow::AnimateLocation(const GeoPoint location) noexcept
+{
+  SetLocation(location);
+  QuickRedraw();
+}
+
+#endif
+
+GeoPoint
+GlueMapWindow::GetAnimatedPanTarget() const noexcept
+{
+#ifdef ENABLE_OPENGL
+  if (pan_timer.IsPending() && pan_to.IsValid())
+    return pan_to;
+#endif
+  return GeoPoint::Invalid();
+}
 
 void
 GlueMapWindow::RestoreMapScale() noexcept
@@ -540,6 +617,11 @@ GlueMapWindow::UpdateMapScale() noexcept
 void
 GlueMapWindow::SetLocation(const GeoPoint location) noexcept
 {
+#ifdef ENABLE_OPENGL
+  /* Drop a cursor-key glide so a drag or a GPS update is not
+     pulled back toward the old target. */
+  CancelPanAnimation();
+#endif
   MapWindow::SetLocation(location);
   OnProjectionModified();
 }

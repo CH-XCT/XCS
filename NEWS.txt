@@ -7,6 +7,27 @@ Version 7.47 - not yet released
   - remember QNH and the maximum forecast temperature with that
     same question
 * ui
+  - add a ground-side shadow to the artificial horizon line so it
+    stays visible on both sky and ground
+  - draw the artificial-horizon aircraft reference as a yellow bar
+    and nose, with one pair of yellow dashes fixed beside it
+    and a yellow bank pointer.  On the full horizon each has
+    a soft shadow under its lower edge
+  - open the full-screen horizon when the attitude indicator InfoBox
+    is tapped
+  - estimate pitch and bank for the artificial horizon in simulator
+    mode and during replay, from the climb angle and the rate of turn,
+    eased toward each fix so the horizon does not step once a second
+  - show a level horizon with a red cross and a red ribbon with
+    "NO AHRS" in white when no attitude data is available.  The
+    attitude indicator InfoBox shows "---" and "NO AHRS" in its
+    comment #2047
+  - show a speed tape and an altitude tape as a shaded overlay on
+    the full-screen horizon.  Speed is indicated airspeed, or ground
+    speed when airspeed is missing.  Altitude is the navigation
+    altitude.  A missing value is shown as "---"
+  - show the true track on a tape along the top of the
+    full-screen horizon.  A missing track is shown as "---"
   - show whether the aircraft is in flight on the Status Times page
   - remember the ATC radial and the current Goto when an unfinished
     flight is restored; loading or resuming an ordered task clears
@@ -14,7 +35,20 @@ Version 7.47 - not yet released
   - label the MacCready InfoBox speed-to-fly comment TAS, because
     that speed is true airspeed. Setup can show it as indicated
     airspeed
+  - glide the map when panning with the cursor keys, the same way
+    keyboard zoom moves
+  - keep the panel's own dots per inch when both axes agree, so
+    buttons stay the right size on a phone whose Android density
+    is one step higher
+  - size dialog rows and buttons to at least 30 pt on a mouse,
+    the same as on a touch screen #3021
+  - fix a long pause after the quick guide while a fine terrain
+    file loads the tiles under the map
 * map
+  - draw the wind arrow light blue when the wind comes from an
+    external sensor, grey when XCSoar estimated it
+  - draw the instantaneous wind of an external sensor (Larus) as a
+    second, light green wind arrow next to the average wind
   - show own-ship, Cloud, SkyLines, and Thermal Information Map
     thermals as one marker. A tap shows the source, position,
     lift and age, and can start a Go To. Markers within a
@@ -29,10 +63,23 @@ Version 7.47 - not yet released
     an API key #3347
   - show the WeGlide task manager page only while WeGlide is enabled,
     and use one Upload Flight action for WeGlide and SoaringScoring
+* devices
+  - add an ACD Manage dialog for software version, available radio,
+    transponder and altitude functions, and supported radio and audio
+    settings; retain unsent edits if a save fails
+  - Larus: pass on the instantaneous wind of ``$PLARW`` (``I``) next
+    to the average wind (``A``)
 * android
   - add Share to Export flights so selected IGC/NMEA files can be
     sent via the system share sheet (Nearby Share, Drive, mail, …)
   - show the Export flights Share button as the Android share mark
+  - keep XCSoar from hanging when it stops an IOIO connection, and
+    ignore unexpected messages from the board instead of failing
+  - let file sync apps open the XCSoar data folder through the
+    Android folder picker, also when it is in Android/data
+  - reconnect a USB serial device that was unplugged and plugged in
+    again; XCSoar kept reporting "USB serial device not found" until
+    it was restarted #3450
 * dialogs
   - remember checklist checkbox ticks when an unfinished flight is
     restored; choosing a different checklist file, or editing a page's
@@ -43,6 +90,9 @@ Version 7.47 - not yet released
   - keep a page added from a weather overlay when Pages setup or
     Configuration is closed
   - keep the RASP and XC Therm time control after Pages setup
+  - say why SkySight does not load when the server rejects the
+    login (wrong e-mail or password, subscription not active, too
+    many devices) instead of "Loading SkySight catalog..." #2860
 * documentation
   - describe the MacCready InfoBox speed-to-fly comment as true
     airspeed, labelled TAS, and the Setup switch for indicated
@@ -53,6 +103,9 @@ Version 7.47 - not yet released
     bugs, QNH, the maximum forecast temperature, the ATC radial, Goto,
     and checklist ticks
   - describe shared thermal markers, their details, and Go To
+  - state that waypoint details image= and file= names start at the
+    data directory, as in waypoints/details/ETSI_1.png #3453
+  - describe which airspace the list of map elements selects
 * data
   - add an option on Site files to download newer copies of files
     already on the device when XCSoar starts. The progress bar
@@ -63,11 +116,16 @@ Version 7.47 - not yet released
     without restarting. This covers the map, waypoints, airspace,
     RASP, FLARMNet, the checklist, and the input file #1115 #3092
 * airspace
+  - open the list of map elements at a touched location on the
+    airspace drawn there: the smallest one, such as the CTR inside a
+    TMA, unless a waypoint is there
   - show when an OpenAir airspace is active from its activation
     times #2520
 * task
   - scan task QR codes with the camera on iOS, like on Android
 * development
+  - queue a key press from Lua with xcsoar.key.press, for scripted
+    UI checks and map benchmarks
   - document which reload runs when a map zip finishes loading and
     when File Manager updates a configured file #3095
   - consolidate and simplify cross-compilation flags and options for
